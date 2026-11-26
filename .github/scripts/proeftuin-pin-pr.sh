@@ -150,10 +150,11 @@ De berichtenbox van de demo loopt achter op de main van [MinBZK/moza-poc](https:
 | gaat naar | \`$TAG\` |
 
 **Dit vraagt een oordeel, geen automatische merge.** Hun main draagt ook werk dat halfaf kan zijn.
-Klik de demo door (\`--profile demo\`) voordat je deze PR merget; een oudere berichtenbox is een
-oudere demo, geen kapotte build, dus laten staan mag ook.
+Klik de preview van deze PR door voordat je hem merget; een oudere berichtenbox is een oudere demo,
+geen kapotte build, dus laten staan mag ook. De lokale demo draait de Berichtenbox van het portaal en
+merkt van deze pin niets.
 
-**Deze regel is ook de pin voor ZAD**; daar hoeft niets apart gezet te worden. De deploy leest hem
+**Deze regel is de pin voor ZAD**; daar hoeft niets apart gezet te worden. De deploy leest hem
 uit \`compose.yaml\`: de preview van deze PR draait de nieuwe berichtenbox al, en na het mergen
 volgt \`test\` vanzelf. Alleen een gezette variabele \`PROEFTUIN_IMAGE\` (repo of environment) wint
 van deze pin.
@@ -166,7 +167,7 @@ Dependabot biedt deze bump niet meer aan; de reden staat bij de \`ignore\`-regel
 \`.github/dependabot.yml\`.
 
 Een andere versie draaien dan de gepinde — een release-tag voor een gebruikersonderzoek, of nog niet
-gemergd werk van hun kant — gaat via \`compose.proeftuin-versie.yaml\`, niet via deze regel.
+gemergd werk van hun kant — gaat via de variabele \`PROEFTUIN_IMAGE\`, niet via deze regel.
 EOM
 }
 

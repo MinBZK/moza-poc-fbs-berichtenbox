@@ -1,7 +1,7 @@
 # Demo-console
 
 Bedieningspaneel voor de demo van het Federatief Berichtenstelsel: magazijnen legen en vullen,
-storingen aanzetten, en de berichtenbox van de proeftuin ernaast tonen. Wegwerpcode — geen
+storingen aanzetten, en de berichtenbox ernaast tonen. Wegwerpcode — geen
 JaCoCo-gate, geen NL Design System, geen toegankelijkheidstraject.
 
 ## Lokaal starten
@@ -107,7 +107,7 @@ staat — of dat op een gedeelde omgeving geen proxy heeft — zie je alleen in 
 |---|---|---|
 | Info | ↻ per blok | Toont zonder te vragen de berichten in de echte magazijnen, daaronder de gesimuleerde magazijnen (berichten in totaal, telling per gedrag, en uitklapbaar per magazijn met zijn berichten), de persona's met per persona of er een echt magazijn voor is en hoeveel sessies er lopen (met per sessie en per persona een knop om ze te laten verlopen), de stroom, de storingen en de componenten. Berichten, stroom, storingen, componenten en de sessies lezen mee met de toestandsbalk; de gesimuleerde magazijnen volgen elke 30 seconden en na elke actie, zolang het tabblad open staat; persona's bij het laden. ↻ werkt een blok meteen bij. Elk blok zegt wanneer het bijgewerkt is, en een mislukte uitlezing laat de vorige stand staan met die melding erbij. Alleen de sessies niet: die tonen dan een `?`, want een sessie die intussen verliep hoort geen knop te houden. Beëindigen laat de sessie in Redis verlopen; was het de laatste van die persona, dan ruimt de uitvraag op en legt dat vast in het logboek: de veegtaak met aanleiding `verlopen`, of eerder de nieuwe sessie van de berichtenbox met aanleiding `nieuwe-start` |
 | Demo | Herstel demo | Stroom stoppen, storingen resetten, legen, basisvulling — de knop aan het eind van een demo. De gesimuleerde magazijnen gaan als laatste mee en krijgen daarna hun standaardvulling terug; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen in plaats van het hele herstel te laten mislukken. Als laatste wist de knop de sessies, zodat open berichtenboxen de nieuwe set ophalen; lukt dat niet, dan staat de uitkomst op let op |
-| Demo | Berichtenbox verversen | Herlaadt het frame met de proeftuin erin |
+| Demo | Berichtenbox verversen | Herlaadt het frame met de berichtenbox erin |
 | Demo | Basisvulling laden | De vaste dataset uit `src/main/resources/dataset/basis.json`: berichten in de twee echte magazijnen, voor elke persona die daar in de personadienst een `magazijnen`-regel voor heeft. Deze knop raakt de gesimuleerde magazijnen niet — die vult *Herstel demo*. Een lege omgeving krijgt deze dataset al na het opstarten; in een gevulde zet de knop alles dubbel |
 | Demo | Magazijnen legen | `TRUNCATE` op de berichten-, bijlage-, status- en outbox-tabellen van beide magazijnen, plus het logboek. De gesimuleerde magazijnen gaan als deelstap mee; zijn ze er niet of antwoorden ze niet, dan meldt de knop dat als overgeslagen. Daarna wist de knop de sessies, anders tonen open berichtenboxen nog de oude berichten |
 | Demo | Random berichten opvoeren | Een burst van *n* willekeurige berichten, 1 tot 500 |
@@ -149,7 +149,7 @@ Alles gaat via env-vars met een lokale default, zodat de module zonder omgeving 
 | `OPSTARTVULLING_OPGEVEN_NA` | `30m` | Hoe lang na de start de console blijft wachten op een magazijn dat nog niet klaar is |
 | `TOXIPROXY_ADMIN_URL` | `http://localhost:8474` | Alle Toxiproxy-instanties tegelijk |
 | `TOXIPROXY_<PROXY>_URL` | de waarde hierboven | Eén instantie apart; op ZAD staat elke stroom op een eigen adres. Leeg zetten schakelt die proxy uit — het paneel verbergt dan zelf de bijbehorende knop (bv. `TOXIPROXY_MAGAZIJN_A_URL=` op ZAD) |
-| `BERICHTENBOX_URL` | leeg | Browser-zichtbaar adres van de berichtenbox, voor het frame in het paneel. Leeg = het eigen pad `/moza/berichtenbox/`, dat lokaal achter de demo-proxy klopt; op een gedeelde omgeving de volledige URL van het proeftuin-component. Een geconfigureerd adres wordt niet vooraf getoetst: een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar te onderscheiden |
+| `BERICHTENBOX_URL` | leeg | Browser-zichtbaar adres van de berichtenbox, voor het frame in het paneel. Leeg = het eigen pad `/berichtenbox`, dat lokaal achter de demo-proxy op het portaal uitkomt; op een gedeelde omgeving de volledige URL van het berichtenbox-component. Een geconfigureerd adres wordt niet vooraf getoetst: een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar te onderscheiden |
 | `UITVRAAG_URL` | `http://localhost:8086` | Adres dat de console zélf aanroept voor de ontdubbeling-webhook |
 | `TOXIPROXY_<PROXY>_LISTEN`, `TOXIPROXY_<PROXY>_UPSTREAM` | de waarden uit `toxiproxy/proxies.json` | Waar de proxy luistert en naartoe stuurt; hiermee maakt de console hem aan. Op ZAD komt de upstream uit een alias, zodat `$DEPLOYMENT_NAME` de proxy naar de upstream van dezelfde deployment wijst |
 | `TOXIPROXY_RECONCILE_INTERVAL` | `30s` | Hoe vaak de console controleert of de proxies er nog zijn |

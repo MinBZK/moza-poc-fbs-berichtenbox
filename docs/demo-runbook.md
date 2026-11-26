@@ -120,14 +120,10 @@ ernaast (§5b). Het kale paneel op `:8095` is een debugadres.
 
 Afsluiten: `demo/up.sh down` (voeg `-v` toe om de Postgres-volumes te wissen).
 
-> **Waarom CORS geen build-flag is:** CORS is een runtime-property en staat uitsluitend als env-var
-> in het demo-profiel van `compose.yaml`; de `application.properties` van `berichtenuitvraag` bevat
-> geen CORS-config. Op de allowlist staan de proeftuin (`:8096`) en de demo-proxy (`:8097`): hun
-> nginx proxyt de API wel, maar geeft de `Origin` van een schrijf-request door, en zonder allowlist
-> geeft "uit map halen" dan een 403. Het paneel zelf staat er niet op; dat roept de uitvraag niet
-> vanuit de browser aan. Het prod-profiel
-> zet CORS niet aan; op ZAD staat hij als env op de uitvraag (`demo/environment/zad-demo/README.md`
-> §4).
+> **Geen CORS in de lokale demo.** Het portaal praat server-side met de uitvraag en stuurt geen
+> `Origin` mee, en het paneel roept de uitvraag niet vanuit de browser aan. Op ZAD staat CORS als env
+> op de uitvraag, voor de berichtenbox die daar nog vanuit de browser schrijft
+> (`demo/environment/zad-demo/README.md` §4).
 
 ### Modi, poorten en wat het script controleert
 
@@ -182,8 +178,8 @@ te vallen.
 De modus van de laatste start staat in `demo/generated/.modus`. `down`, `ps`, `compose …` en een
 tweede `up` lezen hem terug en geven dezelfde compose-bestanden mee; een opgegeven `MODUS` die
 afwijkt van de vastgelegde wordt geweigerd, want die zou de draaiende stack half omzetten. Ook
-`PROEFTUIN_IMAGE` wordt daar vastgelegd: een vervolgcommando in een nieuwe shell houdt de
-berichtenbox op die versie, een opnieuw gezette variabele wordt het nieuwe vastgelegde punt, en
+`PORTAAL_IMAGE` wordt daar vastgelegd: een vervolgcommando in een nieuwe shell houdt de
+Berichtenbox op die versie, een opnieuw gezette variabele wordt het nieuwe vastgelegde punt, en
 `down` wist hem.
 
 Op Fedora/RHEL met SELinux enforcing heeft elke bind-mount het label `:z` nodig; dat staat in
@@ -242,45 +238,49 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 
 ---
 
-## 5b. Berichtenbox van de proeftuin
+## 5b. Berichtenbox van het portaal
 
-**Eén adres voor de hele demo: <http://127.0.0.1:8097/bediening/>.** Daar staat de berichtenbox van
-de proeftuin met de bediening ernaast; "Bediening verbergen" geeft de berichtenbox de volle breedte
-voor het moment waarop je laat zien wat de ondernemer ziet.
+**Eén adres voor de hele demo: <http://127.0.0.1:8097/bediening/>.** Daar staat de Berichtenbox van
+het MOZa-portaal met de bediening ernaast; "Bediening verbergen" geeft de Berichtenbox de volle
+breedte voor het moment waarop je laat zien wat de ondernemer ziet. Kies in het portaal een persona
+die op de keten is aangesloten (§6).
 
-Dat adres is een kleine nginx (`demo-proxy`) die alles achter één origin zet: `/` naar de proeftuin,
+> **Nog geen berichten uit de keten.** Het portaal start nog geen sessie bij de uitvraag
+> ([#1453](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453)). Tot dat in het portaal zit,
+> toont de Berichtenbox voor een aangesloten persona een foutmelding in plaats van berichten.
+
+Dat adres is een kleine nginx (`demo-proxy`) die alles achter één origin zet: `/` naar het portaal,
 `/bediening/` en `/api/demo/` naar de demo-console, `/api/demo/personas` naar de personadienst
 (die lijst hoort bij een eigen component, zodat een berichtenbox hem kan lezen zonder bij de
-knoppen van het paneel te kunnen), `/api/v1/` naar de uitvraag. Zonder die gedeelde
-origin komt de personalijst niet aan — binnen de proeftuin-container valt `/api/demo/personas` onder
-zijn eigen `location /api/` en zou het bij de uitvraag uitkomen — en kan het paneel de berichtenbox
-niet laten verversen. Online geldt dit niet: daar proxyt de proeftuin zelf.
+knoppen van het paneel te kunnen). Zonder die gedeelde origin kan het paneel de Berichtenbox niet
+laten verversen. Naar de uitvraag gaat geen route: het portaal praat er zelf mee, via zijn eigen
+`/api/keten`.
 
-Geen Node of Eleventy nodig. De image staat op digest gepind in `compose.yaml`; een andere versie
-(een release-tag voor een gebruikersonderzoek, of nog niet gemergd werk uit hun preview-repository)
-zet je met `PROEFTUIN_IMAGE`. Diezelfde naam stuurt de lokale stack én de uitrol op ZAD:
+Geen Node of npm nodig. Het image staat op digest gepind in `compose.yaml`; een andere versie (een
+bevroren versie voor een gebruikersonderzoek, of nog niet gemergd werk van moza-portaal) zet je met
+`PORTAAL_IMAGE`:
 
 ```bash
-# Lokaal, via demo/up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
-PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a demo/up.sh
+# Via demo/up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
+PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh
 
-# Alleen de proeftuin wisselen terwijl de stack al draait.
-PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 demo/up.sh compose up -d proeftuin
+# Alleen het portaal wisselen terwijl de stack al draait.
+PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh compose up -d portaal
 ```
 
-De hele referentie en niet alleen de tag: nog niet gemergd werk van hun kant staat in een ánder
-ghcr-repository (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`, met de **merge**-sha, niet die van
-de laatste commit op hun branch). De nieuwste tag van een PR vind je met:
+Elke PR op moza-portaal heeft een image `ghcr.io/minbzk/moza-portaal:pr-<n>-<sha>`. De nieuwste tag
+van een PR vind je met:
 
 ```bash
-gh api /orgs/MinBZK/packages/container/moza-poc%2Fpreview/versions \
-  --jq '[.[] | select((.metadata.container.tags // []) | any(startswith("pr-151-")))]
+gh api /orgs/MinBZK/packages/container/moza-portaal/versions \
+  --jq '[.[] | select((.metadata.container.tags // []) | any(startswith("pr-302-")))]
         | sort_by(.updated_at) | reverse | .[0].metadata.container.tags[]'
 ```
 
 ### Op ZAD een andere berichtenbox draaien
 
-`PROEFTUIN_IMAGE` bestaat daar als **repo-variabele**. Zetten, de deploy opnieuw draaien, en de
+Op ZAD draait nog de berichtenbox van de proeftuin (MinBZK/moza-poc); de overstap volgt in
+MinBZK/MijnOverheidZakelijk#1345. `PROEFTUIN_IMAGE` bestaat daar als **repo-variabele**. Zetten, de deploy opnieuw draaien, en de
 demo hangt aan die versie — zonder de pin te wijzigen en zonder commit:
 
 ```bash
@@ -329,10 +329,14 @@ Draait de demo in een dev-container met een eigen netwerk-namespace, dan helpt e
 als `127.0.0.2` niet — loopback bestaat per namespace. Gebruik het adres van de container zelf
 (`ip -o addr show eth0`), bijvoorbeeld <http://172.20.0.2:8097/bediening/>.
 
-De losse adressen blijven bestaan om te debuggen: de proeftuin zelf op `:8096` (in podman-hostnet
-`:8080`, want die container kan zijn luisterpoort niet verzetten) en het kale paneel op `:8095`.
-Open je het paneel daar, dan blijft het frame leeg met een verwijzing naar de proxy — de proeftuin
-staat dan op een andere origin.
+Let op: het portaal zet zijn persona-cookie met `Secure`. Een browser bewaart zo'n cookie over
+gewone HTTP alleen voor `localhost` en `127.0.0.1`. Op een ander adres onthoudt het portaal de
+gekozen persona dus niet; gebruik dan een tunnel naar `127.0.0.1:8097`, zoals
+`ssh -L 8097:127.0.0.1:8097 <host>`.
+
+De losse adressen blijven bestaan om te debuggen: het portaal zelf op `:8096` en het kale paneel op
+`:8095`. Open je het paneel daar, dan blijft het frame leeg met een verwijzing naar de proxy — het
+portaal staat dan op een andere origin.
 
 **Op een gedeelde omgeving is er geen proxy.** Daar draait de proeftuin als eigen component met een
 eigen hostnaam, en wijst `BERICHTENBOX_URL` op de demo-console het frame daarheen. Het paneel toetst

@@ -818,20 +818,20 @@ verwacht "een onbekende waarde in het bestand wordt geweigerd" 2 "MODUS='onzin' 
 STUB_ENV="$PODMAN_SOCK" geval "$met" "$TERUG"
 verwacht "een leeg modusbestand telt als ontbrekend" 2 "niet vast te stellen"
 
-# Instellingen naast de modus (de proeftuin-versie): leeg, één, meerdere.
-STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand' PROEFTUIN_IMAGE=ghcr.io/x:pr-1; modus_instelling '$bestand' PROEFTUIN_IMAGE"
+# Instellingen naast de modus (de portaalversie): leeg, één, meerdere.
+STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand' PORTAAL_IMAGE=ghcr.io/x:pr-1; modus_instelling '$bestand' PORTAAL_IMAGE"
 verwacht "één instelling wordt vastgelegd en teruggelezen" 0 "ghcr.io/x:pr-1"
 
-STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand' A=1 PROEFTUIN_IMAGE=ghcr.io/x:pr-2 B=3; modus_instelling '$bestand' PROEFTUIN_IMAGE; modus_instelling '$bestand' B"
+STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand' A=1 PORTAAL_IMAGE=ghcr.io/x:pr-2 B=3; modus_instelling '$bestand' PORTAAL_IMAGE; modus_instelling '$bestand' B"
 verwacht "tussen meerdere instellingen wordt de juiste gevonden" 0 $'ghcr.io/x:pr-2\n3'
 
-STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand'; echo \"[\$(modus_instelling '$bestand' PROEFTUIN_IMAGE)]\""
+STUB_ENV="MODUS=bridge" geval "$met" "modus_onthouden '$bestand'; echo \"[\$(modus_instelling '$bestand' PORTAAL_IMAGE)]\""
 verwacht "een niet vastgelegde instelling is leeg" 0 "[]"
 
-STUB_ENV="" geval "$met" "printf 'PROEFTUIN_IMAGE=fout\n' >'$bestand'; echo \"[\$(modus_instelling '$bestand' PROEFTUIN_IMAGE)]\""
+STUB_ENV="" geval "$met" "printf 'PORTAAL_IMAGE=fout\n' >'$bestand'; echo \"[\$(modus_instelling '$bestand' PORTAAL_IMAGE)]\""
 verwacht "de modusregel zelf telt nooit als instelling" 0 "[]"
 
-STUB_ENV="" geval "$met" "echo \"[\$(modus_instelling '$werkmap/bestaat-niet' PROEFTUIN_IMAGE)]\""
+STUB_ENV="" geval "$met" "echo \"[\$(modus_instelling '$werkmap/bestaat-niet' PORTAAL_IMAGE)]\""
 verwacht "zonder bestand is een instelling leeg" 0 "[]"
 
 # modus_voor_start: een tweede `up` naast een draaiende stack zet hem niet om.

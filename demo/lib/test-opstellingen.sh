@@ -254,11 +254,11 @@ for modus in docker bridge hostnet; do
   fi
 done
 
-# Een vastgelegde proeftuin-versie hoort bij de set bestanden, ook in een nieuwe shell.
-printf '%s\n' hostnet "PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:proef" >"$demomodus"
+# Een vastgelegde portaalversie hoort bij de set bestanden, ook in een nieuwe shell.
+printf '%s\n' hostnet "PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:proef" >"$demomodus"
 draai "$demoroot/demo/up.sh" ps
-verwacht_aanroep "demo ps met een vastgelegde proeftuin-versie: de versie-overlay erbij" \
-  "$(bestanden "" hostnet) -f compose.proeftuin-versie.yaml --profile demo ps"
+verwacht_aanroep "demo ps met een vastgelegde portaalversie: de versie-overlay erbij" \
+  "$(bestanden "" hostnet) -f compose.portaal-versie.yaml --profile demo ps"
 
 rm -f "$demomodus"
 draai "$demoroot/demo/up.sh" ps

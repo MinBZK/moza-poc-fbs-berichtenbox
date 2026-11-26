@@ -31,10 +31,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.portaal-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
   push:
     branches: [main]
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.portaal-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -295,11 +295,11 @@ jobs:
 
           fail=0
 
-          # De proeftuin-lokaal-overlay start niet via demo/up.sh, maar wordt onder podman op
-          # dezelfde lagen gezet en mount dan een checkout die het label net zo goed nodig heeft.
+          # Ook met de portaal-lokaal-overlay: die bouwt uit een checkout en mount nu niets, maar
+          # een mount die er later bij komt, heeft het label net zo goed nodig.
           for lagen in "compose.podman.yaml" \
                        "compose.podman.yaml compose.podman-hostnet.yaml" \
-                       "compose.podman.yaml compose.proeftuin-lokaal.yaml"; do
+                       "compose.podman.yaml compose.portaal-lokaal.yaml"; do
             args=(-f compose.yaml)
             for f in $lagen; do args+=(-f "$f"); done
 

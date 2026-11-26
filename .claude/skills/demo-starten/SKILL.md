@@ -37,7 +37,7 @@ demo/up.sh
 Op Docker en op podman hetzelfde commando: het script kiest zelf de modus (`docker`, `bridge` of
 `hostnet`), genereert de stub-artefacten en de sleutelketen van het stelselregister, en wacht tot
 elke service gezond is. Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> —
-de berichtenbox uit de proeftuin met het bedieningspaneel ernaast.
+de Berichtenbox van het MOZa-portaal met het bedieningspaneel ernaast.
 
 ## 3. Rijd de keten door
 
@@ -50,8 +50,9 @@ magazijn A én B en controleert dat beide via de uitvraag terugkomen — dat is 
 is by design degradatie-tolerant, dus met alleen A's bericht is de proef ook groen terwijl B
 onbereikbaar is.
 
-De laatste stap haalt de bijlage van A's bericht op via de demo-proxy (`:8097`), met de ontvanger
-alleen in een cookie, zoals de browser dat doet bij een klik op een bijlage.
+De laatste stap vraagt de Berichtenbox van het portaal op via de demo-proxy (`:8097`), met alleen
+het persona-cookie, zoals een browser dat doet. Zolang het portaal geen sessie start
+(MinBZK/MijnOverheidZakelijk#1453), meldt die stap dat met `LET OP` en blijft de proef groen.
 
 ## De valkuilen die niet in de scripts staan
 

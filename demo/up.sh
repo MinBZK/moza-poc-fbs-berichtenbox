@@ -100,15 +100,15 @@ else
     modus_teruglezen "$MODUS_BESTAND" demo/up.sh docker bridge hostnet
 fi
 
-# De proeftuin-versie bepaalt de set compose-bestanden net zo goed als de modus. Zonder vastleggen
-# zou een vervolgcommando in een nieuwe shell de berichtenbox stil terugzetten op de gepinde versie.
+# De portaalversie bepaalt de set compose-bestanden net zo goed als de modus. Zonder vastleggen
+# zou een vervolgcommando in een nieuwe shell de Berichtenbox stil terugzetten op de gepinde versie.
 # Een expliciet gezette variabele wint en wordt het nieuwe vastgelegde punt; `down` wist hem.
-PROEFTUIN_IMAGE="${PROEFTUIN_IMAGE:-$(modus_instelling "$MODUS_BESTAND" PROEFTUIN_IMAGE)}"
+PORTAAL_IMAGE="${PORTAAL_IMAGE:-$(modus_instelling "$MODUS_BESTAND" PORTAAL_IMAGE)}"
 INSTELLINGEN=()
 
-if [ -n "$PROEFTUIN_IMAGE" ]; then
-    export PROEFTUIN_IMAGE
-    INSTELLINGEN+=("PROEFTUIN_IMAGE=$PROEFTUIN_IMAGE")
+if [ -n "$PORTAAL_IMAGE" ]; then
+    export PORTAAL_IMAGE
+    INSTELLINGEN+=("PORTAAL_IMAGE=$PORTAAL_IMAGE")
 fi
 
 if [ "$COMMANDO" != "up" ] && [ "$COMMANDO" != "down" ] && [ -s "$MODUS_BESTAND" ]; then
@@ -122,14 +122,13 @@ case "$MODUS" in
     hostnet) C+=(-f compose.podman.yaml -f compose.podman-hostnet.yaml) ;;
 esac
 
-# Dezelfde variabele als de deploy leest, zodat lokaal en ZAD op één naam te sturen zijn. De
-# overlay alleen meegeven wanneer hij gezet is: hij draagt `:?` en zou een gewone start anders
-# afbreken met de vraag om een waarde.
-if [ -n "$PROEFTUIN_IMAGE" ]; then
-    C+=(-f compose.proeftuin-versie.yaml)
+# De overlay alleen meegeven wanneer de variabele gezet is: hij draagt `:?` en zou een gewone start
+# anders afbreken met de vraag om een waarde.
+if [ -n "$PORTAAL_IMAGE" ]; then
+    C+=(-f compose.portaal-versie.yaml)
 
     if [ "$COMMANDO" = "up" ]; then
-        echo "[1/4] berichtenbox: $PROEFTUIN_IMAGE (PROEFTUIN_IMAGE overschrijft de pin)"
+        echo "[1/4] berichtenbox: $PORTAAL_IMAGE (PORTAAL_IMAGE overschrijft de pin)"
     fi
 fi
 
@@ -266,7 +265,7 @@ wacht_op() {
 INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
-          demo-personas stelselregister proeftuin demo-proxy)
+          demo-personas stelselregister portaal demo-proxy)
 
 # Vóór de eerste container: ook een start die halverwege faalt, moet met `down` op te ruimen zijn.
 mkdir -p "$(dirname "$MODUS_BESTAND")"
@@ -346,11 +345,11 @@ vereis_draaiend "${INFRA[@]}"
 
 echo "[4/4] services starten en afwachten"
 "${C[@]}" up -d "${SERVICES[@]}"
-# De proeftuin en de demo-proxy zijn nginx, en nginx zoekt de adressen van zijn bestemmingen één
-# keer op, bij het starten. Draaiden ze al terwijl `up` de diensten erachter opnieuw startte, dan
-# kregen die in bridge een nieuw IP en stuurt nginx nog naar het oude: elke aanroep loopt dan in
-# een timeout. Een herstart laat ze opnieuw opzoeken.
-"${C[@]}" restart proeftuin demo-proxy
+# De demo-proxy is nginx, en nginx zoekt de adressen van zijn bestemmingen één keer op, bij het
+# starten. Draaide hij al terwijl `up` de diensten erachter opnieuw startte, dan kregen die in bridge
+# een nieuw IP en stuurt nginx nog naar het oude: elke aanroep loopt dan in een timeout. Een herstart
+# laat hem opnieuw opzoeken.
+"${C[@]}" restart demo-proxy
 vereis_draaiend "${SERVICES[@]}"
 
 wacht_op "berichtenmagazijn-a" berichtenmagazijn-a curl -sSf --max-time 3 http://127.0.0.1:8090/q/health/ready
@@ -359,11 +358,8 @@ wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http:/
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "stelselregister"     stelselregister     curl -sSf --max-time 3 http://127.0.0.1:8094/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
-# In bridge via de gepubliceerde 8096; in hostnet rechtstreeks op 8080, want de proeftuin-container
-# kan zijn luisterpoort niet verzetten (zie de toelichting in compose.podman-hostnet.yaml).
-PROEFTUIN_POORT=8096
-[ "$MODUS" = "hostnet" ] && PROEFTUIN_POORT=8080
-wacht_op "proeftuin"           proeftuin           curl -sSf --max-time 3 "http://127.0.0.1:$PROEFTUIN_POORT/moza/berichtenbox/"
+# Op `localhost`: in hostnet bindt het portaal daarop, en dat kan ::1 zijn (compose.podman-hostnet.yaml).
+wacht_op "portaal"             portaal             curl -sSf --max-time 3 -o /dev/null http://localhost:8096/
 # Via de proxy, want dat is het adres waarop de demo gegeven wordt; een probe op de container zelf
 # zou een kapotte route naar de console of de uitvraag niet opmerken.
 wacht_op "demo-proxy"          demo-proxy          curl -sSf --max-time 3 http://127.0.0.1:8097/api/demo/personas

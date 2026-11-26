@@ -1,10 +1,10 @@
 /* Bediening van de demo-stack. Los van index.html zodat de opmaak leesbaar blijft: elke actieknop
  * draagt zijn methode en pad als data-attribuut, en één listener op het document voert ze uit. */
 
-/* Waar de berichtenbox staat. Dit pad klopt lokaal: daar zet de demo-proxy de proeftuin en dit
+/* Waar de berichtenbox staat. Dit pad klopt lokaal: daar zet de demo-proxy het portaal en dit
  * paneel achter één origin. Op een gedeelde omgeving draagt elk component zijn eigen hostnaam en
  * levert /api/demo/omgeving de volledige URL. */
-const BOX_PAD = '/moza/berichtenbox/';
+const BOX_PAD = '/berichtenbox';
 
 let boxUrl = BOX_PAD;
 
@@ -13,7 +13,7 @@ let boxUrl = BOX_PAD;
  * refresh maar niet het sluiten van het tabblad, zodat een volgende demo schoon begint in plaats
  * van stilzwijgend de instellingen van de vorige te erven.
  *
- * De prefix is geen sierlijkheid: via de demo-proxy staan de proeftuin en dit paneel op dezelfde
+ * De prefix is geen sierlijkheid: via de demo-proxy staan het portaal en dit paneel op dezelfde
  * origin, en delen ze dus dezelfde storage. */
 const STAND_SLEUTEL = 'fbs-demo-bediening:stand';
 
@@ -260,7 +260,7 @@ function toonBox(bereikbaar) {
 
 /* Bewust een knop en niet automatisch na elke actie: een herlaad zet de berichtenbox terug op zijn
  * beginstand, en midden in een demo bepaal je zelf wanneer dat mag. Op dezelfde origin kan dat
- * gericht, zonder dat de proeftuin daar iets voor hoeft te bouwen; staat de berichtenbox op een
+ * gericht, zonder dat de berichtenbox daar iets voor hoeft te bouwen; staat hij op een
  * eigen hostnaam, dan weigert de browser die toegang en zet het opnieuw zetten van `src` hem
  * alsnog terug. */
 function verversBox() {
