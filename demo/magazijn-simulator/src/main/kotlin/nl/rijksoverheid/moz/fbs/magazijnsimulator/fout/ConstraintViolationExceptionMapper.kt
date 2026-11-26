@@ -1,9 +1,11 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.fout
 
+import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Veldpad
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -17,9 +19,10 @@ import java.util.UUID
  * begrensd zodat een request met honderden ongeldige velden geen even grote tussenstring bouwt; de
  * lengte van het eindresultaat begrenst [problemResponse] zelf.
  *
- * Bewust géén gevalideerde wáárde in de melding: `X-Ontvanger` kan een BSN dragen, en dat hoort
- * nooit in een antwoord of een log terecht te komen. De meldingen van Bean Validation noemen alleen
- * de regel, niet de invoer.
+ * Bewust géén gevalideerde wáárde in antwoord of log: `X-Ontvanger` kan een BSN dragen. De
+ * standaardmeldingen van Bean Validation noemen alleen de regel; in `detail` mogen ze daarom mee. De
+ * log neemt ook de melding niet over: een eigen `message` met `${validatedValue}` zou de invoer
+ * alsnog noemen.
  */
 @Provider
 class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationException> {
@@ -31,7 +34,15 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
 
         // Op info: een geweigerde parameter is geen incident, maar op debug wordt de regel bij het
         // effectieve niveau niet uitgezonden en is het `instance`-id uit het antwoord onvindbaar.
-        log.infof("Ongeldige invoer, %d schending(en) (foutId=%s)", exception.constraintViolations.size, foutId)
+        log.infof(
+            "Ongeldige invoer, %d schending(en) (foutId=%s, schendingen=%s)",
+            exception.constraintViolations.size,
+            foutId,
+            exception.constraintViolations
+                .asSequence()
+                .take(MAX_SCHENDINGEN)
+                .joinToString(", ") { schendingVoorLog(it) },
+        )
 
         return problemResponse(
             status = Response.Status.BAD_REQUEST.statusCode,
@@ -46,6 +57,22 @@ class ConstraintViolationExceptionMapper : ExceptionMapper<ConstraintViolationEx
                 },
             foutId = foutId,
         )
+    }
+
+    private fun schendingVoorLog(schending: ConstraintViolation<*>): String {
+        val segmenten = buildList<Any?> {
+            schending.propertyPath.forEach { knoop ->
+                // Van een element in een collectie alleen de positie: een map-sleutel is invoer,
+                // en wordt via `null` onleesbaar.
+                if (knoop.isInIterable) add(knoop.index)
+
+                knoop.name?.let(::add)
+            }
+        }
+
+        val regel = schending.constraintDescriptor?.annotation?.annotationClass?.simpleName ?: "onbekend"
+
+        return "${Veldpad.van(segmenten)} ($regel)"
     }
 
     private companion object {

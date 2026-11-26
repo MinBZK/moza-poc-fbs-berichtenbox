@@ -18,6 +18,7 @@
          het stelsel mag de naam van een demo-module noemen. -->
     <modules>
         <module>libraries/fbs-kern</module>
+        <module>libraries/fbs-testhulp</module>
         <module>libraries/fbs-common</module>
         <module>libraries/fbs-magazijnregister</module>
         <module>libraries/fbs-berichtensessiecache</module>

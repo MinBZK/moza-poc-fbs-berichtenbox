@@ -271,11 +271,13 @@ meldingen die je bij een volle database wilt zien.
 ### Waar de grens zich meldt
 
 Een database die minder verbindingen toelaat dan de pool groot is, laat dat niet in de pool-regel
-zien: een geweigerde poging telt niet mee in `opgezet`. Die meldt zich een regel hoger, van Hibernate:
+zien: een geweigerde poging telt niet mee in `opgezet`. Die meldt zich een regel hoger, van Hibernate.
+Het vangnet noemt alleen het type; de melding blijft uit de log, omdat een databasefout ook een rij
+met de ontvanger kan citeren:
 
 ```
 WARN  [org.hibernate.orm.jdbc.error] FATAL: sorry, too many clients already
-ERROR [...UncaughtExceptionMapper] Unable to acquire JDBC Connection [FATAL: sorry, too many clients already]
+ERROR [...UncaughtExceptionMapper] Onverwachte fout (foutId=…, type=org.hibernate.exception.JDBCConnectionException)
 ```
 
 Gemeten met een pool van 120 op een database van twintig (`DB_POOL_MAX` zet de poolgrens,

@@ -5,6 +5,7 @@ import jakarta.ws.rs.Priorities
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import org.jboss.logging.Logger
 import java.util.UUID
 
@@ -31,7 +32,7 @@ class UncaughtExceptionMapper : ExceptionMapper<Throwable> {
     override fun toResponse(exception: Throwable): Response {
         val foutId = UUID.randomUUID()
 
-        log.errorf(exception, "Onverwachte fout (foutId=%s, type=%s)", foutId, exception.javaClass.name)
+        log.errorf(Foutspoor.van(exception), "Onverwachte fout (foutId=%s, type=%s)", foutId, exception.javaClass.name)
 
         return problemResponse(
             status = Response.Status.INTERNAL_SERVER_ERROR.statusCode,

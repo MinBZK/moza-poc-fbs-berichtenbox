@@ -146,6 +146,13 @@
             <artifactId>jackson-module-kotlin</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Logvanger: vangt logregels op om te toetsen dat er geen persoonsgegevens in staan. -->
+        <dependency>
+            <groupId>nl.rijksoverheid.moz</groupId>
+            <artifactId>fbs-testhulp</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

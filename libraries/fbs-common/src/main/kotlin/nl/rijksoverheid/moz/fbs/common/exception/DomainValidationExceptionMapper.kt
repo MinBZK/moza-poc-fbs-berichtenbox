@@ -32,14 +32,13 @@ class DomainValidationExceptionMapper : ExceptionMapper<DomainValidationExceptio
         // errorId correleert client (`urn:uuid:...` in Problem.instance) met de
         // applicatielog; consistent met de andere mapper-paden.
         val errorId = UUID.randomUUID()
-        // Log via `FoutBeschrijving.saneer` (zie daar voor de garanties). Cause-message
-        // en cause-type zijn extra correlatie-handvatten voor call-sites die context
-        // meegeven zonder die in `Problem.detail` te lekken.
+        // Log via `FoutBeschrijving.saneer` (zie daar voor de garanties). Van de cause alleen
+        // het type: zijn melding valt niet onder de call-site-invariant, en kan van een
+        // bibliotheek komen die de invoer citeert. Saneren haalt alleen lange cijferreeksen weg.
         log.infof(
-            "Domeinvalidatie geschonden (errorId=%s, causeType=%s, cause=%s): %s",
+            "Domeinvalidatie geschonden (errorId=%s, causeType=%s): %s",
             errorId,
             exception.cause?.javaClass?.simpleName ?: "geen",
-            FoutBeschrijving.saneer(exception.cause?.message),
             FoutBeschrijving.saneer(exception.message),
         )
         // `detail` BEWUST ongesaneerd: domeinmessages bevatten vaak API-pad-tokens

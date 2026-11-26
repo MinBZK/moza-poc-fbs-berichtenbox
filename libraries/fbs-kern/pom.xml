@@ -13,7 +13,7 @@
 
     <artifactId>fbs-kern</artifactId>
     <name>FBS Kern</name>
-    <description>Regels zonder beans, filters of opstartcontroles die stelsel en demo delen: identificatienummers en bijlage-weergave</description>
+    <description>Regels zonder beans, filters of opstartcontroles die stelsel en demo delen: identificatienummers, foutregels zonder invoer en bijlage-weergave</description>
 
     <!-- Bewust geen jandex-maven-plugin, geen CDI en geen @Provider: een consumer erft van deze
          module alleen klassen, nooit een bean, filter of opstartcontrole. Dat is waarom de

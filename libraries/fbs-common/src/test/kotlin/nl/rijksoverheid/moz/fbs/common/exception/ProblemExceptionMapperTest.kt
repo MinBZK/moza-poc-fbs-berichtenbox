@@ -1,5 +1,8 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
+import com.fasterxml.jackson.core.JsonProcessingException
+import com.fasterxml.jackson.core.type.TypeReference
+import com.fasterxml.jackson.databind.ObjectMapper
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.InternalServerErrorException
 import jakarta.ws.rs.NotFoundException
@@ -25,6 +28,8 @@ import java.util.logging.Logger
 class ProblemExceptionMapperTest {
 
     private val mapper = ProblemExceptionMapper()
+
+    private val JANEE_PER_VELD = object : TypeReference<Map<String, Map<String, Boolean>>>() {}
 
     private val julLogger: Logger = Logger.getLogger(ProblemExceptionMapper::class.java.name)
     private val records = mutableListOf<LogRecord>()
@@ -134,6 +139,52 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
+    fun `de 4xx-stack staat op debug, met de types maar geen message van de keten`() {
+        // Zo komt een kapotte JSON-body binnen: een 400 met de Jackson-fout als cause, en die
+        // melding citeert de aangeboden invoer.
+        val jsonFout = jacksonFout("""{"ontvanger": x999993653}""", Any::class.java)
+        val exception = BadRequestException("Ontvanger Jan de Vries ongeldig", jsonFout)
+
+        mapper.toResponse(exception)
+
+        assertNull(records.single { it.level == Level.INFO }.thrown, "de info-regel draagt geen stack")
+
+        val thrown = records.single { it.level == Level.FINE }.thrown
+        assertNotNull(thrown, "de stack moet in LogRecord.thrown blijven staan")
+        val weergave = thrown.stackTraceToString()
+
+        assertTrue(jsonFout.message!!.contains("999993653"), "Jackson citeert het token: ${jsonFout.message}")
+
+        listOf("Jan de Vries", "99999365").forEach { fragment ->
+            assertFalse(weergave.contains(fragment), "'$fragment' hoort niet in de applicatielog: $weergave")
+        }
+
+        assertTrue(weergave.contains(jsonFout.javaClass.name), weergave)
+    }
+
+    @Test
+    fun `een 4xx met een Jackson-fout als cause noemt veld en positie, niet de waarde`() {
+        val jsonFout = jacksonFout("""{"ontvanger": {"waarde": "999993653"}}""", JANEE_PER_VELD)
+
+        mapper.toResponse(BadRequestException(jsonFout))
+
+        val rec = records.single { it.level == Level.INFO }
+        val regel = MessageFormat.format(rec.message, *rec.parameters)
+
+        assertTrue(regel.contains("veld=ontvanger.waarde, positie=1:"), regel)
+        assertTrue(regel.contains("foutcode=ONGELDIG_VERZOEK"), regel)
+        assertFalse(regel.contains("99999"), regel)
+    }
+
+    private fun jacksonFout(json: String, type: Any): JsonProcessingException = runCatching {
+        when (type) {
+            is Class<*> -> ObjectMapper().readValue(json, type)
+            is TypeReference<*> -> ObjectMapper().readValue(json, type)
+            else -> error("onbekend type")
+        }
+    }.exceptionOrNull() as JsonProcessingException
+
+    @Test
     fun `5xx-log bevat GEEN exception-message (PII-protectie consistent met 4xx)`() {
         // Round 11 L1: 5xx-tak laat nu OOK exception.message weg uit de
         // log-regel. Stack-trace blijft via 1e arg. Cause-type wordt 2e
@@ -183,19 +234,19 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
-    fun `4xx-log format-spec correct met 4 args (errorId, type, cause)`() {
-        // Round 11 M1: pin het exacte log-format zodat een toekomstige `{4}`-
-        // uitbreiding zichtbaar wordt in diff-review. Aggregator-parsers die
-        // op positionele velden ankerden zien een format-wijziging.
+    fun `4xx-log format-spec correct met 7 args (errorId, type, cause, foutcode, veld, positie)`() {
+        // Pin het exacte log-format zodat een uitbreiding zichtbaar wordt in diff-review.
+        // Aggregator-parsers die op positionele velden ankerden zien een format-wijziging.
         mapper.toResponse(BadRequestException("ongeldig"))
 
         val rec = records.filter { it.level == Level.INFO }.first()
         assertEquals(
-            "Client error {0} (errorId={1}, type={2}, cause={3})",
+            "Client error {0} (errorId={1}, type={2}, cause={3}, foutcode={4}, veld={5}, positie={6})",
             rec.message,
             "Format-spec wijziging vereist update van log-aggregator-config",
         )
-        assertEquals(4, rec.parameters!!.size, "Format-spec verwacht 4 args")
+        assertEquals(7, rec.parameters!!.size, "Format-spec verwacht 7 args")
+        assertEquals(listOf("ONGELDIG_VERZOEK", "geen", "onbekend"), rec.parameters!!.drop(4))
     }
 
     @Test

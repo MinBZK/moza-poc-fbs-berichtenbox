@@ -6,6 +6,7 @@ import jakarta.ws.rs.core.Response
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
+import nl.rijksoverheid.moz.fbs.kern.exception.Foutspoor
 import org.jboss.logging.Logger
 import java.time.Duration
 
@@ -30,16 +31,18 @@ internal inline fun <T> mapUpstreamFout(log: Logger, context: String, block: () 
         // isUpstreamStoring liet door: óf geen response (transport-fout vóór
         // HTTP-antwoord) óf een non-4xx-status (3xx/5xx/onverwacht). Log eerlijk welke
         // van de twee mét de status, anders zet "upstream → 502" een debugger op het
-        // verkeerde been bij een timeout vs. een onverwachte 3xx.
+        // verkeerde been bij een timeout vs. een onverwachte 3xx. Het spoor en niet de exceptie:
+        // een antwoord dat de client niet kon lezen, komt hier als 200 binnen met de Jackson-fout
+        // als cause, en die citeert het token dat niet paste.
         if (e.response == null) {
-            log.errorf(e, "%s: upstream zonder response (transport-fout) → 502", context)
+            log.errorf(Foutspoor.van(e), "%s: upstream zonder response (transport-fout) → 502", context)
         } else {
-            log.errorf(e, "%s: upstream non-4xx (status=%d) → 502", context, e.response.status)
+            log.errorf(Foutspoor.van(e), "%s: upstream non-4xx (status=%d) → 502", context, e.response.status)
         }
 
         throw upstreamBadGateway(context)
     } catch (e: ProcessingException) {
-        log.errorf(e, "%s: upstream transport-fout → 502", context)
+        log.errorf(Foutspoor.van(e), "%s: upstream transport-fout → 502", context)
 
         throw upstreamBadGateway(context)
     }
