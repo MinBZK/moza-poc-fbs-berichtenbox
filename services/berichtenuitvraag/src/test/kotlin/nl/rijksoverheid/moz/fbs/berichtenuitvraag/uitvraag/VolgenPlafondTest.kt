@@ -8,6 +8,8 @@ import io.smallrye.mutiny.Multi
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.SessieGebeurtenis
+import org.awaitility.Awaitility.await
+import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
@@ -15,11 +17,15 @@ import org.junit.jupiter.api.Test
 import java.net.HttpURLConnection
 import java.net.URI
 import java.time.Duration
-import java.time.Instant
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * De plafonds op open streams: twee per pod en één per ontvanger in dit profiel. Een gesloten
  * connection geeft haar plek terug, en een aanvraag die vóór de stream strandt ook.
+ *
+ * Een `disconnect()` komt pas asynchroon bij de server aan. De tests wachten daarom tot de server
+ * elke stream heeft geannuleerd, en niet tot een nieuwe stream weer opengaat: die houdt zelf een
+ * plek bezet, en die kan bij de start van de volgende test nog niet terug zijn.
  */
 @QuarkusTest
 @TestProfile(VolgenPlafondTest.KleinePlafondsProfile::class)
@@ -31,13 +37,49 @@ class VolgenPlafondTest {
     /** Per ontvanger één sessie; het plafond telt open streams, niet sessies. */
     private val sessies = mutableMapOf<String, String>()
 
+    /**
+     * Streams van de sessiecache die de server heeft geannuleerd. De resource geeft zijn plek terug
+     * in een `onTermination` downstream van deze teller, en een annulering passeert die eerst (zie de
+     * test over de volgorde van een annulering). Is elke afgegeven stream geannuleerd, dan is dus
+     * ook elke plek terug.
+     */
+    private val geannuleerd = AtomicInteger()
+
     @BeforeEach
     fun openBlijvendeStream() {
         sessiecache.reset()
-        sessiecache.volgGebeurtenissen = Multi.createBy().concatenating().streams(
-            Multi.createFrom().item(SessieGebeurtenis.VolgenGestart),
-            Multi.createFrom().nothing(),
-        )
+        sessiecache.volgGebeurtenissen = Multi.createBy().concatenating()
+            .streams<SessieGebeurtenis>(
+                Multi.createFrom().item(SessieGebeurtenis.VolgenGestart),
+                Multi.createFrom().nothing(),
+            )
+            .onCancellation().invoke { -> geannuleerd.incrementAndGet() }
+    }
+
+    /**
+     * Toetst dat beide plafonds na de test precies terug zijn: met één stream valt een weggelekte
+     * plek niet op, en zonder weigering een plek die dubbel terugkwam evenmin. Een fout hier staat
+     * als `Suppressed` onder die van de test zelf.
+     */
+    @AfterEach
+    fun plafondWeerHeel() {
+        sessiecache.volgFout = null
+        wachtTotOpenStreams(0)
+
+        val eerste = open(A)
+        val tweede = open(C)
+
+        try {
+            assertEquals(200, eerste.responseCode, "na de test hoort het hele pod-plafond vrij te zijn")
+            assertWeigering(open(A))
+            assertEquals(200, tweede.responseCode, "na de test hoort het hele pod-plafond vrij te zijn")
+            assertWeigering(open(B))
+        } finally {
+            eerste.disconnect()
+            tweede.disconnect()
+        }
+
+        wachtTotOpenStreams(0)
     }
 
     @Test
@@ -46,17 +88,16 @@ class VolgenPlafondTest {
 
         try {
             assertEquals(200, eerste.responseCode)
-            assertWeigering(open(A))
-
-            val ander = open(B)
-
-            assertEquals(200, ander.responseCode)
-            ander.disconnect()
+            // Twee keer: een weigering mag de telling van de stream die openstaat niet wissen.
+            repeat(2) { assertWeigering(open(A)) }
+            assertEquals(200, statusVan(B))
         } finally {
             eerste.disconnect()
         }
 
-        assertEquals(200, wachtOpStatus(A, 200))
+        wachtTotOpenStreams(0)
+
+        assertEquals(200, statusVan(A), "de gesloten stream hoort zijn plek per ontvanger terug te geven")
     }
 
     @Test
@@ -68,23 +109,52 @@ class VolgenPlafondTest {
             assertEquals(200, eerste.responseCode)
             assertEquals(200, tweede.responseCode)
             assertWeigering(open(C))
+            // A staat al open: een weigering op het pod-plafond mag zijn telling per ontvanger niet wissen.
+            assertWeigering(open(A))
+            tweede.disconnect()
+            wachtTotOpenStreams(1)
+            assertWeigering(open(A))
         } finally {
             eerste.disconnect()
             tweede.disconnect()
         }
 
-        assertEquals(200, wachtOpStatus(C, 200))
+        wachtTotOpenStreams(0)
+
+        assertEquals(200, statusVan(C), "de gesloten streams horen hun plek op de pod terug te geven")
     }
 
     @Test
     fun `een aanvraag die vóór de stream strandt, houdt geen plek bezet`() {
         sessiecache.volgFout = SessiecacheException.NogNietGevuld("nog niet")
 
+        // De plek gaat terug voordat de 409 vertrekt; hier valt niets af te wachten.
         repeat(3) { assertEquals(409, statusVan(A)) }
 
         sessiecache.volgFout = null
 
-        assertEquals(200, wachtOpStatus(A, 200))
+        assertEquals(200, statusVan(A), "een aanvraag die vóór de stream strandde, hield een plek bezet")
+    }
+
+    @Test
+    fun `een annulering loopt door onTermination downstream voordat de stream upstream hem ziet`() {
+        val volgorde = mutableListOf<String>()
+
+        Multi.createFrom().nothing<Int>()
+            .onCancellation().invoke { -> volgorde += "sessiecache" }
+            .map { it }
+            .onTermination().invoke { -> volgorde += "resource" }
+            .subscribe().with { }
+            .cancel()
+
+        assertEquals(listOf("resource", "sessiecache"), volgorde)
+    }
+
+    /** Wacht tot de server op [aantal] na elke afgegeven stream heeft geannuleerd. */
+    private fun wachtTotOpenStreams(aantal: Int) {
+        await("server houdt $aantal stream(s) open")
+            .atMost(VANGNET)
+            .untilAsserted { assertEquals(aantal, sessiecache.volgAfgegeven.get() - geannuleerd.get()) }
     }
 
     private fun assertWeigering(connection: HttpURLConnection) {
@@ -106,21 +176,11 @@ class VolgenPlafondTest {
     private fun statusVan(ontvanger: String): Int {
         val connection = open(ontvanger)
 
-        return connection.responseCode.also { connection.disconnect() }
-    }
-
-    /** Het sluiten komt asynchroon bij de server aan; wacht tot de plek vrij is. */
-    private fun wachtOpStatus(ontvanger: String, verwacht: Int): Int {
-        val deadline = Instant.now().plus(Duration.ofSeconds(5))
-        var status: Int
-
-        do {
-            status = statusVan(ontvanger)
-
-            if (status != verwacht) Thread.sleep(100)
-        } while (status != verwacht && Instant.now().isBefore(deadline))
-
-        return status
+        try {
+            return connection.responseCode
+        } finally {
+            connection.disconnect()
+        }
     }
 
     private fun open(ontvanger: String): HttpURLConnection =
@@ -129,7 +189,9 @@ class VolgenPlafondTest {
             setRequestProperty("X-Sessie", sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) })
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
-            readTimeout = 2000
+            // Alleen een vangnet tegen een server die nooit antwoordt; de tests meten geen snelheid. De
+            // eerste weigering na een start doet eenmalig werk dat op een krappe runner rond 2 s kost.
+            readTimeout = VANGNET.toMillis().toInt()
         }
 
     class KleinePlafondsProfile : QuarkusTestProfile {
@@ -147,5 +209,8 @@ class VolgenPlafondTest {
         const val A = "BSN:999990019"
         const val B = "BSN:999993653"
         const val C = "KVK:90000011"
+
+        /** Hoe lang een test op de server wacht voor hij hem opgeeft. */
+        val VANGNET: Duration = Duration.ofSeconds(10)
     }
 }
