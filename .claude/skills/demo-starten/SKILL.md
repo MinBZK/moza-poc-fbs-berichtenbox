@@ -67,8 +67,9 @@ het persona-cookie, zoals een browser dat doet. Zolang het portaal geen sessie s
   stelseldocument, dan weigert Quarkus het verzoek voordat er iets van de
   applicatie aan te pas komt. Zet dan `QUARKUS_HTTP_HOST_VALIDATION_ALLOWED_HOSTS` — en ga niet op
   zoek naar een proxy- of DNS-probleem.
-- **Het bedieningspaneel blijft altijd op loopback** (poort 8095). Het heeft geen authenticatie en
-  zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
+- **Het bedieningspaneel blijft standaard op loopback** (poort 8095), ook met `DEMO_BIND`; alleen
+  `DEMO_BEDIENING_BIND` zet het open. Het heeft geen authenticatie en zijn `POST /api/demo/legen`
+  doet een TRUNCATE op beide magazijn-databases.
 - **Een storing uitlokken doe je hier, niet op ZAD.** De storingsknoppen van het magazijn bestaan
   daar niet, en een profiel-storing raakt de aanlevering er niet: die gaat direct, niet via
   toxiproxy.

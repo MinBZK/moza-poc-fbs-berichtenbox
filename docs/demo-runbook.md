@@ -152,8 +152,9 @@ Twee beperkingen daarbij:
   binden de containers zelf; die staan vast op loopback, want in een gedeelde netns is een
   wildcard-bind de hele machine — en botst hij bovendien met elke specifieke bind van een
   FSC-federatie in dezelfde netns.
-- **Het bedieningspaneel blijft altijd op loopback** (`demo-console`, poort 8095): het heeft geen
-  authenticatie en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
+- **Het bedieningspaneel (`demo-console`, poort 8095) en de demo-proxy (8097) volgen `DEMO_BIND`
+  niet**, maar `DEMO_BEDIENING_BIND` (§5b), standaard loopback: het paneel heeft geen authenticatie
+  en zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
 
 Het script kiest de engine (onder podman zoekt het de API-socket en start het die zo nodig), kiest een compose-implementatie en
 controleert dat die de gestapelde bestanden aankan, controleert dat de demo-images gebouwd

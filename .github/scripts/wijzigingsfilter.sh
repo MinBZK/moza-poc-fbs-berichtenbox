@@ -93,7 +93,7 @@ DEMO_BUITEN_UITROLPOORT="^demo/environment/|^demo/lib/|^demo/[^/]*\\.sh\$|$LOKAL
 # stubs en drie previews) openzetten voor een wijziging die daar niets mee te maken heeft.
 NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
 
-# Raakt de PR niets buiten demo/, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
+# Raakt de PR niets buiten demo/ en de lokale compose-overlays, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
 # niet mee gebouwd en getest te worden. `-am` trekt bovendien op wat een demo-module wél uit het
 # stelsel gebruikt, dus die kant blijft gedekt. Dat een demo-module níets uit de reactor gebruikt is
 # geen gegarandeerde eigenschap; die richting bewaakt vandaag niets.

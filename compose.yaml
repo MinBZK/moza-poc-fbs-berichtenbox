@@ -12,8 +12,8 @@
 #
 # Wil je de demo aan iemand anders tonen, gebruik dan een tunnel naar 127.0.0.1:8097
 # (docs/demo-runbook.md §4). `DEMO_BIND=0.0.0.0` zet alleen de diensten zelf open, en dat doe je
-# bewust, in plaats van dat het de default is. `demo-console` doet hier NIET aan mee en
-# blijft altijd op loopback; zie de toelichting daar.
+# bewust, in plaats van dat het de default is. `demo-console` en `demo-proxy` doen hier NIET aan
+# mee: die volgen `DEMO_BEDIENING_BIND` (default loopback); zie de toelichting bij demo-console.
 #
 # Elke service krijgt `TZ: Europe/Amsterdam`, zodat logtijden overeenkomen met de klok van wie
 # meekijkt; zet hem ook op een nieuwe service. In een image zonder tijdzonedatabase (Redis,
@@ -500,7 +500,7 @@ services:
   # Eén origin voor de hele demo: het portaal (met zijn /api/keten), het bedieningspaneel en de
   # personalijst achter hetzelfde adres. Zie demo/proxy/demo.conf.template voor het waarom.
   #
-  # Uitsluitend op loopback, om dezelfde reden als demo-console: /api/demo/legen doet via deze
+  # Standaard op loopback (DEMO_BEDIENING_BIND), om dezelfde reden als demo-console: /api/demo/legen doet via deze
   # proxy net zo goed een TRUNCATE op beide magazijn-databases.
   demo-proxy:
     image: docker.io/library/nginx:1.31-alpine

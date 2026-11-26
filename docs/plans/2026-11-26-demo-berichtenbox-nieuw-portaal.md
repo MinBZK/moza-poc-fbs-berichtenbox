@@ -14,10 +14,10 @@ de demo volgt `main` van moza-portaal.
 
 Twee dingen staan vast voordat er iets verandert:
 
-- **Het portaal start nog geen sessie (#1453).** De uitvraag eist sinds #943 een `X-Sessie` op elk
+- **Het portaal start nog geen sessie (MinBZK/MijnOverheidZakelijk#1453).** De uitvraag eist sinds MinBZK/MijnOverheidZakelijk#943 een `X-Sessie` op elk
   `/berichten…`-verzoek. Het portaal stuurt die niet, dus op de lokale stack en op `test` geeft de
   uitvraag `401 urn:fbs:fout:sessie-ongeldig`. Geverifieerd op 2026-11-26 tegen
-  `uitvraag-test-mpfb-8wh`. Tot #1453 punt 1 in het portaal zit, toont de Berichtenbox van het
+  `uitvraag-test-mpfb-8wh`. Tot MinBZK/MijnOverheidZakelijk#1453 punt 1 in het portaal zit, toont de Berichtenbox van het
   portaal geen berichten uit de keten.
 - **De persona's sluiten al aan.** Het portaal kent zes persona's met `stelsel: true`
   (`proeftuin-een` t/m `-drie`, `-veel`, `-concern`, `-garage`, KVK 90000011–13, 90000001, 90000003,
@@ -41,7 +41,7 @@ Per stap in de keten, elk in één zitting te reviewen:
 4. **Documentatie en Fundament.** Runbook-scenario's per scenario nagelopen in het portaal, of met de
    reden waarom het (nog) niet kan; de chart `charts/fbs-demo` en de overige verwijzingen.
 
-Stap 2–4 hangen van stap 1 af; stap 3 heeft pas zin als #1453 punt 1 in het portaal zit, anders
+Stap 2–4 hangen van stap 1 af; stap 3 heeft pas zin als MinBZK/MijnOverheidZakelijk#1453 punt 1 in het portaal zit, anders
 staat er op ZAD een Berichtenbox zonder berichten.
 
 ## Ontwerpkeuzes stap 1
@@ -59,9 +59,9 @@ staat er op ZAD een Berichtenbox zonder berichten.
   loopback. Te overschrijven met `PORTAAL_AUTH_SECRET`.
 - **De rookproef meldt het sessiegat in plaats van te falen.** Stap 7 vraagt `/api/keten/berichten`
   via de proxy met alleen het persona-cookie. 200 of 409 is goed; een 401 met
-  `sessie-ongeldig` is het bekende gat (#1453) en geeft een `LET OP`-regel; al het andere faalt.
+  `sessie-ongeldig` is het bekende gat (MinBZK/MijnOverheidZakelijk#1453) en geeft een `LET OP`-regel; al het andere faalt.
   Zo bewijst de proef dat proxy, portaal en uitvraag aan elkaar hangen, zonder rood te staan op
-  iets wat deze repo niet kan oplossen. `TODO(#1453)` zet de eis terug op 200/409.
+  iets wat deze repo niet kan oplossen. `TODO(MinBZK/MijnOverheidZakelijk#1453)` zet de eis terug op 200/409.
 - **De bijlage-stap gaat rechtstreeks naar de uitvraag**, met `X-Ontvanger` en `X-Sessie`. Wat de
   proef daar toetst — het adres uit `_links.self` levert de bijlage — blijft gelden.
 - **De demo-proxy geeft het portaal `X-Forwarded-Host`.** Next.js weigert een Server Action als de

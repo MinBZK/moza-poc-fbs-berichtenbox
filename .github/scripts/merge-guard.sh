@@ -120,7 +120,7 @@ bind_mist=$(jq -r '.services | to_entries[] | . as $s
        else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST // "<niet gezet>") staat niet op 127.x" end)
     elif ($s.key == "portaal" or ($img | test("moza-portaal"))) then
       # Next.js luistert op HOSTNAME, en het image van het portaal zet die op 0.0.0.0. Vóór de
-      # build-tak: compose.portaal-lokaal.yaml bouwt het portaal, en dat is geen Quarkus. Op naam én
+      # build-tak: compose.portaal-lokaal.yaml bouwt het portaal, en dat is geen Quarkus. Op dienstnaam óf
       # image, zodat een PORTAAL_IMAGE uit een ander register niet ongetoetst doorglipt; het anker
       # aan het eind houdt een naam als `localhost.example.org` buiten.
       (if (($env.HOSTNAME // "") | tostring | test("^(localhost|127\\.[0-9]+\\.[0-9]+\\.[0-9]+)$")) then empty

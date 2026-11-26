@@ -31,10 +31,10 @@ on:
     types: [opened, synchronize, reopened]
     # De workflow staat in zijn eigen pad-filter: anders komt een verzwakking van de guard binnen
     # zonder dat de guard zelf ooit gedraaid heeft.
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.portaal-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.portaal-*.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
   push:
     branches: [main]
-    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.portaal-lokaal.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
+    paths: ['demo/environment/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.portaal-*.yaml', 'demo/*.sh', 'demo/lib/**', 'demo/genereer-magazijnen.py', 'toxiproxy/proxies.json', '.github/workflows/fsc-harness-overlays.yml', '.github/scripts/merge-guard.sh', '.github/scripts/selinux-label-guard.sh']
 
 # LET OP: `pull_request`, niet `pull_request_target`, en read-only zonder secrets. Beide jobs
 # `source`n demo/environment/federatie/peers.env respectievelijk renderen compose-bestanden uit de
@@ -295,6 +295,15 @@ jobs:
             -f compose.podman-hostnet.yaml \
             -f compose.portaal-lokaal.yaml config --format json \
             | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge, portaal-lokaal)"
+
+          # Met een ander portaal-image, zoals `demo/up.sh` dat met PORTAAL_IMAGE ná de hostnet-overlay
+          # zet: een image uit een ander register valt dan alleen op dienstnaam onder de guard.
+          PORTAAL_IMAGE=registry.example/ander/portaal:x DEMO_HOST=localhost DEMO_MAGAZIJNEN=98 docker compose --profile demo \
+            -f compose.yaml \
+            -f compose.podman.yaml \
+            -f compose.podman-hostnet.yaml \
+            -f compose.portaal-versie.yaml config --format json \
+            | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge, portaal-versie)"
 
       - name: Elke bind-mount van de demo-stack draagt een SELinux-label
         # Ook na een eerdere fout in deze job: twee losse signalen zijn meer waard dan één.

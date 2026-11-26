@@ -20,9 +20,9 @@
 # De modus van de laatste start staat in demo/generated/.modus; `down`, `ps` en `compose` lezen
 # hem terug, zodat geen vervolgcommando met minder compose-bestanden de stack half omzet.
 #
-# DEMO_HOST is het adres waarop de magazijnen van buiten bereikbaar zijn; het stelseldocument noemt
-# ze op dat adres. Default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
-# toelichting bij de laatste controle onderaan dit script.
+# DEMO_HOST is het adres waaronder het stelseldocument de magazijnen noemt; default localhost. Het
+# verandert geen bind: op dat adres zijn ze pas bereikbaar met DEMO_BIND=0.0.0.0 (zie compose.yaml
+# en de toelichting bij de laatste controle onderaan dit script).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -372,7 +372,7 @@ wacht_op "toxiproxy (na de console)" demo-console python3 -c "$PROXY_CHECK" "$PR
 # (migraties, vier tegelijk verbindende clients) en is sinds de vorige controle niet meer bekeken.
 vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 
-# Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt altijd op loopback (geen
+# Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt standaard op loopback (geen
 # authenticatie, en POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases). Een probe
 # op een ander adres zou dus per definitie aflopen op een timeout en de start laten falen terwijl
 # de stack gezond draait. DEMO_HOST stuurt alleen de magazijnadressen in het stelseldocument. Van
