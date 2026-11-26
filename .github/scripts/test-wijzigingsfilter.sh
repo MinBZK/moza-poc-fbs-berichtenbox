@@ -227,8 +227,8 @@ verwacht "de gedeelde modus-keuze onder demo/lib/" 'demo/lib/podman-modus.sh' "$
 
 # De compose-overlays van de lokale stack: geen uitrol leest ze. compose.yaml zelf wel, want daar
 # staat de pin van de berichtenbox op ZAD; het anker op `compose\.(podman|portaal)` houdt hem erbuiten.
-verwacht "een podman-overlay van de lokale stack" 'compose.podman-hostnet.yaml' "$GEEN_PREVIEW"
-verwacht "een portaal-overlay van de lokale stack" 'compose.portaal-versie.yaml' "$GEEN_PREVIEW"
+verwacht "een podman-overlay van de lokale stack" 'compose.podman-hostnet.yaml' "$DEMO_STACK"
+verwacht "een portaal-overlay van de lokale stack" 'compose.portaal-versie.yaml' "$DEMO_STACK"
 verwacht "compose.yaml houdt zijn uitrol" 'compose.yaml' 'run=true
 deploy=true
 demo-only=false

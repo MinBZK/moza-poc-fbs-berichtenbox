@@ -5,7 +5,7 @@
 #
 #   PORTAAL_PAD=~/projects/moza-portaal \
 #     demo/up.sh compose -f compose.portaal-lokaal.yaml up -d --build portaal
-#   demo/up.sh compose restart demo-proxy    # de proxy zoekt het adres van het portaal één keer op
+#   demo/up.sh compose restart demo-proxy    # docker/bridge: de proxy zoekt het portaal één keer op
 services:
   portaal:
     image: localhost/moza-portaal-lokaal

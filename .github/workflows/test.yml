@@ -392,7 +392,14 @@ jobs:
           docker compose -f compose.yaml -f compose.portaal-versie.yaml --profile demo config --format json \
             | jq -e '.services.portaal.image == env.PORTAAL_IMAGE' > /dev/null
 
+          # En zonder waarde moet de overlay weigeren, niet stil op de pin terugvallen.
+          if env -u PORTAAL_IMAGE docker compose -f compose.yaml -f compose.portaal-versie.yaml --profile demo config -q 2>/dev/null; then
+            echo "::error::compose.portaal-versie.yaml start zonder PORTAAL_IMAGE; verwacht een weigering"
+            exit 1
+          fi
+
       - name: compose.portaal-lokaal.yaml valideren
         run: |
           docker compose -f compose.yaml -f compose.portaal-lokaal.yaml --profile demo config --format json \
-            | jq -e '.services.portaal.build.context | endswith("/moza-portaal")' > /dev/null
+            | jq -e '(.services.portaal.build.context | endswith("/moza-portaal"))
+                and .services.portaal.image == "localhost/moza-portaal-lokaal"' > /dev/null

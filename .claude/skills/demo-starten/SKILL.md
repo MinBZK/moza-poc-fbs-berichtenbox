@@ -56,13 +56,15 @@ het persona-cookie, zoals een browser dat doet. Zolang het portaal geen sessie s
 
 ## De valkuilen die niet in de scripts staan
 
-- **In `hostnet` binden de containers op loopback, en dat is niet te overrulen.** `DEMO_BIND` geldt
-  alleen in `docker` en `bridge`; in een gedeelde netns is een wildcard-bind de hele machine. Wil je de
-  demo van buiten laten zien, gebruik dan een tunnel naar `127.0.0.1:8097`. Het portaal zet zijn
-  persona-cookie met `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback; via
-  `DEMO_BIND=0.0.0.0` op een ander adres onthoudt de Berichtenbox geen persona.
-- **Een kale HTTP 400 zonder body is Host-validatie, geen netwerkfout.** Benader je de demo op een
-  ander adres dan de allowlist kent, dan weigert Quarkus het verzoek voordat er iets van de
+- **In `hostnet` binden de containers op loopback, en `DEMO_BIND` verandert daar niets aan.**
+  `DEMO_BIND` geldt alleen in `docker` en `bridge`; in een gedeelde netns is een wildcard-bind de
+  hele machine. Alleen de demo-proxy volgt `DEMO_BEDIENING_BIND`. Wil je de demo van buiten laten
+  zien, gebruik dan een tunnel naar `127.0.0.1:8097`. Het portaal zet zijn persona-cookie met
+  `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback; via
+  `DEMO_BEDIENING_BIND=0.0.0.0` op een ander adres onthoudt de Berichtenbox geen persona.
+- **Een kale HTTP 400 zonder body is Host-validatie, geen netwerkfout.** Roep je een magazijn
+  rechtstreeks op zijn poort aan via een ander adres dan localhost, bijvoorbeeld het adres uit het
+  stelseldocument, dan weigert Quarkus het verzoek voordat er iets van de
   applicatie aan te pas komt. Zet dan `QUARKUS_HTTP_HOST_VALIDATION_ALLOWED_HOSTS` — en ga niet op
   zoek naar een proxy- of DNS-probleem.
 - **Het bedieningspaneel blijft altijd op loopback** (poort 8095). Het heeft geen authenticatie en

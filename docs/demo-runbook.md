@@ -134,9 +134,9 @@ interface van de machine — op een kantoor- of thuisnetwerk dus voor het hele s
 Wil je de demo aan iemand anders tonen, gebruik dan een tunnel naar de demo-proxy, bijvoorbeeld
 `ssh -L 8097:127.0.0.1:8097 <host>`. Het portaal zet zijn persona-cookie met `Secure`, en een
 browser bewaart dat over gewone HTTP alleen voor `localhost` en `127.0.0.1`. Op een ander adres
-onthoudt de Berichtenbox dus geen persona. Wil je de poorten toch openzetten, dan heb je **beide**
-variabelen nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de magazijnadressen in het
-stelseldocument.
+onthoudt de Berichtenbox dus geen persona. Wil je de diensten zelf op het netwerk zetten, gebruik dan
+`DEMO_BIND=0.0.0.0`, en zet `DEMO_HOST` erbij als het stelseldocument de magazijnen op dat adres moet
+noemen. De demo op `:8097` volgt daarbij niet: die luistert op `DEMO_BEDIENING_BIND` (§5b).
 
 ```bash
 DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/up.sh
@@ -268,8 +268,8 @@ bevroren versie voor een gebruikersonderzoek, of nog niet gemergd werk van moza-
 # Via demo/up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
 PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh
 
-# Alleen het portaal wisselen terwijl de stack al draait. De demo-proxy zoekt het adres van het
-# portaal één keer op; na een nieuwe container moet hij opnieuw starten.
+# Alleen het portaal wisselen terwijl de stack al draait. In docker en bridge zoekt de demo-proxy
+# de containernaam van het portaal één keer op; na een nieuwe container moet hij opnieuw starten.
 PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh compose up -d portaal
 demo/up.sh compose restart demo-proxy
 ```
@@ -367,7 +367,7 @@ de naam in de persona-keuze; de proeftuin gebruikt dezelfde namen. De tabel werk
 | Garage Van Dijk B.V. | `proeftuin-garage`: Aangesloten onderneming 4 (met bijlagen) | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | `proeftuin-veel`: Aangesloten onderneming, veel organisaties | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
 | Landelijk Concern N.V. | `proeftuin-concern`: Aangesloten onderneming, landelijk concern | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
-| Demo-onderneming 4 | — (alleen in de proeftuin) | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
+| Demo-onderneming 4 | — (in de proeftuin: Aangesloten onderneming 4) | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
 | J. Pietersen | — | BSN `999993653` | 3 organisaties: A, B en 1 gesimuleerde |
 | Bakkerij De Vroege Vogel | — | BSN `999996666` | RVO |
 
@@ -383,7 +383,8 @@ alleen nog de cache, en verschijnt een nieuw bericht vanzelf via `_volgen`.
 ### Een nieuwe ophaalronde
 
 > Dit beschrijft de berichtenbox van de proeftuin, op ZAD. Het portaal start nog geen sessie
-> (MinBZK/MijnOverheidZakelijk#1453); hoe een nieuwe ronde daar werkt, volgt met #1345.
+> (MinBZK/MijnOverheidZakelijk#1453); hoe een nieuwe ronde daar werkt, volgt met
+> MinBZK/MijnOverheidZakelijk#1345.
 
 Een knop **Ophalen** heeft de proeftuin niet, en zolang er een sessie leeft levert verversen geen
 nieuwe ronde op: het sessie-id staat in de `sessionStorage` van het tabblad en overleeft een

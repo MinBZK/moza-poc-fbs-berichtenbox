@@ -280,7 +280,8 @@ KETEN_PERSONAS_URL=https://demopersonas-test-mpfm-w3h.$Z \
 demo/up.sh compose restart demo-proxy
 ```
 
-De herstart is nodig omdat de demo-proxy het adres van het portaal één keer opzoekt, bij zijn start.
+In docker en bridge is de herstart nodig: daar zoekt de demo-proxy de containernaam van het portaal
+één keer op, bij zijn start. In podman-hostnet kan hij geen kwaad.
 
 Dat werkt ook via de demo-proxy (`:8097`): die stuurt alles naar het portaal, en het portaal bepaalt
 waar de keten staat.

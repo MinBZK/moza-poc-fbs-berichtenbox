@@ -20,8 +20,8 @@
 # De modus van de laatste start staat in demo/generated/.modus; `down`, `ps` en `compose` lezen
 # hem terug, zodat geen vervolgcommando met minder compose-bestanden de stack half omzet.
 #
-# DEMO_HOST is het adres waarop je de demo benadert; het stelseldocument noemt de magazijnen op dat
-# adres. Default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
+# DEMO_HOST is het adres waarop de magazijnen van buiten bereikbaar zijn; het stelseldocument noemt
+# ze op dat adres. Default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
 # toelichting bij de laatste controle onderaan dit script.
 set -euo pipefail
 
@@ -375,8 +375,8 @@ vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 # Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt altijd op loopback (geen
 # authenticatie, en POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases). Een probe
 # op een ander adres zou dus per definitie aflopen op een timeout en de start laten falen terwijl
-# de stack gezond draait. DEMO_HOST stuurt alleen de magazijnadressen in het stelseldocument en de
-# URL's hieronder. Van een andere machine kom je bij de demo via een tunnel naar de demo-proxy,
+# de stack gezond draait. DEMO_HOST stuurt alleen de magazijnadressen in het stelseldocument. Van
+# een andere machine kom je bij de demo via een tunnel naar de demo-proxy,
 # bijvoorbeeld `ssh -L 8097:127.0.0.1:8097 <host>`: het portaal zet zijn persona-cookie met
 # `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback.
 if [ "$DEMO_HOST" != "localhost" ]; then

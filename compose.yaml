@@ -10,8 +10,9 @@
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
 # aan een kantoor- of thuisnetwerk is dat het hele subnet.
 #
-# Wil je de demo aan iemand anders tonen, zet 'm dan bewust open met `DEMO_BIND=0.0.0.0`, in plaats
-# van dat het de default is. `demo-console` doet hier NIET aan mee en
+# Wil je de demo aan iemand anders tonen, gebruik dan een tunnel naar 127.0.0.1:8097
+# (docs/demo-runbook.md §4). `DEMO_BIND=0.0.0.0` zet alleen de diensten zelf open, en dat doe je
+# bewust, in plaats van dat het de default is. `demo-console` doet hier NIET aan mee en
 # blijft altijd op loopback; zie de toelichting daar.
 #
 # Elke service krijgt `TZ: Europe/Amsterdam`, zodat logtijden overeenkomen met de klok van wie

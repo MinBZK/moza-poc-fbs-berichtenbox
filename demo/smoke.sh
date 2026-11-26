@@ -285,6 +285,14 @@ if grep -qF 'niet bekend bij het Federatief Berichtenstelsel' "$pagina" 2>/dev/n
     exit 1
 fi
 
+# De twee zinnen hierboven geven een duidelijke melding, maar vallen stil weg als het portaal ze
+# herschrijft. Deze controle faalt dicht: alleen voor een persona met een lijst uit de keten geeft
+# de server de ontvanger mee aan de pagina, en die staat dan in de payload.
+if ! grep -qF '\"ontvanger\":\"KVK:' "$pagina" 2>/dev/null; then
+    echo "FOUT: de Berichtenbox toont geen lijst uit de keten voor persona $PORTAAL_PERSONA"
+    exit 1
+fi
+
 keten=/tmp/smoke-portaal-keten.json
 rm -f "$keten"
 status=$(curl -s --max-time 10 -o "$keten" -w '%{http_code}' \

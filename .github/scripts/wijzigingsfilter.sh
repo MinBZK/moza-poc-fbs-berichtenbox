@@ -75,9 +75,11 @@ UITROL_RELEVANT='deploy'
 #
 # De compose-overlays voor podman en het portaal leest alleen de lokale stack; de deploy leest
 # compose.yaml zelf (de pin van de berichtenbox op ZAD) en dat bestand valt hier dus níet onder.
+# Ze tellen ook voor de testscope als demo (BUITEN_DEMO hieronder).
+LOKALE_OVERLAYS='^compose\.(podman|portaal)[^/]*\.yaml$'
 #
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/lib/|^demo/[^/]*\.sh$|^compose\.(podman|portaal)[^/]*\.yaml$'
+DEMO_BUITEN_UITROLPOORT="^demo/environment/|^demo/lib/|^demo/[^/]*\\.sh\$|$LOKALE_OVERLAYS"
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.
@@ -95,7 +97,7 @@ NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/
 # niet mee gebouwd en getest te worden. `-am` trekt bovendien op wat een demo-module wél uit het
 # stelsel gebruikt, dus die kant blijft gedekt. Dat een demo-module níets uit de reactor gebruikt is
 # geen gegarandeerde eigenschap; die richting bewaakt vandaag niets.
-BUITEN_DEMO="$NIET_CODE|^demo/"
+BUITEN_DEMO="$NIET_CODE|^demo/|$LOKALE_OVERLAYS"
 
 # Allowlist in plaats van een uitsluiting: alleen bronnen die de fuzz-doelen of hun build raken.
 # Wordt gecombineerd met de code-uitkomst, anders koopt een README onder services/ een volledige
