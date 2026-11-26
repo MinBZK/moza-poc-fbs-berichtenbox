@@ -34,6 +34,15 @@ MAGAZIJN_B_OIN=00000001823288444000
 # shellcheck disable=SC2034 # gelezen door demo-op-fundament.sh
 SIMULATOR_OIN=00000009000000000001
 
+# Slaagt bij bash 4.4 of nieuwer, zonder argumenten voor de bash die nu draait: `mapfile` en een
+# lege array onder `set -u` vragen die versie. Onder 3.2, de bash van macOS, valt het script anders
+# pas halverwege om, op `mapfile: command not found`. De functie zelf moet dus onder 3.2 draaien.
+bash_44_of_nieuwer() {
+  local major=${1:-${BASH_VERSINFO[0]}} minor=${2:-${BASH_VERSINFO[1]}}
+
+  [ "$major" -gt 4 ] || { [ "$major" -eq 4 ] && [ "$minor" -ge 4 ]; }
+}
+
 # Het basisdomein bij een IPv4-adres van de Gateway: sslip.io wijst <iets>.<a-b-c-d>.sslip.io naar
 # dat adres. Een hostnaam of IPv6 geeft niets: dan is een eigen basisdomein nodig.
 basisdomein_uit_adres() {

@@ -423,8 +423,10 @@ git -C "${FUNDAMENT_REPO:-$HOME/dev/fundament}" worktree remove --force \
 Zet de opstelling daarna opnieuw op met `TAG=main-<sha7> charts/fundament-testcluster.sh op`; de
 eerste keer bouwt dat weer alle images van Fundament.
 
-Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm`, `jq`, `curl` (7.76 of nieuwer), `ss` (op
-macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. Instelbaar:
+Het vereist Docker met minstens 16 GiB, `mise`, `git`, `kubectl`, `helm` (3 of 4), `jq`, `curl` (7.76 of nieuwer), `ss` (op
+macOS `lsof`), `openssl` en `mkcert` met een geïnstalleerde CA. `demo` vraagt daarnaast bash 4.4 of nieuwer en
+weigert vooraf als die ontbreekt. De bash van macOS is 3.2; installeer dan eerst een nieuwere met `brew install bash`.
+Instelbaar:
 - `HTTPS_POORT` (standaard 9443);
 - `REPLICAS` (standaard 2): pods per dienst. Twee toetst ook wat één pod verbergt: een tweede pod
   die niet start, en twee pods die tegelijk migreren. Het stelselregister blijft op één: zijn

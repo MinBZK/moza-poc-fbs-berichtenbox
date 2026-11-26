@@ -175,7 +175,7 @@ jobs:
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
             [.github/scripts/test-ghcr-package-bestaat.sh]=29
-            [.github/scripts/test-images-gepubliceerd.sh]=35
+            [.github/scripts/test-images-gepubliceerd.sh]=55
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=53
             [.github/scripts/test-maven-cache.sh]=45
@@ -190,9 +190,9 @@ jobs:
             [demo/lib/test-podman-modus.sh]=138
             [demo/lib/test-opstellingen.sh]=39
             [demo/test-meet-fanout.sh]=223
-            [charts/fundament-testcluster/test-lib.sh]=473
-            [charts/demo-op-fundament/test-lib.sh]=71
-            [charts/demo-op-fundament/test-script.sh]=147
+            [charts/fundament-testcluster/test-lib.sh]=482
+            [charts/demo-op-fundament/test-lib.sh]=81
+            [charts/demo-op-fundament/test-script.sh]=153
           )
           declare -A GEDRAAID=()
 

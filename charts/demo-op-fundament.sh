@@ -518,6 +518,8 @@ controleer() {
 }
 
 main() {
+  bash_44_of_nieuwer || stop 2 "dit script vraagt bash 4.4 of nieuwer, deze is $BASH_VERSION; op macOS: brew install bash"
+
   case "${1:-}" in
     op)
       # Vóór iets schrijft: zonder tag stopte het pas na de databases en de geheimen.

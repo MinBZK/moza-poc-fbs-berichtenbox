@@ -548,7 +548,10 @@ jobs:
         run: |
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
           IMG="$REGISTRY/$OWNER/fbs-externe-stubs:$TAG"
-          docker build -t "$IMG" wiremock/externe-stubs
+          # Zonder provenance-attestation: daarmee wordt het image een index met alleen amd64, en
+          # die weigert containerd op een arm64-node, zoals k3d op een Mac. Een los manifest start
+          # daar onder emulatie, net als de jib-images; de publicatiecontrole hieronder toetst die vorm.
+          docker build --provenance=false -t "$IMG" wiremock/externe-stubs
           docker push "$IMG"
 
           # Dezelfde mappings plus de voorkeuren van de demo-persona's; zie
@@ -582,7 +585,7 @@ jobs:
           fi
 
           DEMO_IMG="$REGISTRY/$OWNER/fbs-demo-profiel:$TAG"
-          docker build -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
+          docker build --provenance=false -t "$DEMO_IMG" -f wiremock/demo-profiel/Dockerfile wiremock
 
           # Het artefact zelf toetsen, niet de bestanden ernaartoe: dit is de enige plek waar de
           # voorrang tussen de handgeschreven persona's (5) en de gegenereerde ondernemers (1)
@@ -659,7 +662,8 @@ jobs:
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
           IMG="$REGISTRY/$OWNER/fbs-fsc-contract-bootstrap:$TAG"
           # Context is demo/environment/ en niet de contracts-map: de scripts leunen op ../../lib.
-          docker build -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
+          # Zonder provenance-attestation, om dezelfde reden als bij build-externe-stubs.
+          docker build --provenance=false -f demo/environment/federatie/contracts/Dockerfile -t "$IMG" demo/environment
           docker push "$IMG"
 
       # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.

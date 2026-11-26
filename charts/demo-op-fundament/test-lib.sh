@@ -46,6 +46,22 @@ faalt() {
   fi
 }
 
+# --- bash_44_of_nieuwer ---
+
+# De grens zelf, en een minor met twee cijfers: als tekst vergeleken ligt 4.10 vóór 4.4.
+for versie in "4 4" "4 10" "5 0" "5 2" "10 0"; do
+  # shellcheck disable=SC2086 # major en minor als twee argumenten
+  bash_44_of_nieuwer $versie && ok "bash $versie volstaat" || faal "bash $versie volstaat niet"
+done
+
+# Eén onder de grens, en de bash van macOS.
+for versie in "3 2" "4 3" "4 0" "3 99"; do
+  # shellcheck disable=SC2086 # idem
+  faalt "bash $versie is te oud" bash_44_of_nieuwer $versie
+done
+
+bash_44_of_nieuwer && ok "zonder argumenten: de bash van deze suite" || faal "zonder argumenten: de bash van deze suite volstaat niet"
+
 # --- basisdomein_uit_adres ---
 
 gelijk "IPv4 naar sslip.io" "fbs.192-0-2-10.sslip.io" "$(basisdomein_uit_adres 192.0.2.10)"
