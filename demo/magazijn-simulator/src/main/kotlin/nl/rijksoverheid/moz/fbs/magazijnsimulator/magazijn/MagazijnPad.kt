@@ -1,7 +1,6 @@
 package nl.rijksoverheid.moz.fbs.magazijnsimulator.magazijn
 
 import jakarta.ws.rs.core.UriBuilder
-import jakarta.ws.rs.core.UriInfo
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.ApiInfo
 import java.net.URI
 
@@ -105,16 +104,22 @@ object MagazijnPad {
         genormaliseerd(onbewerktPad).removePrefix("$ROOT$oin${ApiInfo.BASE_PATH}")
 
     /**
-     * De basis waarop de HAL-links van dít magazijn worden gebouwd.
+     * De basis waarop de HAL-links van dít magazijn worden gebouwd: een absolute-path reference
+     * (`/magazijn/<OIN>/api/v1`), zonder schema en host.
      *
-     * Dit kán niet uit `UriInfo.baseUri` komen. Het ontwerp ging ervan uit dat het prefix daarin te
-     * bewaren viel met de twee-argument-vorm van `ContainerRequestContext.setRequestUri`, maar
-     * Quarkus REST gebruikt die `baseUri` uitsluitend om een relatieve request-URI mee op te lossen
-     * en bewaart hem niet: `UriInfo.baseUri` blijft de root van de applicatie. Het prefix hoort
-     * daarom hier terug in de links, op één plek, naast de code die het eraf haalt.
+     * Schema en host mogen niet uit het verzoek komen. Achter de ingress van ZAD eindigt TLS bij de
+     * router en is het schema van het verzoek `http`: een browser-app op een https-origin blokkeert
+     * de link dan als mixed content, en een client die hem volgt stuurt zijn `X-Ontvanger` eerst in
+     * klare tekst. De host komt uit de `Host`-header, die de aanroeper zelf kiest. Een relatieve
+     * verwijzing lost de client op tegen het adres dat hij zelf aanriep (RFC 3986 §5); de spec laat
+     * dat toe (`Link.href` is `uri-reference`).
+     *
+     * Het prefix staat hier, naast de code die het eraf haalt, en niet in `UriInfo.baseUri`: Quarkus
+     * REST gebruikt de `baseUri` uit `ContainerRequestContext.setRequestUri` alleen om een relatieve
+     * request-URI op te lossen en bewaart hem niet.
      */
-    fun basisUri(uriInfo: UriInfo, oin: String): UriBuilder =
-        uriInfo.baseUriBuilder.path(SEGMENT).path(oin).path(ApiInfo.BASE_PATH)
+    fun basisUri(oin: String): UriBuilder =
+        UriBuilder.fromPath("/").path(SEGMENT).path(oin).path(ApiInfo.BASE_PATH)
 
     private fun genormaliseerd(pad: String): String = "/" + pad.trimStart('/')
 }

@@ -20,9 +20,9 @@ import java.util.UUID
 
 class BerichtDtoMapperTest {
 
-    // Spiegelt `uriInfo.baseUri` at runtime: die bevat de `/api/v1`-prefix uit
-    // `quarkus.rest.path` al, dus de mapper voegt hem niet nog eens toe.
-    private fun baseUri() = UriBuilder.fromUri("https://magazijn.example.com/api/v1")
+    // Spiegelt wat `HalBasis` in de draaiende dienst levert: die bevat de `/api/v1`-prefix
+    // al, dus de mapper voegt hem niet nog eens toe.
+    private fun baseUri() = UriBuilder.fromPath("/api/v1")
 
     private fun bericht(
         bijlagen: List<BijlageMetadata> = emptyList(),
@@ -75,10 +75,10 @@ class BerichtDtoMapperTest {
         assertEquals(true, dto.status.gelezen)
         assertEquals("archief", dto.status.map)
         assertNotNull(dto.links.self.href)
-        assertTrue(dto.links.self.href.toString().endsWith("/api/v1/berichten/11111111-1111-1111-1111-111111111111"))
-        assertTrue(
-            dto.bijlagen[0].links.self.href.toString()
-                .contains("/berichten/11111111-1111-1111-1111-111111111111/bijlagen/22222222-2222-2222-2222-222222222222"),
+        assertEquals("/api/v1/berichten/11111111-1111-1111-1111-111111111111", dto.links.self.href.toString())
+        assertEquals(
+            "/api/v1/berichten/11111111-1111-1111-1111-111111111111/bijlagen/22222222-2222-2222-2222-222222222222",
+            dto.bijlagen[0].links.self.href.toString(),
         )
     }
 
