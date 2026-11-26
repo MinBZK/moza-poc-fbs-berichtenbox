@@ -129,7 +129,9 @@ class VolgenPlafondTest {
             setRequestProperty("X-Sessie", sessies.getOrPut(ontvanger) { sessiecache.sessieVoor(ontvanger) })
             setRequestProperty("Accept", "text/event-stream")
             connectTimeout = 2000
-            readTimeout = 2000
+            // Ruim, want geen test wacht op deze timeout: het eerste 503 na een koude start doorloopt
+            // het foutpad voor het eerst en kost op een belaste runner met JaCoCo ruim twee seconden.
+            readTimeout = 30_000
         }
 
     class KleinePlafondsProfile : QuarkusTestProfile {
