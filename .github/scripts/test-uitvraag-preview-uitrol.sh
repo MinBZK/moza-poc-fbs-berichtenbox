@@ -59,20 +59,22 @@ mist() {
 werkmap=$(mktemp -d)
 trap 'rm -rf "$werkmap"' EXIT
 
-# De stub kiest zijn kanaal op de URL. Per kanaal is elk antwoord er één, in volgorde, en het laatste
-# blijft daarna staan. `FAAL` doet alsof curl zelf faalde, met de melding en de write-out die curl dan
-# geeft. De stub legt zijn argumenten en zijn stdin vast.
+# De stub kiest zijn kanaal op de URL. Per kanaal is elk argument één antwoord, in volgorde; het
+# laatste blijft daarna staan. `FAAL` doet alsof curl zelf faalde, zoals curl dat doet: de melding op
+# stderr, de write-out op stdout. De stub legt per kanaal zijn argumenten en zijn stdin vast.
 cat >"$werkmap/curl" <<STUB
 #!/usr/bin/env bash
-printf '%s\n' "\$*" >>"$werkmap/aanroepen"
-case " \$* " in *" -H @- "*) cat >>"$werkmap/stdin" ;; esac
 case "\$*" in *"/q/health/ready"*) k=ready ;; *) k=om ;; esac
+printf '%s\n' "\$*" >>"$werkmap/aanroepen"
+printf '%s\n' "\$*" >>"$werkmap/aanroepen.\$k"
+case " \$* " in *" -H @- "*) cat >>"$werkmap/stdin.\$k" ;; esac
 n=\$(( \$(cat "$werkmap/teller.\$k" 2>/dev/null || echo 0) + 1 ))
 echo "\$n" >"$werkmap/teller.\$k"
 [ -f "$werkmap/\$k.\$n" ] || n=\$(cat "$werkmap/laatste.\$k" 2>/dev/null || echo 0)
 [ -f "$werkmap/\$k.\$n" ] || { printf 'geen antwoord\n000'; exit 7; }
 if [ "\$(cat "$werkmap/\$k.\$n")" = FAAL ]; then
-  printf 'curl: (6) Could not resolve host: kwijt.test\n000'
+  echo 'curl: (6) Could not resolve host: kwijt.test' >&2
+  printf '\n000'
   exit 6
 fi
 cat "$werkmap/\$k.\$n"
@@ -86,9 +88,9 @@ printf '%s\n' "\$1" >>"$werkmap/geslapen"
 STUB
 chmod +x "$werkmap/slaap"
 
-reset_stub() {
+wis_stub() {
   rm -f "$werkmap"/om.* "$werkmap"/ready.* "$werkmap"/teller.* "$werkmap"/laatste.* \
-    "$werkmap/aanroepen" "$werkmap/stdin" "$werkmap/geslapen"
+    "$werkmap"/aanroepen* "$werkmap"/stdin.* "$werkmap/geslapen"
 }
 
 antwoorden() {
@@ -108,12 +110,14 @@ stub_ready() { antwoorden ready "$@"; }
 
 draai() {
   RC=0
-  PATH="$werkmap:$PATH" ZAD_API_KEY=sleutel ZAD_API_URL=http://api.test ZAD_SLAAP="$werkmap/slaap" \
+  PATH="$werkmap:$PATH" ZAD_API_KEY="${SLEUTEL-sleutel}" ZAD_API_URL=http://api.test ZAD_SLAAP="$werkmap/slaap" \
     URLS="${URLS-}" URL="${URL-}" "$SCRIPT" "$@" >"$werkmap/stdout" 2>"$werkmap/stderr" || RC=$?
   STDOUT=$(cat "$werkmap/stdout")
   UITVOER="$STDOUT"$'\n'$(cat "$werkmap/stderr")
   AANROEPEN=$(cat "$werkmap/aanroepen" 2>/dev/null || true)
-  STDIN=$(cat "$werkmap/stdin" 2>/dev/null || true)
+  AANROEPEN_READY=$(cat "$werkmap/aanroepen.ready" 2>/dev/null || true)
+  STDIN=$(cat "$werkmap/stdin.om" 2>/dev/null || true)
+  STDIN_READY=$(cat "$werkmap/stdin.ready" 2>/dev/null || true)
   GESLAPEN=$(cat "$werkmap/geslapen" 2>/dev/null || true)
 }
 
@@ -126,8 +130,8 @@ aantal() {
 # De echte samenstelling van het uitvraag-project, met de proxy waar het hier om draait.
 readonly GEVRAAGD='[{"name":"redis","image":"redis:7"},{"name":"toxiproxy-aanmeld","image":"tp:2"},{"name":"toxiproxy-redis","image":"tp:2"},{"name":"uitvraag","image":"uv:pr-7-abc"}]'
 
-# Een deployment zoals Operations Manager hem geeft, met de statuscode die curl erachter zet; de
-# jq-filter erachter past hem per geval aan.
+# Een deployment zoals Operations Manager hem geeft, met de statuscode die curl met `-w` toevoegt.
+# Argument 1 is een jq-filter op de deployment, argument 2 de statuscode (standaard 200).
 deployment() {
   printf '%s\n%s' "$(jq -c "${1:-.}" <<'JSON'
 {
@@ -163,7 +167,7 @@ readiness_down() { readiness DOWN 503; }
 router() { printf '%s\n%s' '<html>Application is not available</html>' 503; }
 
 oordeel() {
-  draai oordeel failure mpfb-8wh pr-7 uitvraag "${1:-$GEVRAAGD}"
+  draai oordeel failure mpfb-8wh pr-7 uitvraag "${1:-$GEVRAAGD}" "${WACHTEND-0}"
 }
 
 stdout_is_alleen_output() {
@@ -184,36 +188,65 @@ else
   fout "het script is niet uitvoerbaar; deploy.yml roept het zonder bash aan"
 fi
 
+# --- nulmeting ----------------------------------------------------------------------------------
+wis_stub
+stub_om "$(deployment '.pending_rollout.count = 2')"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting: groen" 0 "$RC"
+gelijk "geeft het aantal wachtende uitrollen" 'wachtend=2' "$STDOUT"
+bevat "van de juiste deployment" 'http://api.test/v2/projects/mpfb-8wh/deployments/pr-7' "$AANROEPEN"
+
+for telling in null '"2"' -1 1.5; do
+  wis_stub
+  stub_om "$(deployment ".pending_rollout.count = $telling")"
+  draai nulmeting mpfb-8wh pr-7
+  gelijk "nulmeting met aantal $telling: rood" 1 "$RC"
+  gelijk "en zonder uitvoer op stdout ($telling)" "" "$STDOUT"
+done
+
+wis_stub
+stub_om "$(deployment . 404)"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting op een onbekende deployment: rood" 1 "$RC"
+bevat "met de statuscode" 'HTTP 404' "$UITVOER"
+
+wis_stub
+SLEUTEL='' draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting zonder API-sleutel: rood" 1 "$RC"
+
+draai nulmeting mpfb-8wh
+gelijk "nulmeting zonder deployment: rood" 1 "$RC"
+
 # --- oordeel: een groene deploy -----------------------------------------------------------------
-reset_stub
-URLS='{"uitvraag":"https://u.test"}' URL='https://u.test' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
+wis_stub
+URLS='{"uitvraag":"https://u.test"}' URL='https://u.test' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD" 0
 gelijk "groene deploy: groen" 0 "$RC"
 bevat "geeft de adressen van de action door" 'urls={"uitvraag":"https://u.test"}' "$STDOUT"
 bevat "en zijn url" 'url=https://u.test' "$STDOUT"
 stdout_is_alleen_output "en verder niets op stdout"
 gelijk "zonder Operations Manager te vragen" 0 "$(aantal http)"
 
-reset_stub
-URLS='' URL='' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
+wis_stub
+URLS='' URL='' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD" 0
 gelijk "groene deploy zonder adressen: rood" 1 "$RC"
 bevat "en zegt dat het aan de action ligt" 'De deploy-action slaagde maar gaf geen bruikbare adressen' "$UITVOER"
 
-reset_stub
-URLS='niet-json' URL='https://u.test' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
+wis_stub
+URLS='niet-json' URL='https://u.test' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD" 0
 gelijk "groene deploy met adressen zonder JSON: rood" 1 "$RC"
 
-reset_stub
-URLS='{"uitvraag":"https://u.test"}' URL=$'https://u.test\nurl=https://kwaad.test' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
+wis_stub
+URLS='{"uitvraag":"https://u.test"}' URL=$'https://u.test\nurl=https://kwaad.test' draai oordeel success mpfb-8wh pr-7 uitvraag "$GEVRAAGD" 0
 gelijk "groene deploy met een regeleinde in url: rood" 1 "$RC"
 gelijk "en zonder uitvoer op stdout" "" "$STDOUT"
 
-reset_stub
-draai oordeel cancelled mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
+wis_stub
+draai oordeel cancelled mpfb-8wh pr-7 uitvraag "$GEVRAAGD" 0
 gelijk "onbekende uitkomst van de deploy-stap: rood" 1 "$RC"
 gelijk "en vraagt niets op" 0 "$(aantal http)"
 
 # --- oordeel: een rode deploy, aanvaard ---------------------------------------------------------
-reset_stub
+wis_stub
 stub_om "$(deployment)"
 oordeel
 gelijk "geland en alleen de uitvraag ongezond: aanvaard" 0 "$RC"
@@ -226,13 +259,13 @@ stdout_is_alleen_output "de waarschuwing gaat niet naar stdout"
 bevat "de aanvaarding staat als waarschuwing in de log" '::warning::' "$UITVOER"
 
 # De volgorde van de opgegeven componenten bepaalt de url, niet die van de adressen.
-reset_stub
+wis_stub
 stub_om "$(deployment)"
 oordeel '[{"name":"uitvraag","image":"uv:pr-7-abc"},{"name":"toxiproxy-aanmeld","image":"tp:2"}]'
 bevat "url volgt de volgorde van de componenten" 'url=https://uitvraag-pr-7.test' "$STDOUT"
 
 # Een leeg adres telt niet, zoals bij de action.
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls["toxiproxy-aanmeld"] = ""')"
 oordeel
 gelijk "een leeg adres naast een echt adres: aanvaard" 0 "$RC"
@@ -240,28 +273,28 @@ bevat "en de url slaat het lege over" 'url=https://uitvraag-pr-7.test' "$STDOUT"
 
 # Meldingen van ReplicaSet, pod en event van hetzelfde component tellen als datzelfde component; de
 # hashes zijn zoals Kubernetes ze maakt.
-reset_stub
+wis_stub
 stub_om "$(deployment '.errors = [{"resource":"Event/pr-7-uitvraag-6864549db5-8zd6c"},{"resource":"Pod/pr-7-uitvraag-6864549db5-8zd6c"},{"resource":"ReplicaSet/pr-7-uitvraag-6864549db5"},{"resource":"Event/pr-7-uitvraag-6864549db5-8zd6c.187a2b3c4d5e6f70"},{"resource":"Deployment/pr-7-uitvraag"}]')"
 oordeel
 gelijk "meerdere meldingen, alle van de uitvraag: aanvaard" 0 "$RC"
 
 # Na vijf minuten kan de progress deadline nog lopen: dan is er nog geen enkele melding.
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Progressing" | .errors = []')"
 oordeel
 gelijk "nog bezig met uitrollen, zonder meldingen: aanvaard" 0 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Progressing" | del(.errors)')"
 oordeel
 gelijk "nog bezig, zonder errors-veld: aanvaard" 0 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Progressing"')"
 oordeel
 gelijk "nog bezig met alleen een melding van de uitvraag: aanvaard" 0 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 oordeel
 gelijk "inmiddels gezond: aanvaard" 0 "$RC"
@@ -269,66 +302,115 @@ bevat "met een toelichting bij de rode melding" '::notice::' "$UITVOER"
 mist "zonder waarschuwing" '::warning::' "$UITVOER"
 stdout_is_alleen_output "de toelichting gaat niet naar stdout"
 
+# `preview-klaarzetten` laat bij een nieuwe preview wachtende wijzigingen achter; zo veel als bij de
+# nulmeting is geen uitrol van deze run.
+wis_stub
+stub_om "$(deployment '.pending_rollout.count = 2')"
+WACHTEND=2 oordeel
+gelijk "evenveel wachtende uitrollen als bij de nulmeting: aanvaard" 0 "$RC"
+
+wis_stub
+stub_om "$(deployment '.pending_rollout.count = 1')"
+WACHTEND=2 oordeel
+gelijk "minder wachtende uitrollen dan bij de nulmeting: aanvaard" 0 "$RC"
+
+wis_stub
+stub_om "$(deployment '.status = "Progressing" | .errors = [] | .deviations = [{"resource":"Deployment/pr-7-uitvraag"}]')"
+oordeel
+gelijk "Progressing met een afwijking van de uitvraag: aanvaard" 0 "$RC"
+
 # --- oordeel: een rode deploy, niet aanvaard ----------------------------------------------------
+wis_stub
+stub_om "$(deployment '.pending_rollout.count = 3')"
+WACHTEND=2 oordeel
+gelijk "meer wachtende uitrollen dan bij de nulmeting: rood" 1 "$RC"
+bevat "met beide getallen" '3 wijziging(en) in het project op uitrol, 2 bij de nulmeting' "$UITVOER"
+
+for telling in x -1 ''; do
+  wis_stub
+  stub_om "$(deployment)"
+  WACHTEND=$telling oordeel
+  gelijk "nulmeting '$telling': rood" 1 "$RC"
+  gelijk "zonder iets op te vragen ('$telling')" 0 "$(aantal http)"
+done
+
+wis_stub
+stub_om "$(deployment '.status = "Progressing" | .errors = [] | .deviations = [{"resource":"Deployment/pr-7-toxiproxy-aanmeld"}]')"
+oordeel
+gelijk "Progressing met een afwijking van een ander component: rood" 1 "$RC"
+bevat "en noemt dat component" 'Deployment/pr-7-toxiproxy-aanmeld' "$UITVOER"
+
+wis_stub
+stub_om "$(deployment '.errors = [{"message":"x"}]')"
+oordeel
+gelijk "melding zonder resource: rood" 1 "$RC"
+bevat "en zegt dat" '(zonder resource)' "$UITVOER"
+
+wis_stub
+stub_om "$(deployment '.errors = [{"resource":5}]')"
+oordeel
+gelijk "melding die jq niet kan lezen: rood" 1 "$RC"
+bevat "met de fout van jq" 'onleesbaar antwoord (jq: error' "$UITVOER"
+
 # De upsert faalde vóór het opslaan, en de oude preview staat er gezond bij.
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Healthy" | .errors = [] | .components[3].image = "uv:pr-7-oud"')"
 oordeel
 gelijk "oud image opgeslagen, oude preview gezond: rood" 1 "$RC"
 bevat "met het afwijkende component" '(uitvraag)' "$UITVOER"
 gelijk "zonder uitvoer op stdout" "" "$STDOUT"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.components[0].image = "redis:6" | .components[3].image = "uv:oud"')"
 oordeel
 gelijk "twee afwijkende images: rood" 1 "$RC"
 bevat "en noemt ze allebei" '(redis, uitvraag)' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.components |= map(select(.reference != "toxiproxy-redis"))')"
 oordeel
 gelijk "een gevraagd component ontbreekt: rood" 1 "$RC"
 bevat "en noemt het" '(toxiproxy-redis)' "$UITVOER"
 
 # Opgeslagen maar niet uitgerold: de oude pods draaien gezond met de nieuwe images in het projectbestand.
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Healthy" | .errors = [] | .pending_rollout.count = 1')"
 oordeel
 gelijk "opgeslagen maar niet uitgerold: rood" 1 "$RC"
 bevat "met het aantal" '1 wijziging' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.pending_rollout = null')"
 oordeel
 gelijk "aantal wachtende uitrollen onbekend: rood" 1 "$RC"
 bevat "en zegt dat" 'het aantal wachtende uitrollen ontbreekt' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.pending_rollout.count = "0"')"
 oordeel
 gelijk "aantal wachtende uitrollen als tekst: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.running_sync = {"revision":"abc"}')"
 oordeel
 gelijk "er loopt nog een sync: rood" 1 "$RC"
 bevat "en zegt dat" 'er loopt nog een sync' "$UITVOER"
 
 # Een veld dat verdwijnt, mag de controle niet stil openzetten.
-reset_stub
+wis_stub
 stub_om "$(deployment 'del(.running_sync)')"
 oordeel
 gelijk "running_sync ontbreekt: rood" 1 "$RC"
 bevat "als antwoord zonder de vorm van een deployment" 'zonder de vorm van een deployment' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.errors = [{"resource":"Deployment/pr-7-uitvraag"},{"resource":"Deployment/pr-7-redis"}]')"
 oordeel
 gelijk "Degraded, ook een ander component ongezond: rood" 1 "$RC"
 bevat "en noemt dat component" 'Deployment/pr-7-redis' "$UITVOER"
 mist "maar niet de uitvraag" 'Deployment/pr-7-uitvraag,' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Progressing" | .errors = [{"resource":"Pod/pr-7-redis-7d4b9c8f6-x2kzq"}]')"
 oordeel
 gelijk "Progressing met een melding van een ander component: rood" 1 "$RC"
@@ -337,123 +419,125 @@ bevat "met de status" 'Progressing door meer dan' "$UITVOER"
 # Een ander component waarvan de naam met die van de uitvraag begint, is een ander component, ook als
 # het achtervoegsel de lengte van een hash heeft.
 for ander in uitvraagx uitvraag-ldv uitvraag-aanmeld uitvraag-worker uitvraag-worker-proxy; do
-  reset_stub
+  wis_stub
   stub_om "$(deployment ".errors = [{\"resource\":\"Deployment/pr-7-$ander\"}]")"
   oordeel
   gelijk "component $ander: rood" 1 "$RC"
 done
 
 # Een buur-deployment met hetzelfde voorvoegsel is een andere deployment.
-reset_stub
+wis_stub
 stub_om "$(deployment '.errors = [{"resource":"Deployment/pr-70-uitvraag"}]')"
 oordeel
 gelijk "melding van een buur-deployment: rood" 1 "$RC"
 
 for leeg in '.errors = []' 'del(.errors)' '.errors = null'; do
-  reset_stub
+  wis_stub
   stub_om "$(deployment "$leeg")"
   oordeel
   gelijk "Degraded zonder fouten ($leeg): rood" 1 "$RC"
   bevat "en zegt waarom ($leeg)" 'Degraded zonder fouten' "$UITVOER"
 done
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "OutOfSync"')"
 oordeel
 gelijk "OutOfSync: rood" 1 "$RC"
 bevat "met de status" 'status OutOfSync' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Missing"')"
 oordeel
 gelijk "Missing: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls = {}')"
 oordeel
 gelijk "geen enkel adres: rood" 1 "$RC"
 bevat "en zegt dat" 'heeft een publiek adres' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls = {"redis":"https://redis.test"}')"
 oordeel '[{"name":"uitvraag","image":"uv:pr-7-abc"}]'
 gelijk "geen adres voor een opgegeven component: rood" 1 "$RC"
 
 # Een regeleinde zou in $GITHUB_OUTPUT een eigen regel worden.
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls.uitvraag = "https://u.test\nurl=https://kwaad.test"')"
 oordeel
 gelijk "adres met een regeleinde: rood" 1 "$RC"
 gelijk "en zonder uitvoer op stdout" "" "$STDOUT"
 mist "en zonder waarschuwing vooraf" '::warning::' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls.uitvraag = "http://u.test"')"
 oordeel
 gelijk "adres zonder https: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls.redis = true')"
 oordeel
 gelijk "adres dat geen tekst is: rood" 1 "$RC"
 bevat "met een melding" '::error::' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.urls = "https://u.test"')"
 oordeel
 gelijk "urls is geen object: rood" 1 "$RC"
 bevat "met een melding" '::error::' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om FAAL
 oordeel
 gelijk "deployment niet op te vragen: rood" 1 "$RC"
 bevat "met wat curl meldt" 'Could not resolve host' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment . 503)"
 oordeel
 gelijk "deployment geeft 503: rood" 1 "$RC"
 bevat "met de statuscode" 'HTTP 503' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(printf '%s\n%s' 'geen json' 200)"
 oordeel
 gelijk "antwoord zonder JSON: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(printf '%s\n%s' '<html>inlogmuur</html>' 200)"
 oordeel
 gelijk "HTML-antwoord: rood" 1 "$RC"
 bevat "als antwoord zonder de vorm van een deployment" 'zonder de vorm van een deployment' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(printf '%s\n%s' '{"name":"pr-7","running_sync":null}' 200)"
 oordeel
 gelijk "antwoord zonder status: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment)"
 oordeel '[]'
 gelijk "lege componentenlijst: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 oordeel 'geen json'
 gelijk "componentenlijst zonder JSON: rood" 1 "$RC"
 
-reset_stub
-RC=0
-PATH="$werkmap:$PATH" ZAD_API_KEY='' "$SCRIPT" oordeel failure mpfb-8wh pr-7 uitvraag "$GEVRAAGD" >/dev/null 2>&1 || RC=$?
+wis_stub
+stub_om "$(deployment)"
+SLEUTEL='' draai oordeel failure mpfb-8wh pr-7 uitvraag "$GEVRAAGD" 0
 gelijk "rode deploy zonder API-sleutel: rood" 1 "$RC"
+bevat "en zegt dat" 'ZAD_API_KEY ontbreekt' "$UITVOER"
+gelijk "zonder iets op te vragen" 0 "$(aantal http)"
 
 # --- wacht --------------------------------------------------------------------------------------
 readonly URLS_PREVIEW='{"toxiproxy-aanmeld":"https://tp.test","uitvraag":"https://u.test/"}'
 
 wacht() {
-  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" "$@"
+  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" "${WACHTEND-0}" "$@"
 }
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready "$(readiness_up)"
 wacht 10 7
@@ -471,78 +555,159 @@ else
   ok "de readiness wordt zonder -f opgevraagd"
 fi
 bevat "de sleutel gaat via stdin" 'X-API-Key: sleutel' "$STDIN"
+bevat "wacht vraagt de juiste deployment op" 'http://api.test/v2/projects/mpfb-8wh/deployments/pr-7' "$AANROEPEN"
+# De readiness staat op een adres uit Operations Manager; de sleutel hoort daar niet heen.
+gelijk "de readiness krijgt geen stdin" "" "$STDIN_READY"
+mist "en geen sleutel in de argv" 'sleutel' "$AANROEPEN_READY"
+# Zonder grens rekt één hangende curl de vijf minuten op tot de timeout van de job.
+bevat "Operations Manager met een grens op de duur" '--max-time 30' "$(grep -F api.test <<<"$AANROEPEN")"
+bevat "de readiness met een grens op de duur" '--max-time 10' "$AANROEPEN_READY"
 gelijk "zonder te slapen" "" "$GESLAPEN"
+
+# Na herstel kan de oude melding van de uitvraag in de lijst blijven staan; `Healthy` is het oordeel
+# van Argo, en de readiness bevestigt het.
+wis_stub
+stub_om "$(deployment '.status = "Healthy"')"
+stub_ready "$(readiness_up)"
+wacht 0 1
+gelijk "Healthy met een oude melding van de uitvraag: groen" 0 "$RC"
+
+wis_stub
+stub_om "$(deployment '.status = "Healthy" | .pending_rollout.count = 2')"
+stub_ready "$(readiness_up)"
+WACHTEND=2 wacht 0 1
+gelijk "gezond met evenveel wachtende uitrollen als bij de nulmeting: groen" 0 "$RC"
+
+wis_stub
+stub_om "$(deployment '.status = "Healthy" | .errors = [] | .pending_rollout.count = 3')"
+stub_ready "$(readiness_up)"
+WACHTEND=2 wacht 0 1
+gelijk "gezond maar meer wachtende uitrollen dan bij de nulmeting: rood" 1 "$RC"
+
+# Een nieuwere uitrol van dezelfde deployment zette de images verder: daar komt deze run niet meer uit.
+wis_stub
+stub_om "$(deployment '.status = "Healthy" | .errors = [] | .components[3].image = "uv:pr-7-def"')"
+stub_ready "$(readiness_up)"
+wacht 10 1
+gelijk "door een nieuwere uitrol overgenomen: meteen rood" 1 "$RC"
+gelijk "na één opvraging" 1 "$(aantal api.test)"
+bevat "en zegt dat" 'door een nieuwere uitrol overgenomen' "$UITVOER"
+
+wis_stub
+stub_om "$(deployment . 404)"
+stub_ready "$(readiness_up)"
+wacht 10 1
+gelijk "opgeruimde deployment: meteen rood" 1 "$RC"
+gelijk "na één opvraging" 1 "$(aantal api.test)"
+bevat "en zegt dat" 'bestaat niet meer' "$UITVOER"
+
+wis_stub
+stub_om "$(deployment . 403)"
+stub_ready "$(readiness_up)"
+wacht 10 1
+gelijk "sleutel zonder rechten: meteen rood" 1 "$RC"
+gelijk "na één opvraging" 1 "$(aantal api.test)"
+bevat "met de statuscode" 'HTTP 403' "$UITVOER"
+
+# Een storing van Operations Manager zelf gaat voorbij; daar breekt `wacht` niet op af.
+wis_stub
+stub_om "$(deployment . 503)" "$(deployment . 502)" FAAL "$(gezond_in_om)"
+stub_ready "$(readiness_up)"
+wacht 10 1
+gelijk "na 503, 502 en een mislukte opvraging gezond" 0 "$RC"
+gelijk "vier opvragingen bij Operations Manager" 4 "$(aantal api.test)"
+
+wis_stub
+stub_om "$(deployment . 503)"
+stub_ready "$(readiness_up)"
+wacht 0 1
+gelijk "Operations Manager blijft 503: rood" 1 "$RC"
+bevat "met de statuscode" 'niet op te vragen (HTTP 503)' "$UITVOER"
+
+wis_stub
+stub_om FAAL
+stub_ready "$(readiness_up)"
+wacht 0 1
+gelijk "Operations Manager onbereikbaar: rood" 1 "$RC"
+bevat "met wat curl meldt" 'curl 6: curl: (6) Could not resolve host' "$UITVOER"
+
+wis_stub
+stub_om "$(deployment '.status = "Healthy" | .errors = [] | .components[0].reference = 5')"
+stub_ready "$(readiness_up)"
+wacht 0 1
+gelijk "antwoord dat jq niet kan lezen: rood" 1 "$RC"
+bevat "met de fout van jq" 'onleesbaar antwoord (jq: error' "$UITVOER"
 
 # De oude pod van een bestaande preview blijft ready terwijl de nieuwe vastzit: zonder Operations
 # Manager zou dit groen zijn.
-reset_stub
+wis_stub
 stub_om "$(deployment)"
 stub_ready "$(readiness_up)"
 wacht 0 1
 gelijk "readiness UP maar Operations Manager Degraded: rood" 1 "$RC"
 bevat "met de staat in Operations Manager" 'Operations Manager: nog niet gezond' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Progressing" | .errors = []')"
 stub_ready "$(readiness_up)"
 wacht 0 1
 gelijk "readiness UP maar nog Progressing: rood" 1 "$RC"
 
 # Opgeslagen maar niet uitgerold: gezond, met de oude pods.
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Healthy" | .errors = [] | .pending_rollout.count = 1')"
 stub_ready "$(readiness_up)"
 wacht 0 1
 gelijk "gezond maar een wachtende uitrol: rood" 1 "$RC"
 bevat "en noemt die" 'wachten 1 wijziging' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Healthy" | .errors = [] | .components[3].image = "uv:pr-8-def"')"
 stub_ready "$(readiness_up)"
 wacht 0 1
 gelijk "gezond met een ander image dan gevraagd: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(deployment '.status = "Healthy" | .errors = [] | .running_sync = {"revision":"abc"}')"
 stub_ready "$(readiness_up)"
 wacht 0 1
 gelijk "gezond maar met een lopende sync: rood" 1 "$RC"
 
 # Een component dat Operations Manager uitschakelde, staat daar als gezond.
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready "$(router)"
 wacht 0 1
 gelijk "Operations Manager gezond maar readiness 503: rood" 1 "$RC"
 bevat "met de readiness" 'readiness van uitvraag: HTTP 503' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready "$(readiness_down)"
 wacht 0 1
 gelijk "readiness DOWN: rood" 1 "$RC"
 bevat "met de check die niet UP is" 'niet UP: Redis connection health check' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready "$(readiness UP 503)"
 wacht 0 1
 gelijk "readiness zegt UP met een 503: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready "$(readiness DOWN 200)"
 wacht 0 1
 gelijk "readiness zegt DOWN met een 200: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready FAAL
 wacht 0 1
 gelijk "readiness onbereikbaar: rood" 1 "$RC"
 bevat "met wat curl meldt" 'curl 6: curl: (6) Could not resolve host' "$UITVOER"
 
-reset_stub
+wis_stub
 stub_om "$(deployment)" FAAL "$(deployment '.status = "Progressing" | .errors = []')" "$(gezond_in_om)" "$(gezond_in_om)"
 stub_ready "$(router)" "$(readiness_up)" "$(readiness_up)" "$(readiness_down)" "$(readiness_up)"
 wacht 10 7
@@ -551,15 +716,15 @@ gelijk "vijf opvragingen bij Operations Manager" 5 "$(aantal api.test)"
 gelijk "vijf opvragingen van de readiness" 5 "$(aantal /q/health/ready)"
 gelijk "met het opgegeven interval ertussen" "7 7 7 7" "$(tr '\n' ' ' <<<"$GESLAPEN" | sed 's/ $//')"
 
-reset_stub
+wis_stub
 stub_om "$(gezond_in_om)"
 stub_ready "$(router)" "$(readiness_up)"
 wacht
 gelijk "zonder seconden en interval: gezond" 0 "$RC"
 gelijk "met een standaardinterval van 10 s" 10 "$GESLAPEN"
 
-# De deadline telt in echte seconden: met twee seconden en één seconde slapen zijn het er hooguit drie.
-reset_stub
+# De deadline telt in echte seconden: met twee seconden en één seconde slapen volgen twee tot vier opvragingen.
+wis_stub
 stub_om "$(deployment)"
 stub_ready "$(router)"
 ECHT_SLAPEN=1 wacht 2 1
@@ -572,7 +737,7 @@ else
   fout "binnen de deadline twee tot vier opvragingen — gemeten $opvragingen"
 fi
 
-reset_stub
+wis_stub
 stub_om "$(deployment . 401)"
 stub_ready "$(readiness_up)"
 wacht 10 1
@@ -580,41 +745,50 @@ gelijk "sleutel geweigerd: meteen rood" 1 "$RC"
 gelijk "na één opvraging" 1 "$(aantal api.test)"
 bevat "met de statuscode" 'HTTP 401' "$UITVOER"
 
-reset_stub
-draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" '{"toxiproxy-aanmeld":"https://tp.test"}' 10 1
+wis_stub
+draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" '{"toxiproxy-aanmeld":"https://tp.test"}' 0 10 1
 gelijk "geen adres voor de uitvraag: rood" 1 "$RC"
 gelijk "en vraagt niets op" 0 "$(aantal http)"
 
 for adressen in '{"uitvraag":"http://u.test"}' '' 'geen json' '{"uitvraag":"https://u.test\nx"}'; do
-  reset_stub
-  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$adressen" 10 1
+  wis_stub
+  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$adressen" 0 10 1
   gelijk "onbruikbare adressen ($adressen): rood" 1 "$RC"
 done
 
-reset_stub
+wis_stub
 wacht 10 1 extra
 gelijk "wacht met te veel argumenten: rood" 1 "$RC"
 
-reset_stub
+wis_stub
 draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
 gelijk "wacht zonder adressen: rood" 1 "$RC"
+bevat "met de gebruiksregel" 'Gebruik:' "$UITVOER"
 
-reset_stub
-draai wacht mpfb-8wh pr-7 uitvraag '[]' "$URLS_PREVIEW"
-gelijk "wacht met een lege componentenlijst: rood" 1 "$RC"
+wis_stub
+for lijst in '[]' '["uitvraag"]' '[{"name":"uitvraag"}]' '[{"name":"uitvraag","image":""}]' '[{"image":"uv:1"}]'; do
+  wis_stub
+  draai wacht mpfb-8wh pr-7 uitvraag "$lijst" "$URLS_PREVIEW" 0 10 1
+  gelijk "wacht met componentenlijst $lijst: rood" 1 "$RC"
+  bevat "en zegt waarom ($lijst)" 'geen niet-lege JSON-lijst van componenten' "$UITVOER"
+  gelijk "zonder iets op te vragen ($lijst)" 0 "$(aantal http)"
+done
 
-reset_stub
-RC=0
-PATH="$werkmap:$PATH" ZAD_API_KEY='' "$SCRIPT" wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" >/dev/null 2>&1 || RC=$?
+wis_stub
+SLEUTEL='' draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" 0 10 1
 gelijk "wacht zonder API-sleutel: rood" 1 "$RC"
+bevat "en zegt dat" 'ZAD_API_KEY ontbreekt' "$UITVOER"
+gelijk "zonder iets op te vragen" 0 "$(aantal http)"
 
 # --- aanroep ------------------------------------------------------------------------------------
-reset_stub
+wis_stub
 draai onzin mpfb-8wh pr-7
 gelijk "onbekende actie: rood" 1 "$RC"
 
-draai oordeel failure mpfb-8wh pr-7
-gelijk "oordeel met te weinig argumenten: rood" 1 "$RC"
+draai oordeel failure mpfb-8wh pr-7 uitvraag "$GEVRAAGD"
+gelijk "oordeel zonder nulmeting: rood" 1 "$RC"
+bevat "met de gebruiksregel" 'Gebruik:' "$UITVOER"
+gelijk "zonder iets op te vragen" 0 "$(aantal http)"
 
 # --- aansluiting op deploy.yml ------------------------------------------------------------------
 # Per stap, niet per job: een `continue-on-error` op de verkeerde stap of een `conclusion` in plaats
@@ -645,13 +819,15 @@ mist "het oordeel mag niet falen" 'continue-on-error' "$oordeel_stap"
 bevat "het oordeel leest de outcome, niet de conclusion" 'UITKOMST: ${{ steps.deploy.outcome }}' "$oordeel_stap"
 # shellcheck disable=SC2016 # "$UITKOMST" is letterlijke tekst uit de workflow
 bevat "het oordeel roept het script aan met de uitkomst" 'uitvraag-preview-uitrol.sh oordeel "$UITKOMST"' "$oordeel_stap"
+# shellcheck disable=SC2016 # idem
+bevat "en met de nulmeting" '"$COMPONENTEN" "$WACHTEND"' "$oordeel_stap"
 mist "het oordeel draait altijd" 'if:' "$oordeel_stap"
 # shellcheck disable=SC2016 # idem
 bevat "de adressen komen uit het oordeel" 'urls: ${{ steps.oordeel.outputs.urls }}' "$uitvraag_job"
 # shellcheck disable=SC2016 # idem
 bevat "de environment-URL komt uit het oordeel" 'url: ${{ steps.oordeel.outputs.url }}' "$uitvraag_job"
 # shellcheck disable=SC2016 # idem
-bevat "de wachtstap wacht vijf minuten, elke tien seconden" 'uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" 300 10' "$wacht_stap"
+bevat "de wachtstap wacht vijf minuten, elke tien seconden" 'uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" "$WACHTEND" 300 10' "$wacht_stap"
 # shellcheck disable=SC2016 # idem
 bevat "met de adressen van de uitvraag-job" 'URLS: ${{ needs.deploy-preview-uitvraag.outputs.urls }}' "$wacht_stap"
 # shellcheck disable=SC2016 # idem
@@ -661,6 +837,50 @@ bevat "met de sleutel van het uitvraag-project" 'ZAD_API_KEY: ${{ secrets.ZAD_AP
 mist "en altijd, ook na een groene deploy" 'if:' "$wacht_stap"
 bevat "de magazijnen-job hangt aan de uitvraag-job" '- deploy-preview-uitvraag' "$magazijnen_job"
 bevat "en aan meta" '- meta' "$magazijnen_job"
+
+# Alleen de deploy-stap van de uitvraag mag falen; een `continue-on-error` op de wachtstap of op de
+# magazijnen-job zou de poort tot schijn maken.
+gelijk "in de uitvraag-job mag precies één stap falen" 1 "$(grep -c 'continue-on-error' <<<"$uitvraag_job")"
+mist "in de magazijnen-job mag niets falen" 'continue-on-error' "$magazijnen_job"
+
+# Pas na de magazijnen-uitrol draait de console die de proxy maakt; ervoor wachten brengt de kring
+# terug.
+regel_van() { grep -nF -- "$1" <<<"$2" | head -1 | cut -d: -f1; }
+regel_deploy_magazijnen=$(regel_van '- name: Deploy magazijnen-project' "$magazijnen_job")
+regel_wacht=$(regel_van '- name: Wacht tot de uitvraag-preview gezond is' "$magazijnen_job")
+
+if [ -n "$regel_deploy_magazijnen" ] && [ -n "$regel_wacht" ] && [ "$regel_deploy_magazijnen" -lt "$regel_wacht" ]; then
+  ok "de wachtstap komt na de magazijnen-uitrol"
+else
+  fout "de wachtstap komt na de magazijnen-uitrol — regels '$regel_deploy_magazijnen' en '$regel_wacht'"
+fi
+
+nulmeting_stap=$(stap nulmeting "$uitvraag_job")
+regel_nulmeting=$(regel_van 'id: nulmeting' "$uitvraag_job")
+regel_deploy_uitvraag=$(regel_van 'id: deploy' "$uitvraag_job")
+
+if [ -n "$regel_nulmeting" ] && [ -n "$regel_deploy_uitvraag" ] && [ "$regel_nulmeting" -lt "$regel_deploy_uitvraag" ]; then
+  ok "de nulmeting komt vóór de uitvraag-deploy"
+else
+  fout "de nulmeting komt vóór de uitvraag-deploy — regels '$regel_nulmeting' en '$regel_deploy_uitvraag'"
+fi
+
+# shellcheck disable=SC2016 # idem
+bevat "de nulmeting roept het script aan" 'uitvraag-preview-uitrol.sh nulmeting "$PROJECT" "$DEPLOYMENT" >> "$GITHUB_OUTPUT"' "$nulmeting_stap"
+mist "de nulmeting mag niet falen" 'continue-on-error' "$nulmeting_stap"
+# shellcheck disable=SC2016 # idem
+bevat "de nulmeting gaat als job-output mee" 'wachtend: ${{ steps.nulmeting.outputs.wachtend }}' "$uitvraag_job"
+# shellcheck disable=SC2016 # idem
+bevat "het oordeel krijgt de nulmeting" 'WACHTEND: ${{ steps.nulmeting.outputs.wachtend }}' "$oordeel_stap"
+# shellcheck disable=SC2016 # idem
+bevat "de wachtstap krijgt de nulmeting" 'WACHTEND: ${{ needs.deploy-preview-uitvraag.outputs.wachtend }}' "$wacht_stap"
+
+for s in nulmeting_stap oordeel_stap wacht_stap; do
+  # shellcheck disable=SC2016 # idem
+  bevat "$s vraagt het uitvraag-project" 'PROJECT: ${{ env.PROJECT_UITVRAAG }}' "${!s}"
+  # shellcheck disable=SC2016 # idem
+  bevat "$s vraagt de preview van deze PR" 'DEPLOYMENT: pr-${{ github.event.pull_request.number }}' "${!s}"
+done
 
 echo "ASSERTIES=$asserties"
 
