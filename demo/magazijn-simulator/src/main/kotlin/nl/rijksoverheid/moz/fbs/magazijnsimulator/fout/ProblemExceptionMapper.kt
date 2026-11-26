@@ -4,6 +4,7 @@ import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import org.jboss.logging.Logger
 import java.util.UUID
@@ -32,7 +33,12 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (response.entity is Problem) return response
 
-        val status = response.status
+        val status = if (FrameworkfoutDetail.isOngeldigeParameter(exception)) {
+            Response.Status.BAD_REQUEST.statusCode
+        } else {
+            response.status
+        }
+
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val foutId = UUID.randomUUID()
 
@@ -54,16 +60,29 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         // Ook een clientfout krijgt een regel, op INFO. Het antwoord draagt een correlatie-id, en een
         // id dat nergens in de log staat is geen correlatie maar een sierletter. De melding blijft
         // eruit om dezelfde reden als hierboven: die kan invoer dragen.
-        log.infof("Clientfout %d (foutId=%s, type=%s)", status, foutId, exception.javaClass.name)
+        log.infof(
+            "Clientfout %d (foutId=%s, type=%s, cause=%s)",
+            status,
+            foutId,
+            exception.javaClass.name,
+            exception.cause?.javaClass?.simpleName ?: "geen",
+        )
 
         return problemResponse(
             status = status,
             title = title,
-            detail = veiligDetail(exception.message),
+            detail = clientDetail(exception),
             foutId = foutId,
             foutcode = foutcode,
         )
     }
+
+    /**
+     * Het `detail` van een 4xx: bij een fout van het framework de vaste tekst van
+     * [FrameworkfoutDetail], net als bij het echte magazijn; anders de veilige melding.
+     */
+    private fun clientDetail(exception: WebApplicationException): String? =
+        FrameworkfoutDetail.voor(exception) ?: veiligDetail(exception.message)
 
     /**
      * Bij een 4xx is de melding juist nuttig — "Bericht X bestaat niet in magazijn Y" is precies wat
@@ -76,10 +95,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         if (opgeschoond.isNullOrBlank()) return null
 
-        // De standaardmelding van het framework ("HTTP 400 Bad Request") voegt niets toe aan `title`
-        // en `status`, en zet er een Engelse zin in een verder Nederlandstalig antwoord. Beter geen
-        // `detail` dan die.
-        if (STANDAARDMELDING.matches(opgeschoond)) return null
+        if (FrameworkfoutDetail.isStandaardmelding(opgeschoond)) return null
 
         return if (INTERNE_SPOREN.containsMatchIn(opgeschoond)) null else opgeschoond
     }
@@ -89,9 +105,6 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
         /** Alles onder spatie is een controlteken; die horen niet in een antwoord. */
         const val EERSTE_LEESBARE_TEKEN = 0x20
-
-        /** Wat Quarkus zelf invult als er geen echte melding is. */
-        val STANDAARDMELDING = Regex("""HTTP \d{3}( .*)?""")
 
         /** Stacktrace-achtige inhoud: een `at `-frame of een bron-verwijzing met regelnummer. */
         val INTERNE_SPOREN = Regex("""\bat [\w.$]+\(|\.(java|kt):\d+""")

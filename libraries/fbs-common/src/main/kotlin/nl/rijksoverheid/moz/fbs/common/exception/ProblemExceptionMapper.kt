@@ -5,6 +5,7 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.Foutspoor
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import org.jboss.logging.Logger
 import java.net.URI
 import java.util.UUID
@@ -19,7 +20,8 @@ import java.util.UUID
  *   geknipt, stacktrace-achtige content gefilterd) en in `detail` opgenomen. Zo blijven
  *   eigen `throw WebApplicationException("Header X verplicht", 400)` constructies nuttig,
  *   terwijl Jakarta-defaults en per ongeluk doorgegeven interne messages geen kanaal
- *   krijgen om bijv. stacktraces of SQL-fragmenten door te geven.
+ *   krijgen om bijv. stacktraces of SQL-fragmenten door te geven. Een fout van het framework
+ *   zelf krijgt een vaste tekst (zie [clientDetail]).
  */
 @Provider
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
@@ -27,7 +29,12 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
 
     override fun toResponse(exception: WebApplicationException): Response {
-        val status = exception.response?.status ?: 500
+        val status = if (FrameworkfoutDetail.isOngeldigeParameter(exception)) {
+            Response.Status.BAD_REQUEST.statusCode
+        } else {
+            exception.response?.status ?: 500
+        }
+
         val title = Response.Status.fromStatusCode(status)?.reasonPhrase ?: "Error"
         val errorId = UUID.randomUUID()
 
@@ -82,7 +89,7 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 problemResponse(
                     status = status,
                     title = title,
-                    detail = sanitizeClientDetail(exception.message),
+                    detail = clientDetail(exception),
                     foutcode = foutcode,
                     instance = URI.create("urn:uuid:$errorId"),
                 ),
@@ -90,6 +97,42 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
         }
     }
 }
+
+/**
+ * Wat een afnemer leest als een andere dienst een verzoek van ons weigerde en de fout ongewijzigd
+ * doorkomt. De melding van de REST-client noemt onze klasse- en methodenamen ("when invoking REST
+ * Client method: 'nl…MagazijnClient#patchBericht'"), en die horen niet in een foutantwoord.
+ */
+const val DOORGEGEVEN_WEIGERING_DETAIL = "Een andere dienst in de keten weigerde het verzoek."
+
+/**
+ * Het `detail` van een 4xx: de vaste tekst van [FrameworkfoutDetail] bij een fout van het framework,
+ * een vaste tekst bij een doorgegeven weigering van een REST-client, geen `detail` bij de
+ * standaardmelding, en anders de gesaneerde melding.
+ */
+private fun clientDetail(exception: WebApplicationException): String? {
+    FrameworkfoutDetail.voor(exception)?.let { return it }
+
+    if (isDoorgegevenClientFout(exception)) return DOORGEGEVEN_WEIGERING_DETAIL
+
+    val melding = exception.message
+
+    if (melding != null && FrameworkfoutDetail.isStandaardmelding(melding)) return null
+
+    return sanitizeClientDetail(melding)
+}
+
+/**
+ * Of [exception] van de REST-client van Quarkus komt. Die markeert zijn fouten met de interface
+ * `ResteasyReactiveClientProblem`.
+ * Herkend op naam en niet met `is`: de library waarin hij staat brengt een eigen `RuntimeDelegate`
+ * mee, en die zou als dependency hier elke `Response.status(...)` buiten Quarkus laten falen.
+ */
+private fun isDoorgegevenClientFout(exception: WebApplicationException): Boolean =
+    generateSequence<Class<*>>(exception.javaClass) { it.superclass }
+        .any { klasse -> klasse.interfaces.any { it.name == CLIENT_FOUT_INTERFACE } }
+
+private const val CLIENT_FOUT_INTERFACE = "org.jboss.resteasy.reactive.ResteasyReactiveClientProblem"
 
 private const val MAX_CLIENT_DETAIL_LENGTH = 500
 
@@ -105,9 +148,8 @@ private val CONTROL_CHARS_PATTERN = Regex("""[\u0000-\u001F\u007F]""")
  * - strip controltekens die logs/terminals kunnen vervuilen;
  * - kapt af op [MAX_CLIENT_DETAIL_LENGTH] tekens.
  *
- * Eigen exception-messages ("Header X ontbreekt") overleven dit ongeschonden; Jakarta-
- * defaults ("HTTP 404 Not Found") ook. Stack-achtige content uit onbedoelde code-paden
- * wordt uitgefilterd.
+ * Eigen exception-messages ("Header X ontbreekt") overleven dit ongeschonden. Stack-achtige
+ * content uit onbedoelde code-paden wordt uitgefilterd.
  */
 internal fun sanitizeClientDetail(message: String?): String? {
     if (message.isNullOrBlank()) return null

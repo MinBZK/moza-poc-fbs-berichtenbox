@@ -5,9 +5,14 @@ import com.fasterxml.jackson.core.exc.StreamConstraintsException
 import jakarta.validation.ConstraintViolation
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Path
+import jakarta.ws.rs.BadRequestException
+import jakarta.ws.rs.NotAcceptableException
+import jakarta.ws.rs.NotAllowedException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.NotSupportedException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
 import nl.rijksoverheid.moz.fbs.magazijnsimulator.api.model.Problem
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -16,6 +21,8 @@ import org.junit.jupiter.api.Assertions.assertSame
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 
 /**
@@ -39,18 +46,65 @@ class FoutMappersTest {
 
     @Test
     fun `een exception van elders krijgt alsnog een problem-body met dezelfde status`() {
-        val uitkomst = ProblemExceptionMapper().toResponse(NotFoundException("Bericht bestaat niet"))
+        val uitkomst = ProblemExceptionMapper().toResponse(BadRequestException("Header X-Ontvanger ontbreekt"))
 
-        assertEquals(404, uitkomst.status)
+        assertEquals(400, uitkomst.status)
         assertEquals(PROBLEM_JSON, uitkomst.mediaType.toString())
 
         val problem = uitkomst.entity as Problem
 
-        assertEquals("Not Found", problem.title)
-        assertEquals(404, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals(400, problem.status)
         // Bij een 4xx is de melding juist nuttig: dat is wat de aanroeper nodig heeft om te zien wat
         // er mis is.
-        assertEquals("Bericht bestaat niet", problem.detail)
+        assertEquals("Header X-Ontvanger ontbreekt", problem.detail)
+    }
+
+    /**
+     * Een 404, 405, 406 of 415 komt meestal uit het framework, en diens melding beschrijft zijn eigen
+     * werking. Die gaat niet mee; het antwoord krijgt de vaste tekst die het echte magazijn ook geeft.
+     */
+    @ParameterizedTest
+    @MethodSource("frameworkfouten")
+    fun `een frameworkfout krijgt de vaste tekst in plaats van zijn eigen melding`(
+        exception: WebApplicationException,
+        verwacht: String,
+    ) {
+        val problem = ProblemExceptionMapper().toResponse(exception).entity as Problem
+
+        assertEquals(verwacht, problem.detail)
+    }
+
+    /**
+     * Dezelfde status van elders, zoals een 415 die een dienst van een andere dienst doorgeeft,
+     * zegt niets over het verzoek van de afnemer. Die krijgt de vaste tekst dus niet.
+     */
+    @Test
+    fun `een gewone WebApplicationException met een frameworkstatus houdt zijn melding`() {
+        val problem = ProblemExceptionMapper().toResponse(WebApplicationException("magazijn weigerde (415)", 415)).entity as Problem
+
+        assertEquals("magazijn weigerde (415)", problem.detail)
+    }
+
+    @Test
+    fun `een parameter die niet te converteren is wordt een 400 met de vaste tekst`() {
+        val respons = ProblemExceptionMapper().toResponse(NotFoundException(NumberFormatException("abc")))
+        val problem = respons.entity as Problem
+
+        assertEquals(400, respons.status)
+        assertEquals(400, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals(Foutcode.ONGELDIG_VERZOEK.uri, problem.type)
+        assertEquals(FrameworkfoutDetail.PARAMETER_ONGELDIG, problem.detail)
+    }
+
+    @Test
+    fun `een eigen 404 houdt zijn melding`() {
+        val fout = SimulatorFout(Foutcode.NIET_GEVONDEN, Response.Status.NOT_FOUND, "Geen gesimuleerd magazijn met OIN 1")
+
+        val problem = ProblemExceptionMapper().toResponse(fout).entity as Problem
+
+        assertEquals("Geen gesimuleerd magazijn met OIN 1", problem.detail)
     }
 
     /**
@@ -67,7 +121,7 @@ class FoutMappersTest {
         ],
     )
     fun `een melding die naar interne toestand ruikt blijft weg`(melding: String) {
-        val problem = ProblemExceptionMapper().toResponse(NotFoundException(melding)).entity as Problem
+        val problem = ProblemExceptionMapper().toResponse(BadRequestException(melding)).entity as Problem
 
         assertNull(problem.detail)
     }
@@ -320,5 +374,27 @@ class FoutMappersTest {
     private companion object {
         const val PROBLEM_JSON = "application/problem+json"
         const val MAX_DETAIL = 500
+
+        /** De exceptions zoals Quarkus REST ze gooit, met de tekst die het antwoord hoort te krijgen. */
+        @JvmStatic
+        fun frameworkfouten(): List<Arguments> = listOf(
+            Arguments.of(
+                NotFoundException("Unable to find matching target resource method"),
+                FrameworkfoutDetail.PAD_ONBEKEND,
+            ),
+            Arguments.of(
+                NotFoundException(NumberFormatException("For input string: \"abc\"")),
+                FrameworkfoutDetail.PARAMETER_ONGELDIG,
+            ),
+            Arguments.of(NotAllowedException("GET"), FrameworkfoutDetail.METHODE_NIET_TOEGESTAAN),
+            Arguments.of(
+                NotAcceptableException("The accept header value did not match the value in @Produces"),
+                FrameworkfoutDetail.ACCEPT_NIET_TE_LEVEREN,
+            ),
+            Arguments.of(
+                NotSupportedException("The content-type header value did not match the value in @Consumes"),
+                FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND,
+            ),
+        )
     }
 }

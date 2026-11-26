@@ -2,9 +2,14 @@ package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.BadRequestException
 import jakarta.ws.rs.InternalServerErrorException
+import jakarta.ws.rs.NotAcceptableException
+import jakarta.ws.rs.NotAllowedException
 import jakarta.ws.rs.NotFoundException
+import jakarta.ws.rs.NotSupportedException
 import jakarta.ws.rs.WebApplicationException
 import jakarta.ws.rs.core.Response
+import nl.rijksoverheid.moz.fbs.kern.exception.FrameworkfoutDetail
+import org.jboss.resteasy.reactive.ResteasyReactiveClientProblem
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
@@ -15,6 +20,8 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.text.MessageFormat
 import java.util.logging.Handler
@@ -50,13 +57,13 @@ class ProblemExceptionMapperTest {
 
     @Test
     fun `behoudt 4xx detail zodat client weet wat er mis is`() {
-        val response = mapper.toResponse(NotFoundException("bericht niet gevonden"))
+        val response = mapper.toResponse(BadRequestException("bericht niet leesbaar"))
 
-        assertEquals(404, response.status)
+        assertEquals(400, response.status)
         val problem = response.entity as Problem
-        assertEquals(404, problem.status)
-        assertEquals("Not Found", problem.title)
-        assertEquals("bericht niet gevonden", problem.detail)
+        assertEquals(400, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals("bericht niet leesbaar", problem.detail)
         // 4xx krijgt een correlation-id voor support-traceability (zonder detail te maskeren).
         assertNotNull(problem.instance)
         assertTrue(problem.instance!!.toString().startsWith("urn:uuid:"))
@@ -415,6 +422,118 @@ class ProblemExceptionMapperTest {
         assertTrue(problem.type.toString().startsWith("urn:fbs:fout:"), "onverwacht kenmerk ${problem.type}")
     }
 
+    /**
+     * Een 404, 405, 406 of 415 komt meestal uit het framework, en diens melding beschrijft zijn eigen
+     * werking. Die gaat niet mee; het antwoord krijgt de vaste tekst uit [FrameworkfoutDetail].
+     */
+    @ParameterizedTest
+    @MethodSource("frameworkfouten")
+    fun `een frameworkfout krijgt de vaste tekst in plaats van zijn eigen melding`(
+        exception: WebApplicationException,
+        verwacht: String,
+    ) {
+        val problem = mapper.toResponse(exception).entity as Problem
+
+        assertEquals(verwacht, problem.detail)
+    }
+
+    /**
+     * Dezelfde status van elders, zoals een 415 die een dienst van een andere dienst doorgeeft,
+     * zegt niets over het verzoek van de afnemer. Die krijgt de vaste tekst dus niet.
+     */
+    @Test
+    fun `een gewone WebApplicationException met een frameworkstatus houdt zijn melding`() {
+        val problem = mapper.toResponse(WebApplicationException("magazijn weigerde (415)", 415)).entity as Problem
+
+        assertEquals("magazijn weigerde (415)", problem.detail)
+    }
+
+    /**
+     * Een weigering van een andere dienst die ongewijzigd doorkomt. De melding van de REST-client
+     * noemt onze klasse- en methodenamen, en de sanering haalt die er niet uit.
+     */
+    @Test
+    fun `een doorgegeven fout van een REST-client noemt geen klassenaam`() {
+        val fout = NagebootsteClientFout(
+            "Received: 'Unsupported Media Type, status code 415' when invoking REST Client method: " +
+                "'nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MagazijnClient#patchBericht'",
+            415,
+        )
+
+        val respons = mapper.toResponse(fout)
+        val problem = respons.entity as Problem
+
+        assertEquals(415, respons.status)
+        assertEquals(DOORGEGEVEN_WEIGERING_DETAIL, problem.detail)
+    }
+
+    @Test
+    fun `ook een subklasse van een REST-client-fout noemt geen klassenaam`() {
+        val problem = mapper.toResponse(AfgeleideClientFout("when invoking REST Client method: 'nl.x.Client#y'", 409))
+            .entity as Problem
+
+        assertEquals(DOORGEGEVEN_WEIGERING_DETAIL, problem.detail)
+    }
+
+    @Test
+    fun `een parameter die niet te converteren is wordt een 400 met de vaste tekst`() {
+        val respons = mapper.toResponse(NotFoundException(NumberFormatException("For input string: \"abc\"")))
+        val problem = respons.entity as Problem
+
+        assertEquals(400, respons.status)
+        assertEquals(400, problem.status)
+        assertEquals("Bad Request", problem.title)
+        assertEquals(Foutcode.ONGELDIG_VERZOEK.uri, problem.type)
+        assertEquals(FrameworkfoutDetail.PARAMETER_ONGELDIG, problem.detail)
+    }
+
+    @Test
+    fun `een eigen 404 houdt zijn melding`() {
+        val fout = FbsFoutException(Foutcode.BERICHT_ONBEKEND, Response.Status.NOT_FOUND, "Bericht niet gevonden")
+
+        val problem = mapper.toResponse(fout).entity as Problem
+
+        assertEquals("Bericht niet gevonden", problem.detail)
+    }
+
+    @Test
+    fun `de standaardmelding van het framework op een andere status levert geen detail`() {
+        val problem = mapper.toResponse(BadRequestException()).entity as Problem
+
+        assertNull(problem.detail)
+    }
+
+    /** Zoals `ClientWebApplicationException` van Quarkus: een gewone exception met de markering. */
+    private open class NagebootsteClientFout(melding: String, status: Int) :
+        WebApplicationException(melding, status), ResteasyReactiveClientProblem
+
+    private class AfgeleideClientFout(melding: String, status: Int) : NagebootsteClientFout(melding, status)
+
     private fun waeMetRetryAfter(status: Int, waarde: String) =
         WebApplicationException(Response.status(status).header("Retry-After", waarde).build())
+
+    private companion object {
+
+        /** De exceptions zoals Quarkus REST ze gooit, met de tekst die het antwoord hoort te krijgen. */
+        @JvmStatic
+        fun frameworkfouten(): List<Arguments> = listOf(
+            Arguments.of(
+                NotFoundException("Unable to find matching target resource method"),
+                FrameworkfoutDetail.PAD_ONBEKEND,
+            ),
+            Arguments.of(
+                NotFoundException(NumberFormatException("For input string: \"abc\"")),
+                FrameworkfoutDetail.PARAMETER_ONGELDIG,
+            ),
+            Arguments.of(NotAllowedException("GET"), FrameworkfoutDetail.METHODE_NIET_TOEGESTAAN),
+            Arguments.of(
+                NotAcceptableException("The accept header value did not match the value in @Produces"),
+                FrameworkfoutDetail.ACCEPT_NIET_TE_LEVEREN,
+            ),
+            Arguments.of(
+                NotSupportedException("The content-type header value did not match the value in @Consumes"),
+                FrameworkfoutDetail.MEDIATYPE_NIET_ONDERSTEUND,
+            ),
+        )
+    }
 }
