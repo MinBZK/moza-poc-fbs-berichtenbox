@@ -1238,12 +1238,17 @@ jobs:
           components: ${{ steps.berichtenbox.outputs.componenten }}
 
       # De poort die `oordeel` in deploy-preview-uitvraag openliet (zie uitvraag-preview-uitrol.sh).
-      # Altijd, ook na een groene uitvraag-deploy. Blijft de uitvraag ook nu de console draait
-      # ongezond, dan ligt het niet aan de volgorde en hoort de run rood te zijn.
+      # Blijft de uitvraag ook nu de console draait ongezond, dan ligt het niet aan de volgorde en
+      # hoort de run rood te zijn.
       - name: Wacht tot de uitvraag-preview gezond is
         env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          PROJECT: ${{ env.PROJECT_UITVRAAG }}
+          DEPLOYMENT: pr-${{ github.event.pull_request.number }}
+          COMPONENTEN: ${{ needs.meta.outputs.componenten-uitvraag }}
           URLS: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
-        run: .github/scripts/uitvraag-preview-uitrol.sh wacht "$URLS" uitvraag 300 10
+        run: >-
+          .github/scripts/uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" 300 10
 
   # De comment met de preview-URL's, in een eigen job omdat hij de URL's van meerdere deploys nodig
   # heeft.
