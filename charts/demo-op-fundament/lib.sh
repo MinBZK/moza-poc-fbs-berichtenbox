@@ -213,3 +213,148 @@ EOF
       readOnly: true
 EOF
 }
+
+# --- Aanmelden ----------------------------------------------------------------------------------
+
+# Een regel van het magazijnregister zoals de plug-in berichtenmagazijn hem geeft. Gelijk aan de
+# toets in charts/fbs-demo/templates/validatie.yaml: alleen url (https) en naam, en geen naam die op
+# een losse backslash eindigt (die laat in het properties-formaat de volgende regel aansluiten), en
+# geen stuurteken: Java leest ook CR en FF als regeleinde of witruimte, en zo kwam er via de naam
+# een andere instelling bij.
+# shellcheck disable=SC2034 # gelezen door test-lib.sh
+AANMELD_REGEL='^magazijnen\."([0-9]{20})"\.(url=https://[^[:space:][:cntrl:]\\]+|naam=[^[:space:][:cntrl:]]([^\\[:cntrl:]]|\\[^[:cntrl:]])*)$'
+
+# Een ontvanger zoals de uitvraag hem in X-Ontvanger kent.
+ONTVANGER_REGEL='^(KVK|BSN):[0-9]{8,9}$'
+
+# Leest de regels van één magazijn uit een bestand (of - voor stdin): de inhoud van
+# magazijnregister.properties uit de ConfigMap van de plug-in, of de twee regels uit zijn
+# statusbericht. Lege regels en commentaar tellen niet. Print {oin, url, regels} als JSON.
+aanmelding_lezen() {
+  local bron=$1 regel oin="" url="" naam=""
+
+  [ "$bron" = - ] && bron=/dev/stdin
+
+  while IFS= read -r regel || [ -n "$regel" ]; do
+    regel=${regel%$'\r'}
+    regel=${regel#"${regel%%[![:space:]]*}"}
+    regel=${regel%"${regel##*[![:space:]]}"}
+    if [ -z "$regel" ] || [[ $regel == '#'* ]]; then
+      continue
+    fi
+
+    if ! [[ $regel =~ $AANMELD_REGEL ]]; then
+      echo "geen regel magazijnen.\"<OIN>\".url=https://... of .naam=...: $regel" >&2
+      return 1
+    fi
+
+    if [ -n "$oin" ] && [ "$oin" != "${BASH_REMATCH[1]}" ]; then
+      echo "regels voor $oin en ${BASH_REMATCH[1]}; meld één magazijn per keer aan" >&2
+      return 1
+    fi
+
+    oin=${BASH_REMATCH[1]}
+
+    case ${BASH_REMATCH[2]} in
+      url=*)
+        [ -z "$url" ] || { echo "$oin: twee keer url" >&2; return 1; }
+        url=$regel
+        ;;
+      naam=*)
+        [ -z "$naam" ] || { echo "$oin: twee keer naam" >&2; return 1; }
+        naam=$regel
+        ;;
+    esac
+  done <"$bron"
+
+  if [ -z "$url" ] || [ -z "$naam" ]; then
+    echo "verwacht de regels url en naam van één magazijn${oin:+ (voor $oin)}" >&2
+    return 1
+  fi
+
+  jq -nc --arg oin "$oin" --arg url "${url#*.url=}" --arg regels "$url"$'\n'"$naam" \
+    '{oin: $oin, url: $url, regels: $regels}'
+}
+
+# Host, poort en pad uit een https-url, als "host poort pad"; zonder poort 443, zonder pad leeg.
+# Het pad zonder afsluitende slash.
+url_delen() {
+  [[ $1 =~ ^https://([^/:?#[:space:]]+)(:([0-9]+))?(/[^?#[:space:]]*)?$ ]] || return 1
+  local pad=${BASH_REMATCH[4]}
+  echo "${BASH_REMATCH[1]} ${BASH_REMATCH[3]:-443} ${pad%/}"
+}
+
+# Of een antwoord een OpenAPI-document is; een andere 200 (een foutpagina van een proxy, een ander
+# document) telt niet als een bereikbaar magazijn.
+is_openapi() {
+  jq -e '.openapi | type == "string" and startswith("3.")' <<<"$1" >/dev/null 2>&1
+}
+
+# De regels van het register zonder die van één OIN, als JSON-array.
+# $1 = aanmeldingen ({register, optIns}), $2 = OIN.
+register_zonder() {
+  jq -c --arg oin "$2" '.register | split("\n") | map(select(length > 0 and (contains("magazijnen.\"\($oin)\".") | not)))' <<<"$1"
+}
+
+# Of een OIN aangemeld is. $1 = aanmeldingen, $2 = OIN.
+aangemeld() {
+  jq -e --arg oin "$2" '.register | contains("magazijnen.\"\($oin)\".url=")' <<<"$1" >/dev/null
+}
+
+# De aanmeldingen met één magazijn erbij of vervangen, en opt-ins voor ontvangers. Een ontvanger die
+# er al staat, krijgt de OIN bij zijn oins; een nieuwe komt erbij met zijn antwoord uit $3 als basis.
+# Opt-ins van eerder blijven staan. $1 = aanmeldingen, $2 = aanmelding (aanmelding_lezen),
+# $3 = {"<ontvanger>": <antwoord van de profielservice>} voor de nieuwe ontvangers, rest = ontvangers.
+aanmeldingen_met() {
+  local huidig=$1 aanmelding=$2 basissen=$3
+  shift 3
+
+  jq -c --argjson a "$aanmelding" --argjson basissen "$basissen" --argjson register "$(register_zonder "$huidig" "$(jq -r .oin <<<"$aanmelding")")" \
+    --args '
+    . as $h
+    | {register: (($register + ($a.regels | split("\n"))) | join("\n")),
+       optIns: (reduce $ARGS.positional[] as $o ($h.optIns;
+         if any(.[]; .ontvanger == $o)
+         then map(if .ontvanger == $o then .oins = ((.oins + [$a.oin]) | unique) else . end)
+         else . + [{ontvanger: $o, oins: [$a.oin], basis: $basissen[$o]}]
+         end))}' "$@" <<<"$huidig"
+}
+
+# De aanmeldingen zonder één magazijn: zijn regels weg, en de OIN uit elke opt-in. Een ontvanger
+# zonder OIN's meer valt weg; dan antwoordt de stub weer uit het image. $1 = aanmeldingen, $2 = OIN.
+aanmeldingen_zonder() {
+  jq -c --arg oin "$2" --argjson register "$(register_zonder "$1" "$2")" '
+    {register: ($register | join("\n")),
+     optIns: [.optIns[] | .oins -= [$oin] | select(.oins | length > 0)]}' <<<"$1"
+}
+
+# Of het antwoord van de profielservice een berichtenbox-voorkeur heeft; zonder kan de stub er geen
+# opt-in bij zetten. $1 = antwoord.
+antwoord_heeft_voorkeur() {
+  jq -e 'any(.voorkeuren[]?; .voorkeurType == "OntvangViaBerichtenbox")' <<<"$1" >/dev/null 2>&1
+}
+
+# Of het antwoord van de profielservice een opt-in voor de OIN geeft. $1 = antwoord, $2 = OIN.
+antwoord_heeft_optin() {
+  jq -e --arg oin "$2" 'any(.voorkeuren[]? | select(.voorkeurType == "OntvangViaBerichtenbox" and .waarde == "true")
+    | .scopes[]?; .partij.identificatieType == "OIN" and .partij.identificatieNummer == $oin)' <<<"$1" >/dev/null 2>&1
+}
+
+# De payload van het stelseldocument (een JWS, compact), als JSON. De handtekening toetst dit niet:
+# het is een controle of de aanmelding erin staat, geen afnemer.
+stelseldocument_payload() {
+  local deel
+
+  deel=$(cut -d. -f2 <<<"$1" | tr '_-' '/+')
+
+  while [ $((${#deel} % 4)) -ne 0 ]; do
+    deel+="="
+  done
+
+  base64 -d <<<"$deel" 2>/dev/null | jq -ce . 2>/dev/null
+}
+
+# De url van een OIN in het stelseldocument, of niets. $1 = payload, $2 = OIN.
+stelseldocument_url() {
+  jq -r --arg oin "$2" '[.organizations[]? | select(.oin == $oin) | .magazijn_url] | first // empty' <<<"$1"
+}

@@ -163,5 +163,139 @@ for release in "${STELSEL_RELEASES[@]}"; do
   [ -f "$HIER/../fbs-demo/stelsel/$release.yaml" ] && ok "values voor $release" || faal "charts/fbs-demo/stelsel/$release.yaml ontbreekt"
 done
 
+# --- aanmelding_lezen ---
+
+OIN_C=00000009000000000777
+URL_C='magazijnen."00000009000000000777".url=https://magazijn-c.voorbeeld.nl'
+NAAM_C='magazijnen."00000009000000000777".naam=Testmagazijn C'
+
+a=$(printf '# uit de ConfigMap\n\n%s\r\n  %s  \n' "$URL_C" "$NAAM_C" | aanmelding_lezen -)
+gelijk "lezen: de OIN" "$OIN_C" "$(jq -r .oin <<<"$a")"
+gelijk "lezen: de url zonder sleutel" "https://magazijn-c.voorbeeld.nl" "$(jq -r .url <<<"$a")"
+gelijk "lezen: de twee regels, zonder CR, spaties en commentaar" "$URL_C"$'\n'"$NAAM_C" "$(jq -r .regels <<<"$a")"
+a=$(printf '%s\n%s' "$NAAM_C" "$URL_C" | aanmelding_lezen -)
+gelijk "lezen: volgorde vrij, laatste regel zonder regelovergang" "$URL_C"$'\n'"$NAAM_C" "$(jq -r .regels <<<"$a")"
+ESCAPES='magazijnen."00000009000000000777".naam=Met \: en \\ en é'
+a=$(printf '%s\n%s\n' "$URL_C" "$ESCAPES" | aanmelding_lezen -)
+gelijk "lezen: escapes uit het properties-formaat blijven" "$ESCAPES" "$(jq -r '.regels | split("\n")[1]' <<<"$a")"
+WERKMAP_LIB=$(mktemp -d)
+trap 'rm -rf "$WERKMAP_LIB"' EXIT
+printf '%s\n%s\n' "$URL_C" "$NAAM_C" >"$WERKMAP_LIB/c.properties"
+gelijk "lezen: uit een bestand" "$OIN_C" "$(aanmelding_lezen "$WERKMAP_LIB/c.properties" | jq -r .oin)"
+
+weigert_regels() {
+  local wat=$1 regels=$2
+
+  if printf '%s' "$regels" | aanmelding_lezen - >/dev/null 2>&1; then
+    faal "lezen weigert $wat"
+  else
+    ok "lezen weigert $wat"
+  fi
+}
+
+weigert_regels "een lege invoer" ""
+weigert_regels "alleen url" "$URL_C"
+weigert_regels "alleen naam" "$NAAM_C"
+weigert_regels "url twee keer" "$URL_C"$'\n'"$URL_C"$'\n'"$NAAM_C"
+weigert_regels "twee OIN's" "$URL_C"$'\n''magazijnen."00000009000000000778".naam=D'
+weigert_regels "een andere instelling" "$URL_C"$'\n'"$NAAM_C"$'\n''quarkus.http.port=1'
+weigert_regels "http" 'magazijnen."00000009000000000777".url=http://magazijn-c.voorbeeld.nl'$'\n'"$NAAM_C"
+weigert_regels "een url met spatie" 'magazijnen."00000009000000000777".url=https://a b'$'\n'"$NAAM_C"
+weigert_regels "een OIN van 19 cijfers" 'magazijnen."0000000900000000077".url=https://a'$'\n''magazijnen."0000000900000000077".naam=C'
+weigert_regels "een OIN zonder aanhalingstekens" 'magazijnen.00000009000000000777.url=https://a'$'\n'"$NAAM_C"
+weigert_regels "een lege naam" "$URL_C"$'\n''magazijnen."00000009000000000777".naam='
+weigert_regels "een naam die op een backslash eindigt" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C\'
+weigert_regels "een CR midden in de naam (regeleinde voor Java)" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C'$'\r''quarkus.http.port=1'
+weigert_regels "een form feed in de naam" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C'$'\f''x'
+weigert_regels "een backslash voor een CR" "$URL_C"$'\n''magazijnen."00000009000000000777".naam=C\'$'\r''x'
+weigert_regels "een tab in de url" 'magazijnen."00000009000000000777".url=https://a'$'\t''b'$'\n'"$NAAM_C"
+weigert_regels "de zin uit het statusbericht" \
+  "voeg toe aan het magazijnregister: $URL_C en $NAAM_C"
+
+# --- aanmeldingen_met en aanmeldingen_zonder ---
+
+leeg='{"register":"","optIns":[]}'
+basis='{"partijId":902,"voorkeuren":[{"voorkeurType":"OntvangViaBerichtenbox","waarde":"true","scopes":[]}]}'
+a=$(printf '%s\n%s\n' "$URL_C" "$NAAM_C" | aanmelding_lezen -)
+
+n=$(aanmeldingen_met "$leeg" "$a" '{}')
+gelijk "met: register met de twee regels" "$URL_C"$'\n'"$NAAM_C" "$(jq -r .register <<<"$n")"
+gelijk "met: zonder ontvanger geen opt-in" 0 "$(jq '.optIns | length' <<<"$n")"
+aangemeld "$n" "$OIN_C" && ok "aangemeld: na met" || faal "aangemeld: na met"
+aangemeld "$leeg" "$OIN_C" && faal "aangemeld: leeg" || ok "aangemeld: niet in leeg"
+
+n=$(aanmeldingen_met "$leeg" "$a" "{\"KVK:90000014\": $basis}" KVK:90000014)
+gelijk "met: een opt-in voor de ontvanger" '[{"ontvanger":"KVK:90000014","oins":["00000009000000000777"]}]' \
+  "$(jq -c '[.optIns[] | {ontvanger, oins}]' <<<"$n")"
+gelijk "met: de basis uit het antwoord" 902 "$(jq '.optIns[0].basis.partijId' <<<"$n")"
+
+# Opnieuw met een andere url: de regels vervangen, de opt-in blijft één keer, de basis blijft.
+a2=$(printf '%s\n%s\n' 'magazijnen."00000009000000000777".url=https://nieuw.voorbeeld.nl' "$NAAM_C" | aanmelding_lezen -)
+n2=$(aanmeldingen_met "$n" "$a2" '{}' KVK:90000014)
+gelijk "opnieuw: de url vervangen" 1 "$(jq -r '.register | split("\n") | map(select(contains(".url="))) | length' <<<"$n2")"
+bevat_regel() { grep -qxF -- "$2" <<<"$3" && ok "$1" || faal "$1: '$2' ontbreekt"; }
+bevat_regel "opnieuw: de nieuwe url" 'magazijnen."00000009000000000777".url=https://nieuw.voorbeeld.nl' "$(jq -r .register <<<"$n2")"
+gelijk "opnieuw: de OIN één keer in de opt-in" '["00000009000000000777"]' "$(jq -c '.optIns[0].oins' <<<"$n2")"
+gelijk "opnieuw: de basis blijft" 902 "$(jq '.optIns[0].basis.partijId' <<<"$n2")"
+
+# Een tweede magazijn: het eerste blijft staan, en de ontvanger krijgt beide.
+a3=$(printf '%s\n%s\n' 'magazijnen."00000009000000000778".url=https://d.voorbeeld.nl' 'magazijnen."00000009000000000778".naam=D' | aanmelding_lezen -)
+n3=$(aanmeldingen_met "$n2" "$a3" "{\"BSN:999993653\": $basis}" KVK:90000014 BSN:999993653)
+gelijk "tweede: vier regels" 4 "$(jq -r '.register | split("\n") | length' <<<"$n3")"
+gelijk "tweede: de bestaande ontvanger krijgt beide" '["00000009000000000777","00000009000000000778"]' \
+  "$(jq -c '.optIns[] | select(.ontvanger == "KVK:90000014") | .oins' <<<"$n3")"
+gelijk "tweede: een nieuwe ontvanger alleen het nieuwe" '["00000009000000000778"]' \
+  "$(jq -c '.optIns[] | select(.ontvanger == "BSN:999993653") | .oins' <<<"$n3")"
+
+z=$(aanmeldingen_zonder "$n3" 00000009000000000778)
+gelijk "zonder: de regels van dat magazijn weg" "$(jq -r .register <<<"$n2")" "$(jq -r .register <<<"$z")"
+gelijk "zonder: een ontvanger zonder OIN's meer valt weg" '["KVK:90000014"]' "$(jq -c '[.optIns[].ontvanger]' <<<"$z")"
+gelijk "zonder: de andere opt-in blijft" '["00000009000000000777"]' "$(jq -c '.optIns[0].oins' <<<"$z")"
+gelijk "zonder: alles weg" "$leeg" "$(aanmeldingen_zonder "$z" "$OIN_C")"
+gelijk "zonder: een register van de demo-generator blijft onaangeroerd" "$(jq -r .register <<<"$n")" \
+  "$(jq -r .register <<<"$(aanmeldingen_zonder "$n" 00000009000000000001)")"
+
+# --- antwoorden van de profielservice en het stelseldocument ---
+
+antwoord_heeft_voorkeur "$basis" && ok "voorkeur: in de basis" || faal "voorkeur: in de basis"
+antwoord_heeft_voorkeur '{"voorkeuren":[]}' && faal "voorkeur: zonder" || ok "voorkeur: zonder"
+antwoord_heeft_voorkeur 'geen json' && faal "voorkeur: geen JSON" || ok "voorkeur: geen JSON"
+met_optin='{"voorkeuren":[{"voorkeurType":"OntvangViaBerichtenbox","waarde":"true","scopes":[{"partij":{"identificatieType":"OIN","identificatieNummer":"00000009000000000777"}}]}]}'
+antwoord_heeft_optin "$met_optin" "$OIN_C" && ok "opt-in: aanwezig" || faal "opt-in: aanwezig"
+antwoord_heeft_optin "$basis" "$OIN_C" && faal "opt-in: zonder scope" || ok "opt-in: zonder scope"
+antwoord_heeft_optin "${met_optin/\"true\"/\"false\"}" "$OIN_C" && faal "opt-in: voorkeur uit" || ok "opt-in: niet als de voorkeur uit staat"
+antwoord_heeft_optin "" "$OIN_C" && faal "opt-in: leeg antwoord" || ok "opt-in: niet bij een leeg antwoord"
+
+b64url() { base64 -w0 | tr '/+' '_-' | tr -d '='; }
+payload='{"organizations":[{"oin":"00000009000000000777","name":"C","magazijn_url":"https://magazijn-c.voorbeeld.nl"}]}'
+jws="$(printf '{"alg":"ES256"}' | b64url).$(printf '%s' "$payload" | b64url).handtekening"
+gelijk "stelseldocument: de payload" "$(jq -c . <<<"$payload")" "$(stelseldocument_payload "$jws")"
+gelijk "stelseldocument: de url van een OIN" "https://magazijn-c.voorbeeld.nl" "$(stelseldocument_url "$(stelseldocument_payload "$jws")" "$OIN_C")"
+gelijk "stelseldocument: niets voor een andere OIN" "" "$(stelseldocument_url "$(stelseldocument_payload "$jws")" 00000009000000000778)"
+faalt "stelseldocument: geen JWS" stelseldocument_payload "geen-jws"
+
+# --- url_delen en is_openapi ---
+
+gelijk "url: host, standaardpoort, geen pad" "magazijn-c.voorbeeld.nl 443 " "$(url_delen https://magazijn-c.voorbeeld.nl)"
+gelijk "url: slash aan het eind telt niet" "magazijn-c.voorbeeld.nl 443 " "$(url_delen https://magazijn-c.voorbeeld.nl/)"
+gelijk "url: poort en pad" "simulator.fbs.x.nl 8443 /magazijn/00000009000000000001" \
+  "$(url_delen https://simulator.fbs.x.nl:8443/magazijn/00000009000000000001/)"
+for u in http://a.nl https://a.nl?x=1 "https://a b.nl" https:// ftp://a.nl; do
+  faalt "url geweigerd: '$u'" url_delen "$u"
+done
+
+is_openapi '{"openapi":"3.1.0","info":{}}' && ok "openapi: 3.1" || faal "openapi: 3.1"
+is_openapi '{"openapi":"3.0.3"}' && ok "openapi: 3.0" || faal "openapi: 3.0"
+is_openapi '{"swagger":"2.0"}' && faal "openapi: swagger 2" || ok "openapi: geen swagger 2"
+is_openapi '<html>404</html>' && faal "openapi: html" || ok "openapi: geen html"
+is_openapi '' && faal "openapi: leeg" || ok "openapi: niet leeg"
+
+for o in KVK:90000014 BSN:999993653; do
+  [[ $o =~ $ONTVANGER_REGEL ]] && ok "ontvanger $o" || faal "ontvanger $o"
+done
+for o in KVK:1 kvk:90000014 KVK90000014 OIN:00000009000000000777 "KVK:90000014 "; do
+  [[ $o =~ $ONTVANGER_REGEL ]] && faal "ontvanger '$o' geweigerd" || ok "ontvanger '$o' geweigerd"
+done
+
 echo "ASSERTIES=$asserties"
 [ "$mislukt" -eq 0 ]

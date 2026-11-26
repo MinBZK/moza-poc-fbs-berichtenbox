@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=458
+VERWACHTE_CONTROLES=481
 MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
@@ -785,6 +785,74 @@ done
 # Alle fouten in één keer, niet alleen de eerste.
 demo_weigering "demo-twee-fouten" "basisdomein is verplicht" --set basisdomein= --set images.tag=
 demo_weigering "demo-twee-fouten-tweede" "images.tag is verplicht" --set basisdomein= --set images.tag=
+
+# Aangemelde magazijnen (demo-op-fundament.sh aanmelden): achter het gegenereerde register, en per
+# ontvanger een mapping met voorrang in de profielstub. Alleen die stub start opnieuw.
+cat >"$WERK/aanmeldingen.yaml" <<'EOF'
+aanmeldingen:
+  register: |
+    magazijnen."00000009000000000777".url=https://berichtenmagazijn-c.voorbeeld.nl
+    magazijnen."00000009000000000777".naam=Testmagazijn C
+  optIns:
+    - ontvanger: KVK:90000014
+      oins: ["00000009000000000777"]
+      basis:
+        partijId: 902
+        voorkeuren:
+          - voorkeurType: OntvangViaBerichtenbox
+            waarde: "true"
+            scopes:
+              - partij: {identificatieType: OIN, identificatieNummer: "00000000000000100000"}
+              - partij: {identificatieType: OIN, identificatieNummer: "00000009000000000777"}
+EOF
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-aanmeldingen" "${demo[@]}" -f "$WERK/aanmeldingen.yaml"
+toets_bevat "demo-aanmeldingen" "register: het aangemelde magazijn" 'magazijnen.\"00000009000000000777\".url=https://berichtenmagazijn-c.voorbeeld.nl'
+toets_bevat "demo-aanmeldingen" "register: het gegenereerde blijft" 'magazijnen.\"00000009000000000001\".url='
+toets_bevat "demo-aanmeldingen" "profielstub: mappings uit de ConfigMap" 'mountPath: /home/wiremock/mappings/aanmeldingen'
+toets_bevat "demo-aanmeldingen" "opt-in: voorrang op de stubs uit het image" '\"priority\":0'
+toets_bevat "demo-aanmeldingen" "opt-in: alleen voor die ontvanger" "@.identificatieNummer == '90000014'"
+toets_aantal "demo-aanmeldingen" "opt-in: een OIN die er al in stond, niet twee keer" '00000009000000000777\"' 2
+# De checksum per pod over wat hij mount: alleen de profielstub start opnieuw.
+checksum_van() {
+  awk -v n="$1" '/^---/ {kind = ""; naam = ""} /^kind: / {kind = $2} kind == "Deployment" && /^  name: / {naam = $2}
+    naam == n && /checksum\/config:/ {print $2; exit}' "$2"
+}
+for d in demo-proxy profiel simulator; do
+  if [ "$(checksum_van "fbs-demo-$d" "$WERK/demo.yaml")" = "$(checksum_van "fbs-demo-$d" "$WERK/demo-aanmeldingen.yaml")" ]; then
+    [ "$d" != profiel ] && ok "demo-aanmeldingen: $d start niet opnieuw" || fout "demo-aanmeldingen: profiel start niet opnieuw"
+  else
+    [ "$d" = profiel ] && ok "demo-aanmeldingen: profiel start opnieuw" || fout "demo-aanmeldingen: $d start opnieuw"
+  fi
+done
+
+aanmelding_weigering() {
+  demo_weigering "$1" "$2" -f "$WERK/aanmeldingen.yaml" "${@:3}"
+}
+
+aanmelding_weigering "demo-aanmelding-andere-sleutel" '"quarkus.http.port=1" is geen regel magazijnen' \
+  --set-string 'aanmeldingen.register=quarkus.http.port=1'
+aanmelding_weigering "demo-aanmelding-http" 'is geen regel magazijnen' \
+  --set-string 'aanmeldingen.register=magazijnen."00000009000000000777".url=http://c.voorbeeld.nl'
+printf '%s\n' 'magazijnen."00000009000000000777".url=https://c.voorbeeld.nl' 'magazijnen."00000009000000000777".naam=C\' \
+  'quarkus.http.port=1' >"$WERK/aanmelding-backslash.properties"
+aanmelding_weigering "demo-aanmelding-backslash" 'naam=C\\" is geen regel magazijnen' \
+  --set-file "aanmeldingen.register=$WERK/aanmelding-backslash.properties"
+printf '%s\n%s\r%s\n' 'magazijnen."00000009000000000777".url=https://c.voorbeeld.nl' 'magazijnen."00000009000000000777".naam=C' \
+  'quarkus.http.port=1' >"$WERK/aanmelding-cr.properties"
+aanmelding_weigering "demo-aanmelding-cr-in-naam" 'is geen regel magazijnen' \
+  --set-file "aanmeldingen.register=$WERK/aanmelding-cr.properties"
+aanmelding_weigering "demo-aanmelding-zonder-naam" "00000009000000000777 heeft niet zowel url als naam" \
+  --set-string 'aanmeldingen.register=magazijnen."00000009000000000777".url=https://c.voorbeeld.nl'
+printf '%s\n' 'magazijnen."00000009000000000001".url=https://c.voorbeeld.nl' 'magazijnen."00000009000000000001".naam=C' \
+  >"$WERK/aanmelding-dubbel.properties"
+aanmelding_weigering "demo-aanmelding-al-in-register" "00000009000000000001 staat al in het gegenereerde magazijnenregister" \
+  --set-file "aanmeldingen.register=$WERK/aanmelding-dubbel.properties"
+aanmelding_weigering "demo-opt-in-zonder-aanmelding" "00000009000000000777 is geen aangemeld magazijn" \
+  --set-string 'aanmeldingen.register='
+aanmelding_weigering "demo-opt-in-ontvanger" '"KVK:1" is geen KVK:<nummer> of BSN:<nummer>' \
+  --set-string 'aanmeldingen.optIns[0].ontvanger=KVK:1'
+aanmelding_weigering "demo-opt-in-zonder-voorkeur" "basis heeft geen voorkeur OntvangViaBerichtenbox" \
+  --set-string 'aanmeldingen.optIns[0].basis.voorkeuren[0].voorkeurType=Anders'
 
 # De sandbox (fundament-testcluster.sh demo) geeft uitvraag en magazijnen de lokale CA als
 # jssecacerts. Die values herhalen de lijsten uit stelsel/ en uit het voorbeeld met CloudNativePG,

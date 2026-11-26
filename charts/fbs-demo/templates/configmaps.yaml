@@ -6,8 +6,9 @@ SPDX-License-Identifier: EUPL-1.2
 {{- define "fbs-demo.configmaps" -}}
 {{- $r := .Release.Name -}}
 ---
-# Het magazijnregister van de uitvraag en het stelselregister: de gesimuleerde magazijnen. Die
-# twee releases mounten hem als config/application.properties (zie stelsel/).
+# Het magazijnregister van de uitvraag en het stelselregister: de gesimuleerde magazijnen, en daarna
+# wat `aanmelden` erbij zette. Die twee releases mounten hem als config/application.properties (zie
+# stelsel/).
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -15,7 +16,17 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels: {{- include "fbs-demo.labels" (dict "context" . "onderdeel" "magazijnenregister") | nindent 4 }}
 data:
-  application.properties: {{ .Values.magazijnenregister | quote }}
+  application.properties: {{ include "fbs-demo.register" . | quote }}
+---
+# Opt-ins voor aangemelde magazijnen, als WireMock-mappings naast de stubs uit het image.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ $r }}-profiel-aanmeldingen
+  namespace: {{ .Release.Namespace | quote }}
+  labels: {{- include "fbs-demo.labels" (dict "context" . "onderdeel" "aanmeldingen") | nindent 4 }}
+data:
+  aanmeldingen.json: {{ include "fbs-demo.optInMappings" . | quote }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -179,4 +190,57 @@ server {
         proxy_read_timeout 3600s;
     }
 }
+{{- end -}}
+
+{{- /*
+Het gegenereerde register met de aangemelde magazijnen erachter. Een sleutel die twee keer
+voorkomt, weigert validatie.yaml: welke dan telt, hangt af van de lezer.
+*/}}
+{{- define "fbs-demo.register" -}}
+{{- $register := .Values.magazijnenregister -}}
+{{- with .Values.aanmeldingen.register -}}
+{{- $register = printf "%s\n# Aangemeld met charts/demo-op-fundament.sh aanmelden\n%s\n" (trimSuffix "\n" $register) (trim .) -}}
+{{- end -}}
+{{- $register -}}
+{{- end -}}
+
+{{- /*
+Per ontvanger een mapping met voorrang 0: die wint van de stubs uit het image (1 voor de
+gegenereerde ondernemers, 5 voor de persona's). Het antwoord is `basis` met de OIN's erbij in de
+voorkeur OntvangViaBerichtenbox; een OIN die er al in staat, komt er niet twee keer in.
+*/}}
+{{- define "fbs-demo.optInMappings" -}}
+{{- $mappings := list -}}
+{{- range .Values.aanmeldingen.optIns -}}
+{{- $soort := index (splitList ":" .ontvanger) 0 -}}
+{{- $nummer := index (splitList ":" .ontvanger) 1 -}}
+{{- $antwoord := deepCopy .basis -}}
+{{- $oins := .oins -}}
+{{- range $antwoord.voorkeuren -}}
+{{- if eq .voorkeurType "OntvangViaBerichtenbox" -}}
+{{- $scopes := .scopes | default list -}}
+{{- $bekend := list -}}
+{{- range $scopes }}{{ $bekend = append $bekend .partij.identificatieNummer }}{{ end -}}
+{{- range $oin := $oins -}}
+{{- if not (has $oin $bekend) -}}
+{{- $scopes = append $scopes (dict "partij" (dict "identificatieType" "OIN" "identificatieNummer" $oin)) -}}
+{{- end -}}
+{{- end -}}
+{{- $_ := set . "scopes" $scopes -}}
+{{- end -}}
+{{- end -}}
+{{- $mappings = append $mappings (dict
+  "priority" 0
+  "request" (dict
+    "method" "POST"
+    "url" "/api/profielservice/v1/partij"
+    "bodyPatterns" (list
+      (dict "matchesJsonPath" (printf "$[?(@.identificatieType == '%s')]" $soort))
+      (dict "matchesJsonPath" (printf "$[?(@.identificatieNummer == '%s')]" $nummer))))
+  "response" (dict
+    "status" 200
+    "headers" (dict "Content-Type" "application/json")
+    "jsonBody" $antwoord)) -}}
+{{- end -}}
+{{- toJson (dict "mappings" $mappings) -}}
 {{- end -}}

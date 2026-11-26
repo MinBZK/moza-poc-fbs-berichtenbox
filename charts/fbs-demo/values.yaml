@@ -91,6 +91,19 @@ database:
 magazijnenregister: ""
 simulatorSet: ""
 
+# Magazijnen die er na de installatie bij komen, zoals een organisatie met de plug-in
+# berichtenmagazijn: charts/demo-op-fundament.sh aanmelden zet ze hier, en een volgende `op` neemt
+# ze over. Niet met de hand: het script houdt register en opt-ins bij elkaar.
+aanmeldingen:
+  # De regels magazijnen."<OIN>".url= en magazijnen."<OIN>".naam=, zoals de plug-in ze geeft. Ze
+  # komen achter het gegenereerde register, in dezelfde ConfigMap.
+  register: ""
+  # Ontvangers met een opt-in voor een aangemeld magazijn. Per ontvanger (KVK:<nummer> of
+  # BSN:<nummer>) het antwoord van de profielservice zonder die opt-ins (`basis`) en de OIN's erbij
+  # (`oins`). De stub antwoordt dan met `basis` plus die OIN's in de berichtenbox-voorkeur, met
+  # voorrang op de stubs uit het image.
+  optIns: []
+
 # Per onderdeel, overschrijfbaar. De JVM-onderdelen nemen 80% van de geheugenlimiet als heap.
 resources:
   personas:

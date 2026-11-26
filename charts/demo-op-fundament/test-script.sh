@@ -405,5 +405,150 @@ bevat "geen sessie: met de statuscode" "POST /api/v1/sessies gaf 429" "$UIT"
 bevat "geen sessie: met de reden" "te veel sessies" "$UIT"
 bevat_niet "geen sessie: geen ophaalronde" "_ophalen" "$LOG"
 
+echo "== aanmelden =="
+
+printf '%s\n%s\n' 'magazijnen."00000009000000000777".url=https://magazijn-c.voorbeeld.nl' \
+  'magazijnen."00000009000000000777".naam=Testmagazijn C' >"$WERKMAP/c.properties"
+VALUES_C='{"aanmeldingen":{"register":"magazijnen.\"00000009000000000777\".url=https://magazijn-c.voorbeeld.nl\nmagazijnen.\"00000009000000000777\".naam=Testmagazijn C","optIns":[]}}'
+
+# Stubs voor aanmelden: hm geeft $VALUES bij `get values` en schrijft het values-bestand van een
+# upgrade naar het log; gw_curl antwoordt als profielstub ($PROFIEL, met opt-in na de upgrade) en
+# als stelselregister ($PAYLOAD als JWS).
+PROFIEL_STANDAARD='{"voorkeuren":[{"voorkeurType":"OntvangViaBerichtenbox","waarde":"true","scopes":[]}]}'
+PAYLOAD_STANDAARD='{"organizations":[{"oin":"00000009000000000777","magazijn_url":"https://magazijn-c.voorbeeld.nl"}]}'
+
+stub_aanmelden() {
+  local values=${1:-"{}"} profiel=${2:-$PROFIEL_STANDAARD} payload=${3:-$PAYLOAD_STANDAARD}
+
+  cat <<EOF
+NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl
+VALUES='$values'
+PROFIEL='$profiel'
+PAYLOAD='$payload'
+hm() {
+  echo "hm \$*" >>"\$LOG"
+  case "\$*" in
+    'get values fbs-demo -o json') echo "\$VALUES" ;;
+    upgrade*) jq -c . "\$WERK/aanmeldingen.json" >>"\$LOG"; PROFIEL=\$(jq -c '.voorkeuren[0].scopes += [{partij: {identificatieType: "OIN", identificatieNummer: "00000009000000000777"}}]' <<<"\$PROFIEL") ;;
+  esac
+}
+MAGAZIJN_STATUS=\${MAGAZIJN_STATUS:-200}
+MAGAZIJN_BODY=\${MAGAZIJN_BODY:-'{"openapi":"3.1.0"}'}
+magazijn_curl() {
+  echo "magazijn_curl \$*" >>"\$LOG"
+  local o=/dev/null
+  while [ \$# -gt 0 ]; do [ "\$1" = -o ] && o=\$2; shift; done
+  printf '%s' "\$MAGAZIJN_BODY" >"\$o"
+  printf '%s' "\$MAGAZIJN_STATUS"
+}
+gw_curl() {
+  echo "gw_curl \$*" >>"\$LOG"
+  case "\$*" in
+    *stelseldocument*) printf 'e30.%s.x' "\$(printf '%s' "\$PAYLOAD" | base64 -w0 | tr '/+' '_-' | tr -d '=')" ;;
+    *partij*) printf '%s\n200' "\$PROFIEL" ;;
+  esac
+}
+EOF
+}
+
+draai aanmelden-zonder-bestand "$(stub_aanmelden); aanmelden '$WERKMAP/bestaat-niet'"
+gelijk "zonder bestand: exit 2" 2 "$CODE"
+bevat_niet "zonder bestand: geen upgrade" "upgrade" "$LOG"
+
+printf 'quarkus.http.port=1\n' >"$WERKMAP/fout.properties"
+draai aanmelden-foute-regel "$(stub_aanmelden); aanmelden '$WERKMAP/fout.properties'"
+gelijk "foute regel: exit 2" 2 "$CODE"
+bevat "foute regel: noemt hem" "quarkus.http.port=1" "$UIT"
+gelijk "foute regel: niets naar het cluster" "" "$LOG"
+
+draai aanmelden-foute-ontvanger "$(stub_aanmelden); aanmelden '$WERKMAP/c.properties' KVK:1"
+gelijk "foute ontvanger: exit 2" 2 "$CODE"
+gelijk "foute ontvanger: niets naar het cluster" "" "$LOG"
+
+draai aanmelden-zonder-demo "$(stub_aanmelden); hm() { echo 'Error: release: not found' >&2; return 1; }; aanmelden '$WERKMAP/c.properties'"
+gelijk "zonder demo: exit 2" 2 "$CODE"
+bevat "zonder demo: zegt wat eerst moet" "installeer de demo eerst" "$UIT"
+
+draai aanmelden "$(stub_aanmelden); aanmelden '$WERKMAP/c.properties' KVK:90000014"
+gelijk "aanmelden: in orde" 0 "$CODE"
+upgrade=$(grep '^hm upgrade' <<<"$LOG" || true)
+bevat "aanmelden: de chart uit deze checkout" "upgrade fbs-demo $CHARTS_PAD/fbs-demo" "$upgrade"
+bevat "aanmelden: de values van de release, met de standaarden van de chart" "--reset-then-reuse-values" "$upgrade"
+bevat "aanmelden: de aanmeldingen als values-bestand" "-f $WERKMAP/aanmelden/aanmeldingen.json" "$upgrade"
+values=$(sed -n '/^{/p' <<<"$LOG" | jq -sc '.[0]' || true)
+gelijk "aanmelden: het register in de values" 2 "$(jq '.aanmeldingen.register | split("\n") | length' <<<"$values")"
+gelijk "aanmelden: de opt-in in de values" '[{"ontvanger":"KVK:90000014","oins":["00000009000000000777"]}]' \
+  "$(jq -c '[.aanmeldingen.optIns[] | {ontvanger, oins}]' <<<"$values")"
+gelijk "aanmelden: de basis zonder de opt-in" '[]' "$(jq -c '.aanmeldingen.optIns[0].basis.voorkeuren[0].scopes' <<<"$values")"
+bevat "aanmelden: de ontvanger bij de profielstub" '{"identificatieType":"KVK","identificatieNummer":"90000014"}' "$LOG"
+bevat "aanmelden: uitvraag en stelselregister lezen het register opnieuw" \
+  "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
+bevat "aanmelden: controle in het stelseldocument" "OK: het stelseldocument noemt 00000009000000000777" "$UIT"
+bevat "aanmelden: controle van de opt-in" "OK: KVK:90000014 heeft een opt-in" "$UIT"
+
+bevat "aanmelden: eerst bereikbaar, met het OpenAPI-document op de url uit het register" \
+  "magazijn_curl -o $WERKMAP/aanmelden/openapi.json -w %{http_code} https://magazijn-c.voorbeeld.nl:443/api/v1/openapi.json" "$LOG"
+bevat_niet "aanmelden: buiten het basisdomein niet via de Gateway van de demo" "--resolve" "$(grep '^magazijn_curl' <<<"$LOG" || true)"
+gelijk "aanmelden: de controle vóór de upgrade" "magazijn_curl" "$(grep -oE '^(magazijn_curl|hm upgrade)' <<<"$LOG" | head -1)"
+
+draai aanmelden-onbereikbaar "$(stub_aanmelden); MAGAZIJN_STATUS=503; aanmelden '$WERKMAP/c.properties' KVK:90000014"
+gelijk "onbereikbaar: exit 1" 1 "$CODE"
+bevat "onbereikbaar: zegt waarom" "het magazijn antwoordt niet: https://magazijn-c.voorbeeld.nl:443/api/v1/openapi.json gaf 503" "$UIT"
+bevat_niet "onbereikbaar: geen upgrade" "upgrade" "$LOG"
+bevat_niet "onbereikbaar: de profielstub niet gevraagd" "partij" "$LOG"
+
+draai aanmelden-geen-openapi "$(stub_aanmelden); MAGAZIJN_BODY='<html>welkom</html>'; aanmelden '$WERKMAP/c.properties'"
+gelijk "200 zonder OpenAPI: exit 1" 1 "$CODE"
+bevat "200 zonder OpenAPI: zegt het" "gaf 200, maar geen OpenAPI-document" "$UIT"
+bevat_niet "200 zonder OpenAPI: geen upgrade" "upgrade" "$LOG"
+
+printf '%s\n%s\n' 'magazijnen."00000009000000000777".url=https://berichtenmagazijn-c.fbs.x.nl' \
+  'magazijnen."00000009000000000777".naam=Testmagazijn C' >"$WERKMAP/lokaal.properties"
+draai aanmelden-onder-basisdomein "$(stub_aanmelden '{}' '' '{"organizations":[{"oin":"00000009000000000777","magazijn_url":"https://berichtenmagazijn-c.fbs.x.nl"}]}'); GATEWAY_ADRES=127.0.0.1; HTTPS_POORT=9443; CA_BESTAND=/ca.crt; aanmelden '$WERKMAP/lokaal.properties'"
+gelijk "onder het basisdomein: in orde" 0 "$CODE"
+bevat "onder het basisdomein: via de Gateway, met de CA van de demo" \
+  "magazijn_curl --cacert /ca.crt --resolve berichtenmagazijn-c.fbs.x.nl:9443:127.0.0.1 -o $WERKMAP/aanmelden-onder-basisdomein/openapi.json -w %{http_code} https://berichtenmagazijn-c.fbs.x.nl:9443/api/v1/openapi.json" "$LOG"
+
+draai aanmelden-zelfde "$(stub_aanmelden "$VALUES_C"); aanmelden '$WERKMAP/c.properties'"
+gelijk "hetzelfde opnieuw: in orde" 0 "$CODE"
+bevat_niet "hetzelfde opnieuw: register gelijk, geen herstart" "rollout restart" "$LOG"
+bevat "zonder ontvanger: zegt dat er niets aankomt" "krijgt niemand berichten" "$UIT"
+
+draai aanmelden-zonder-voorkeur "$(stub_aanmelden '{}' '{"voorkeuren":[]}'); aanmelden '$WERKMAP/c.properties' KVK:90000014"
+gelijk "ontvanger zonder voorkeur: exit 2" 2 "$CODE"
+bevat "ontvanger zonder voorkeur: zegt het" "geen berichtenbox-voorkeur" "$UIT"
+bevat_niet "ontvanger zonder voorkeur: geen upgrade" "upgrade" "$LOG"
+
+draai aanmelden-niet-in-document "$(stub_aanmelden '{}' '' '{"organizations":[]}'); aanmelden '$WERKMAP/c.properties'"
+gelijk "niet in het stelseldocument: exit 1" 1 "$CODE"
+bevat "niet in het stelseldocument: zegt het" "het stelseldocument noemt 00000009000000000777 niet" "$UIT"
+
+draai afmelden-niet-aangemeld "$(stub_aanmelden); afmelden 00000009000000000777"
+gelijk "afmelden, niet aangemeld: exit 2" 2 "$CODE"
+bevat_niet "afmelden, niet aangemeld: geen upgrade" "upgrade" "$LOG"
+
+draai afmelden "$(stub_aanmelden "$VALUES_C" '' '{"organizations":[]}'); afmelden 00000009000000000777"
+gelijk "afmelden: in orde" 0 "$CODE"
+gelijk "afmelden: leeg register in de values" '{"register":"","optIns":[]}' "$(sed -n '/^{/p' <<<"$LOG" | jq -c '.aanmeldingen')"
+bevat "afmelden: herstart" "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
+bevat "afmelden: controle" "OK: het stelseldocument noemt 00000009000000000777 niet meer" "$UIT"
+
+draai afmelden-geen-oin "$(stub_aanmelden); afmelden 777"
+gelijk "afmelden zonder OIN: exit 2" 2 "$CODE"
+
+# Een volgende `op` houdt wat aanmelden zette.
+draai behouden "$(stub_aanmelden "$VALUES_C"); aanmeldingen_behouden; echo \"ARGS=\${AANMELD_ARGS[*]}\"; cat \"\$WERK/aanmeldingen.json\""
+bevat "op: de aanmeldingen als values-bestand" "ARGS=-f $WERKMAP/behouden/aanmeldingen.json" "$UIT"
+bevat "op: zegt welke blijven" "aangemelde magazijnen blijven staan: 00000009000000000777" "$UIT"
+draai behouden-eerste "$(stub_aanmelden); hm() { echo 'Error: release: not found' >&2; return 1; }; aanmeldingen_behouden; echo \"ARGS=[\${AANMELD_ARGS[*]}]\""
+bevat "op, eerste installatie: geen aanmeldingen" "ARGS=[]" "$UIT"
+draai behouden-fout "$(stub_aanmelden); hm() { echo 'Error: Kubernetes cluster unreachable' >&2; return 1; }; aanmeldingen_behouden"
+gelijk "op, values niet te lezen: exit 1" 1 "$CODE"
+bevat "op, values niet te lezen: zegt waarom" "cluster unreachable" "$UIT"
+draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
+demo=$(grep '^hm upgrade --install fbs-demo ' <<<"$LOG" || true)
+bevat "op: aanmeldingen vóór EXTRA_VALUES" "-f $WERKMAP/installeren-behoudt/aanmeldingen.json -f $WERKMAP/extra/fbs-demo.yaml" "$demo"
+rm -f "$WERKMAP/extra/fbs-demo.yaml"
+
 echo "ASSERTIES=$asserties"
 exit "$mislukt"
