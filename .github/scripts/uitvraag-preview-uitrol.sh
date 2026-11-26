@@ -1,38 +1,38 @@
 #!/usr/bin/env bash
-# Beoordeelt de uitrol van een uitvraag-preview die de deploy-action rood meldde, en wacht later tot
-# die preview gezond is.
+# Beoordeelt de uitrol van een uitvraag-preview en wacht later tot die preview echt gezond is.
 #
 # Een nieuwe preview van het uitvraag-project wordt pas gezond als de demo-console in het
 # magazijnen-project de proxy van `toxiproxy-redis` heeft aangemaakt: Toxiproxy houdt zijn proxies
 # alleen in het geheugen, en zonder proxy weigert hij de verbinding naar Redis, dus faalt de
 # readiness van de uitvraag. Die console rolt pas uit ná de uitvraag, omdat hij de netwerkregels nodig
-# heeft die met de uitvraag meekomen. De deploy-action wacht via Operations Manager op een gezonde
-# sync en geeft het na vijf minuten op. Zonder deze tussenstap zou de magazijnen-preview dus nooit
-# uitrollen, en de uitvraag dus nooit gezond worden.
+# heeft die met de uitvraag meekomen. Operations Manager wacht na de uitrol vijf minuten op een gezonde
+# deployment en geeft het dan op; de deploy-action meldt dat als een rode stap. Zonder deze tussenstap
+# rolt de magazijnen-preview dus nooit uit, en wordt de uitvraag dus nooit gezond.
 #
-# `oordeel` neemt die rode melding alleen over als vaststaat dat de uitrol zelf geland is: de
-# gevraagde images staan in de deployment, er wacht in het project niets op uitrol, er loopt geen
-# sync, en het enige dat ontbreekt is de gezondheid van het uitvraag-component. Dan staan de
-# netwerkregels in het cluster en kan de console erbij. Elke andere toestand blijft rood. Een preview
-# die al gezond is, telt als gezond: die had alleen een trage melding.
+# `oordeel` geeft bij een groene deploy de adressen door. Een rode neemt hij alleen over als de uitrol
+# zelf geland is: de gevraagde images staan in de deployment, er loopt geen sync, en wat ontbreekt is
+# alleen de gezondheid van het uitvraag-component. Dan staan de netwerkregels in het cluster en kan de
+# console erbij. Elke andere toestand blijft rood.
 #
-# `wacht` draait na de magazijnen-uitrol en eist alsnog een gezonde preview; die stap is de eigenlijke
-# poort.
+# `wacht` draait na de magazijnen-uitrol, ook als de deploy groen was: een groene stap kan "succeeded,
+# but some components are unhealthy" betekenen. Hij vraagt de readiness van de uitvraag zelf op en
+# niet de status in Operations Manager, want een component dat Operations Manager heeft uitgeschakeld,
+# staat daar als gezond. Dit is de eigenlijke poort.
 #
 # Gebruik:
-#   ZAD_API_KEY=... uitvraag-preview-uitrol.sh oordeel <project> <deployment> <component> <componenten-json>
-#   ZAD_API_KEY=... uitvraag-preview-uitrol.sh wacht <project> <deployment> [seconden] [interval]
-#
-# `oordeel` zet bij aanvaarding `urls=`, `url=` en `gezond=` op stdout, in de vorm van $GITHUB_OUTPUT.
+#   ZAD_API_KEY=... uitvraag-preview-uitrol.sh oordeel <uitkomst> <project> <deployment> <component> <componenten-json>
+#     met URLS en URL in de omgeving: de outputs van de deploy-action, doorgegeven als die slaagde.
+#     Zet `urls=` en `url=` op stdout, in de vorm van $GITHUB_OUTPUT.
+#   uitvraag-preview-uitrol.sh wacht <urls-json> <component> [seconden] [interval]
 
 set -euo pipefail
 
 readonly STANDAARD_API_URL='https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
 
-# Overschrijfbaar zodat de unittests het HTTP-verkeer kunnen onderscheppen zonder netwerk.
-CURL=${ZAD_CURL:-curl}
+# Een adres gaat via $GITHUB_OUTPUT verder; een regeleinde erin zou daar een eigen regel worden.
+readonly ADRES='^https://[^[:space:][:cntrl:]]+$'
 
-# `wacht` slaapt tussen twee opvragingen; de tests zetten dit op niets.
+# `wacht` slaapt tussen twee opvragingen; de tests vervangen dit door een stub die het interval logt.
 SLAAP=${ZAD_SLAAP:-sleep}
 
 fout() {
@@ -41,128 +41,145 @@ fout() {
   exit 1
 }
 
-# Vraagt de deployment op en zet `antwoord`. Exitcode 0 = antwoord binnen, 1 = niet op te vragen.
+# Vraagt de deployment op en zet `antwoord`. De sleutel gaat via stdin, zodat hij niet in de argv van
+# curl staat.
 vraag_deployment_op() {
   local project=$1 deployment=$2
 
-  antwoord=$("$CURL" -sSf --max-time 30 --retry 3 --retry-connrefused \
-    -H "X-API-Key: $ZAD_API_KEY" -H 'Accept: application/json' \
-    "${ZAD_API_URL:-$STANDAARD_API_URL}/v2/projects/$project/deployments/$deployment") || return 1
+  antwoord=$(printf 'X-API-Key: %s\n' "$ZAD_API_KEY" | curl -sSf --max-time 30 --retry 3 --retry-connrefused \
+    -H @- -H 'Accept: application/json' \
+    "${ZAD_API_URL:-$STANDAARD_API_URL}/v2/projects/$project/deployments/$deployment") \
+    || fout "$deployment in $project is niet op te vragen; of de uitrol landde, is onbekend."
 
-  jq -e 'type == "object" and (.status | type) == "string"' <<<"$antwoord" >/dev/null 2>&1
+  jq -e 'type == "object" and (.status | type) == "string" and has("running_sync")
+    and ((.urls // {}) | type) == "object"' <<<"$antwoord" >/dev/null 2>&1 \
+    || fout "Het antwoord over $deployment in $project heeft niet de vorm van een deployment."
+}
+
+# Het eerste opgegeven component met een niet-leeg adres, zoals de deploy-action `url` kiest.
+kies_url() {
+  local urls=$1 componenten=$2
+
+  jq -r --argjson urls "$urls" \
+    'map(.name) | map(select(($urls[.] // "") | length > 0)) | first // empty | $urls[.]' <<<"$componenten"
 }
 
 oordeel() {
-  local project=$1 deployment=$2 component=$3 componenten=$4 antwoord uitkomst
+  local uitkomst=$1 project=$2 deployment=$3 component=$4 componenten=$5
 
-  vraag_deployment_op "$project" "$deployment" \
-    || fout "$deployment in $project is niet op te vragen; of de uitrol landde, is onbekend."
+  if [ "$uitkomst" = success ]; then
+    printf 'urls=%s\nurl=%s\n' "${URLS:-}" "${URL:-}"
 
-  # De reden als tekst en niet als exitcode van `jq -e`: zo zegt de melding wát er niet klopt. Een
-  # antwoord met een andere vorm valt in jq zelf om en komt via `||` op "onleesbaar" uit.
-  uitkomst=$(jq -r --argjson gevraagd "$componenten" --arg c "$component" --arg d "$deployment" '
-    def opgeslagen: [.components[]? | {key: .reference, value: .image}] | from_entries;
-    def van_component: (.resource // "") | test("^[A-Za-z]+/" + $d + "-" + $c + "(-|$)");
-    (opgeslagen) as $staat
+    return 0
+  fi
+
+  [ "$uitkomst" = failure ] || fout "Onbekende uitkomst van de deploy-stap: '$uitkomst'."
+
+  local antwoord reden
+
+  vraag_deployment_op "$project" "$deployment"
+
+  # De reden als tekst en niet als exitcode van `jq -e`: zo zegt de melding wát er niet klopt.
+  #
+  # Een melding hoort bij het component als haar naam `<deployment>-<component>` is, eventueel met de
+  # hash-achtervoegsels van ReplicaSet en pod. Zo telt een ander component waarvan de naam met die van
+  # dit component begint, niet mee.
+  reden=$(jq -r --argjson gevraagd "$componenten" --arg c "$component" --arg d "$deployment" '
+    def van_component: (.resource // "") | test("^[A-Za-z]+/" + $d + "-" + $c + "(-[a-z0-9]{5,10}){0,2}(\\.[a-z0-9]+)?$");
+    ([.components[]? | {key: .reference, value: .image}] | from_entries) as $staat
     | [$gevraagd[] | select($staat[.name] != .image) | .name] as $afwijkend
     | if ($afwijkend | length) > 0 then
         "de opgeslagen images wijken af van de gevraagde (" + ($afwijkend | join(", ")) + ")"
-      elif (.pending_rollout.count | type) != "number" then
-        "het aantal wachtende uitrollen ontbreekt"
-      elif .pending_rollout.count != 0 then
-        "er wachten \(.pending_rollout.count) wijziging(en) in het project op uitrol"
       elif .running_sync != null then
         "er loopt nog een sync"
       elif .status == "Healthy" then
         "gezond"
-      elif .status == "Progressing" then
-        "nog niet gezond"
-      elif .status != "Degraded" then
+      elif (.status != "Progressing" and .status != "Degraded") then
         "status \(.status)"
-      elif (.errors | length) == 0 then
+      elif .status == "Degraded" and ((.errors // []) | length) == 0 then
         "Degraded zonder fouten die een component noemen"
-      elif all(.errors[]; van_component) then
+      elif all((.errors // [])[]; van_component) then
         "nog niet gezond"
       else
-        "Degraded door meer dan het component \($c): " + ([.errors[] | select(van_component | not) | .resource] | join(", "))
-      end' <<<"$antwoord" 2>/dev/null) || uitkomst="onleesbaar antwoord"
+        "\(.status) door meer dan het component \($c): " + ([.errors[] | select(van_component | not) | .resource] | join(", "))
+      end' <<<"$antwoord" 2>/dev/null) || reden="onleesbaar antwoord"
 
-  local gezond
-
-  case "$uitkomst" in
-    gezond) gezond=true ;;
-    "nog niet gezond") gezond=false ;;
-    *) fout "De uitrol van $deployment in $project is niet geland of faalt op meer dan $component: $uitkomst." ;;
+  case "$reden" in
+    gezond)
+      echo "::notice::De deploy-stap meldde rood, maar $deployment in $project is gezond; de melding was alleen te vroeg." >&2
+      ;;
+    "nog niet gezond")
+      echo "::warning::De uitrol van $deployment in $project is geland, maar $component is nog niet gezond. De magazijnen-preview rolt daarom toch uit; daarna wacht de run tot deze preview gezond is." >&2
+      ;;
+    *)
+      fout "De uitrol van $deployment in $project is niet geland of faalt op meer dan $component: $reden."
+      ;;
   esac
 
   local urls url
 
   urls=$(jq -c '.urls // {}' <<<"$antwoord")
-
-  [ "$urls" != "{}" ] || fout "$deployment in $project heeft geen enkel publiek adres."
-
-  # Dezelfde keuze als de deploy-action: het eerste opgegeven component dat een adres heeft.
-  url=$(jq -r --argjson urls "$urls" 'map(.name) | map($urls[.] // empty) | first // empty' <<<"$componenten")
+  url=$(kies_url "$urls" "$componenten")
 
   [ -n "$url" ] || fout "Geen van de opgegeven componenten van $deployment heeft een publiek adres."
 
-  if [ "$gezond" = false ]; then
-    echo "::warning::De uitrol van $deployment in $project is geland, maar $component is nog niet gezond. De magazijnen-preview rolt daarom toch uit; daarna wacht de run tot deze preview gezond is." >&2
-  fi
+  # Een leeg adres slaat `kies_url` over, zoals de action; het telt hier dus niet als ongeldig.
+  jq -e --arg re "$ADRES" 'all(.[]; type == "string" and (length == 0 or test($re)))' <<<"$urls" >/dev/null \
+    || fout "$deployment in $project heeft een adres dat geen kale https-URL is."
 
-  printf 'urls=%s\nurl=%s\ngezond=%s\n' "$urls" "$url" "$gezond"
+  printf 'urls=%s\nurl=%s\n' "$urls" "$url"
 }
 
 wacht() {
-  local project=$1 deployment=$2 seconden=${3:-300} interval=${4:-5} antwoord status=onbekend
+  local urls=$1 component=$2 seconden=$3 interval=$4 basis
 
-  local einde=$((SECONDS + seconden))
+  basis=$(jq -r --arg c "$component" '.[$c] // empty' <<<"$urls" 2>/dev/null) || basis=""
+
+  [[ "$basis" =~ $ADRES ]] || fout "Geen bruikbaar adres voor $component in de adressen van de uitvraag-preview."
+
+  local einde=$((SECONDS + seconden)) http status=onbekend lichaam
 
   while :; do
-    if vraag_deployment_op "$project" "$deployment"; then
-      status=$(jq -r '.status' <<<"$antwoord")
+    # `-f` niet: dan is een 503 van de router niet van een onbereikbare host te onderscheiden.
+    lichaam=$(curl -sS --max-time 10 -w '\n%{http_code}' "${basis%/}/q/health/ready" 2>/dev/null) || lichaam=$'\n000'
+    http=${lichaam##*$'\n'}
 
-      if [ "$status" = Healthy ] && [ "$(jq -r '.running_sync' <<<"$antwoord")" = null ]; then
-        echo "$deployment in $project is gezond."
+    if [ "$http" = 200 ] && [ "$(jq -r '.status? // empty' <<<"${lichaam%$'\n'*}" 2>/dev/null)" = UP ]; then
+      echo "$component van de preview is gezond ($basis)."
 
-        return 0
-      fi
-    else
-      status="niet op te vragen"
+      return 0
     fi
+
+    status="HTTP $http"
 
     [ "$SECONDS" -lt "$einde" ] || break
 
     "$SLAAP" "$interval"
   done
 
-  local fouten=""
-
-  if [ "$status" != "niet op te vragen" ]; then
-    fouten=$(jq -r '[.errors[]? | .message] | join("; ")' <<<"$antwoord" 2>/dev/null || true)
-  fi
-
-  fout "$deployment in $project was na ${seconden}s nog niet gezond (laatste status: $status${fouten:+; $fouten})."
+  fout "$component van de preview was na ${seconden}s nog niet gezond (laatste readiness: $status op $basis)."
 }
 
 main() {
   local actie=${1:-}
 
-  [ -n "${ZAD_API_KEY:-}" ] || fout "ZAD_API_KEY ontbreekt."
-
   case "$actie" in
     oordeel)
-      [ "$#" -eq 5 ] || fout "Gebruik: $0 oordeel <project> <deployment> <component> <componenten-json>"
+      [ "$#" -eq 6 ] || fout "Gebruik: $0 oordeel <uitkomst> <project> <deployment> <component> <componenten-json>"
 
-      jq -e 'type == "array" and length > 0' <<<"$5" >/dev/null 2>&1 \
+      jq -e 'type == "array" and length > 0' <<<"$6" >/dev/null 2>&1 \
         || fout "De componentenlijst is geen niet-lege JSON-lijst."
 
-      oordeel "$2" "$3" "$4" "$5"
+      if [ "$2" != success ]; then
+        [ -n "${ZAD_API_KEY:-}" ] || fout "ZAD_API_KEY ontbreekt."
+      fi
+
+      oordeel "$2" "$3" "$4" "$5" "$6"
       ;;
     wacht)
-      [ "$#" -ge 3 ] && [ "$#" -le 5 ] || fout "Gebruik: $0 wacht <project> <deployment> [seconden] [interval]"
+      [ "$#" -ge 3 ] && [ "$#" -le 5 ] || fout "Gebruik: $0 wacht <urls-json> <component> [seconden] [interval]"
 
-      wacht "$2" "$3" "${4:-300}" "${5:-5}"
+      wacht "$2" "$3" "${4:-300}" "${5:-10}"
       ;;
     *)
       fout "Onbekende actie '$actie'; kies oordeel of wacht."
@@ -170,7 +187,4 @@ main() {
   esac
 }
 
-# Alleen uitvoeren bij directe aanroep, zodat de unittests de functies kunnen sourcen.
-if [ "${BASH_SOURCE[0]}" = "$0" ]; then
-  main "$@"
-fi
+main "$@"
