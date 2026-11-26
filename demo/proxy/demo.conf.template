@@ -12,6 +12,11 @@
 # hangt de demo niet af van hoe streng een dienst de Host-header toetst. Quarkus weigert onder
 # profiel dev een Host die niet naar localhost wijst; de demo-console zet die eis daarom uit,
 # maar deze proxy hoeft daar niet op te leunen.
+#
+# Het portaal krijgt wel `X-Forwarded-Host`. Next.js vergelijkt bij een Server Action de `Origin`
+# van de browser met die host, en weigert de action met een 500 als ze verschillen; zonder deze
+# header vergelijkt hij met de upstream-host. Elke location die het portaal bedient, zet hem zelf:
+# een `proxy_set_header` in een location heft de erfenis van het serverblok op.
 server {
     listen ${PROXY_BIND}:${PROXY_PORT};
 
@@ -23,6 +28,7 @@ server {
     # Alles wat het portaal zelf serveert, inclusief /berichtenbox.
     location / {
         proxy_pass ${PORTAAL_UPSTREAM};
+        proxy_set_header X-Forwarded-Host $http_host;
     }
 
     # De keten via het portaal. Ophalen en volgen zijn SSE-streams: zonder deze vier regels komt de
@@ -33,6 +39,7 @@ server {
         proxy_pass ${PORTAAL_UPSTREAM};
         proxy_http_version 1.1;
         proxy_set_header Connection "";
+        proxy_set_header X-Forwarded-Host $http_host;
         proxy_buffering off;
         proxy_read_timeout 3600s;
     }

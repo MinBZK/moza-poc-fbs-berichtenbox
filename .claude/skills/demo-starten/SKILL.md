@@ -58,8 +58,9 @@ het persona-cookie, zoals een browser dat doet. Zolang het portaal geen sessie s
 
 - **In `hostnet` binden de containers op loopback, en dat is niet te overrulen.** `DEMO_BIND` geldt
   alleen in `docker` en `bridge`; in een gedeelde netns is een wildcard-bind de hele machine. Wil je de
-  demo van buiten laten zien, dan is `docker` of `bridge` met `DEMO_BIND=0.0.0.0 DEMO_HOST=<adres>` de
-  route, of een forwarder op de externe interface.
+  demo van buiten laten zien, gebruik dan een tunnel naar `127.0.0.1:8097`. Het portaal zet zijn
+  persona-cookie met `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback; via
+  `DEMO_BIND=0.0.0.0` op een ander adres onthoudt de Berichtenbox geen persona.
 - **Een kale HTTP 400 zonder body is Host-validatie, geen netwerkfout.** Benader je de demo op een
   ander adres dan de allowlist kent, dan weigert Quarkus het verzoek voordat er iets van de
   applicatie aan te pas komt. Zet dan `QUARKUS_HTTP_HOST_VALIDATION_ALLOWED_HOSTS` — en ga niet op

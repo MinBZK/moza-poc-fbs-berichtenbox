@@ -118,6 +118,11 @@ bind_mist=$(jq -r '.services | to_entries[] | . as $s
       # application.properties, dus afwezigheid betekent hier een wildcard-bind.
       (if (($env.QUARKUS_HTTP_HOST // "") | tostring | test("^127\\.")) then empty
        else "\($s.key): QUARKUS_HTTP_HOST=\($env.QUARKUS_HTTP_HOST // "<niet gezet>") staat niet op 127.x" end)
+    elif ($img | test("moza-portaal")) then
+      # Next.js luistert op HOSTNAME, en het image van het portaal zet die op 0.0.0.0. Vóór de
+      # build-tak: compose.portaal-lokaal.yaml bouwt het portaal, en dat is geen Quarkus.
+      (if (($env.HOSTNAME // "") | tostring | test("^(localhost|127\\.)")) then empty
+       else "\($s.key): Next.js met HOSTNAME=\($env.HOSTNAME // "<niet gezet>") staat niet op localhost of 127.x" end)
     elif ($s.value.build != null) then
       # Een service die hier gebouwd wordt is onze eigen code en bakt dezelfde
       # quarkus.http.host=0.0.0.0 in. Zonder deze tak viel die service door naar empty (er is geen

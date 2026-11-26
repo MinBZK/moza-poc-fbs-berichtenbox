@@ -12,12 +12,12 @@
 # is meegegenereerd of een uitvraag die nog met het oude register draait, geeft gewoon een kleinere
 # lijst.
 #
-# Stap 6 haalt de bijlage van het bericht bij magazijn A op via het adres uit `_links.self`, met de
-# headers die het portaal server-side meegeeft.
+# Stap 6 haalt de bijlage van het bericht bij magazijn A rechtstreeks bij de uitvraag op, via het
+# adres uit `_links.self`, met `X-Ontvanger` en `X-Sessie`.
 #
 # Stap 7 vraagt de Berichtenbox van het portaal op via de demo-proxy, zoals een browser dat doet:
 # alleen met het persona-cookie. Het portaal zet de ontvanger er zelf bij. Zo blijkt of de route van
-# proxy via portaal naar de uitvraag loopt.
+# proxy via portaal naar de uitvraag loopt, en of het portaal de persona in de personadienst vindt.
 #
 # Vereist een draaiende stack:  docker compose --profile demo up -d
 set -euo pipefail
@@ -164,8 +164,8 @@ done
 # Een berichtenbox leest deze velden rechtstreeks uit de stroom. De spec beschrijft ze, maar dat
 # is een belofte op papier: deze controle bewijst dat een draaiende keten ze ook werkelijk stuurt.
 # Zonder haar valt een hernoeming pas op in de browser, waar de voortgang stilletjes stopt in
-# plaats van een fout te tonen. De hele lijst van de spec en niet alleen wat de proeftuin nu
-# leest: het portaal dat hem opvolgt, kan elk van deze velden gaan gebruiken.
+# plaats van een fout te tonen. De hele lijst van de spec en niet alleen wat het portaal nu leest:
+# het kan elk van deze velden gaan gebruiken.
 for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
     '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-voltooid"' \
     '"event"[[:space:]]*:[[:space:]]*"ophalen-gereed"' \
@@ -262,11 +262,26 @@ fi
 beeindig_sessie "$ONTVANGER" "$SESSIE"
 
 echo "7/7 de Berichtenbox van het portaal via de demo-proxy (persona $PORTAAL_PERSONA)"
-status=$(curl -s --max-time 30 -o /dev/null -w '%{http_code}' \
+pagina=/tmp/smoke-portaal-berichtenbox.html
+rm -f "$pagina"
+status=$(curl -s --max-time 30 -o "$pagina" -w '%{http_code}' \
     "$DEMO_PROXY/berichtenbox" -H "Cookie: personaId=$PORTAAL_PERSONA" || true)
 
 if [[ "$status" != "200" ]]; then
     echo "FOUT: de Berichtenbox van het portaal via de demo-proxy gaf HTTP $status (verwacht 200)"
+    exit 1
+fi
+
+# Ook een 200 als het portaal de personadienst niet bereikt of de persona daar niet vindt: dan
+# toont de pagina een melding in plaats van een lijst. De zinnen komen uit het portaal
+# (berichtenbox/_lijstPagina.tsx in moza-portaal).
+if grep -qF 'Dat stelsel is nu niet bereikbaar' "$pagina" 2>/dev/null; then
+    echo "FOUT: het portaal bereikt de personadienst niet (KETEN_PERSONAS_URL)"
+    exit 1
+fi
+
+if grep -qF 'niet bekend bij het Federatief Berichtenstelsel' "$pagina" 2>/dev/null; then
+    echo "FOUT: de personadienst kent persona $PORTAAL_PERSONA niet als aangesloten op de keten"
     exit 1
 fi
 

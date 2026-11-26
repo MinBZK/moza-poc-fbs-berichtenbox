@@ -73,8 +73,11 @@ UITROL_RELEVANT='deploy'
 # demo/lib/ bevat de modus-keuze van de lokale opstellingen (gesourcet door demo/up.sh en de
 # FSC-peer-harnessen); geen image leest hem.
 #
+# De compose-overlays voor podman en het portaal leest alleen de lokale stack; de deploy leest
+# compose.yaml zelf (de pin van de berichtenbox op ZAD) en dat bestand valt hier dus níet onder.
+#
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/lib/|^demo/[^/]*\.sh$'
+DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/lib/|^demo/[^/]*\.sh$|^compose\.(podman|portaal)[^/]*\.yaml$'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.

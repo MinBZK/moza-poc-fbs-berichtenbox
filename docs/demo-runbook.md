@@ -74,7 +74,7 @@ service gezond is en onthoudt de keuze voor de vervolgcommando's:
 
 ```bash
 demo/up.sh                        # starten
-DEMO_HOST=10.0.0.5 demo/up.sh     # ander adres dan localhost in de CORS-allowlist
+DEMO_HOST=10.0.0.5 demo/up.sh     # ander adres voor de magazijnen in het stelseldocument
 demo/up.sh ps                     # status
 demo/up.sh compose logs -f berichtenuitvraag
 demo/up.sh down                   # afbreken (voeg -v toe om de volumes te wissen)
@@ -131,8 +131,12 @@ De stack luistert standaard **alleen op `127.0.0.1`**: zonder die grens staan Re
 wachtwoord), drie PostgreSQL-instanties met demo-credentials en de WireMock-admin-API's op elke
 interface van de machine — op een kantoor- of thuisnetwerk dus voor het hele subnet.
 
-Wil je de demo aan iemand anders tonen, dan zet je hem bewust open, en heb je **beide** variabelen
-nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de CORS-allowlist.
+Wil je de demo aan iemand anders tonen, gebruik dan een tunnel naar de demo-proxy, bijvoorbeeld
+`ssh -L 8097:127.0.0.1:8097 <host>`. Het portaal zet zijn persona-cookie met `Secure`, en een
+browser bewaart dat over gewone HTTP alleen voor `localhost` en `127.0.0.1`. Op een ander adres
+onthoudt de Berichtenbox dus geen persona. Wil je de poorten toch openzetten, dan heb je **beide**
+variabelen nodig: `DEMO_BIND` voor de poorten en `DEMO_HOST` voor de magazijnadressen in het
+stelseldocument.
 
 ```bash
 DEMO_BIND=0.0.0.0 DEMO_HOST=10.0.0.5 demo/up.sh
@@ -243,7 +247,7 @@ magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze 
 **Eén adres voor de hele demo: <http://127.0.0.1:8097/bediening/>.** Daar staat de Berichtenbox van
 het MOZa-portaal met de bediening ernaast; "Bediening verbergen" geeft de Berichtenbox de volle
 breedte voor het moment waarop je laat zien wat de ondernemer ziet. Kies in het portaal een persona
-die op de keten is aangesloten (§6).
+die op de keten is aangesloten: een "Aangesloten onderneming" (kolom *In het portaal* in §6).
 
 > **Nog geen berichten uit de keten.** Het portaal start nog geen sessie bij de uitvraag
 > ([#1453](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453)). Tot dat in het portaal zit,
@@ -264,8 +268,10 @@ bevroren versie voor een gebruikersonderzoek, of nog niet gemergd werk van moza-
 # Via demo/up.sh: die neemt de overlay vanzelf mee zodra de variabele staat.
 PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh
 
-# Alleen het portaal wisselen terwijl de stack al draait.
+# Alleen het portaal wisselen terwijl de stack al draait. De demo-proxy zoekt het adres van het
+# portaal één keer op; na een nieuwe container moet hij opnieuw starten.
 PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh compose up -d portaal
+demo/up.sh compose restart demo-proxy
 ```
 
 Elke PR op moza-portaal heeft een image `ghcr.io/minbzk/moza-portaal:pr-<n>-<sha>`. De nieuwste tag
@@ -325,14 +331,12 @@ ander adres, zet dat dan bewust:
 DEMO_BEDIENING_BIND=0.0.0.0 demo/up.sh
 ```
 
-Draait de demo in een dev-container met een eigen netwerk-namespace, dan helpt een loopback-alias
-als `127.0.0.2` niet — loopback bestaat per namespace. Gebruik het adres van de container zelf
-(`ip -o addr show eth0`), bijvoorbeeld <http://172.20.0.2:8097/bediening/>.
-
-Let op: het portaal zet zijn persona-cookie met `Secure`. Een browser bewaart zo'n cookie over
-gewone HTTP alleen voor `localhost` en `127.0.0.1`. Op een ander adres onthoudt het portaal de
-gekozen persona dus niet; gebruik dan een tunnel naar `127.0.0.1:8097`, zoals
-`ssh -L 8097:127.0.0.1:8097 <host>`.
+Daarmee is het paneel bereikbaar, maar de Berichtenbox niet bruikbaar: het portaal zet zijn
+persona-cookie met `Secure`, en een browser bewaart zo'n cookie over gewone HTTP alleen voor
+`localhost` en `127.0.0.1`. Op een ander adres onthoudt het portaal de gekozen persona dus niet.
+Gebruik daarom een tunnel naar `127.0.0.1:8097`, zoals `ssh -L 8097:127.0.0.1:8097 <host>`. Draait
+de demo in een dev-container met een eigen netwerk-namespace, dan forward je de poort vanuit die
+container; een loopback-alias als `127.0.0.2` helpt niet, want loopback bestaat per namespace.
 
 De losse adressen blijven bestaan om te debuggen: het portaal zelf op `:8096` en het kale paneel op
 `:8095`. Open je het paneel daar, dan blijft het frame leeg met een verwijzing naar de proxy — het
@@ -350,24 +354,25 @@ herlaad over een origin-grens, waarna het paneel het frame opnieuw laadt.
 ## 6. Persona's (berichtenbox → testaccount kiezen)
 
 Bron: `demo.personas.*` in `demo/demo-personas/src/main/resources/META-INF/microprofile-config.properties`.
-De berichtenbox van de proeftuin haalt die lijst op bij `GET /api/demo/personas`, maar biedt alleen
-de persona's aan die ook in zijn eigen `_data/personas.json` staan, onder een eigen naam: de kolom
-*In de proeftuin*. De tabel hieronder werk je met de hand bij.
+Het portaal (lokaal) en de berichtenbox van de proeftuin (op ZAD) kiezen de ondernemer uit hun
+eigen lijst, onder een eigen naam. Ze vragen de personadienst (`GET /api/demo/personas`) alleen
+welke daarvan op de keten zijn aangesloten. De kolom *In het portaal* geeft de id in het portaal en
+de naam in de persona-keuze; de proeftuin gebruikt dezelfde namen. De tabel werk je met de hand bij.
 
-| Persona | In de proeftuin | Identificatie | Bevraagt |
+| Persona | In het portaal | Identificatie | Bevraagt |
 |---|---|---|---|
-| Demo-onderneming 1 | Aangesloten onderneming 1 | KVK `90000011` | RVO |
-| Demo-onderneming 2 | Aangesloten onderneming 2 | KVK `90000012` | Belastingdienst |
-| Demo-onderneming 3 | Aangesloten onderneming 3 | KVK `90000013` | RVO en Belastingdienst |
-| Garage Van Dijk B.V. | Aangesloten onderneming 4 (met bijlagen) | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
-| Grootbedrijf B.V. | Aangesloten onderneming, veel organisaties | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
-| Landelijk Concern N.V. | Aangesloten onderneming, landelijk concern | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
-| Demo-onderneming 4 | Aangesloten onderneming 4 | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
+| Demo-onderneming 1 | `proeftuin-een`: Aangesloten onderneming 1 | KVK `90000011` | RVO |
+| Demo-onderneming 2 | `proeftuin-twee`: Aangesloten onderneming 2 | KVK `90000012` | Belastingdienst |
+| Demo-onderneming 3 | `proeftuin-drie`: Aangesloten onderneming 3 | KVK `90000013` | RVO en Belastingdienst |
+| Garage Van Dijk B.V. | `proeftuin-garage`: Aangesloten onderneming 4 (met bijlagen) | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
+| Grootbedrijf B.V. | `proeftuin-veel`: Aangesloten onderneming, veel organisaties | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
+| Landelijk Concern N.V. | `proeftuin-concern`: Aangesloten onderneming, landelijk concern | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
+| Demo-onderneming 4 | — (alleen in de proeftuin) | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
 | J. Pietersen | — | BSN `999993653` | 3 organisaties: A, B en 1 gesimuleerde |
 | Bakkerij De Vroege Vogel | — | BSN `999996666` | RVO |
 
-De twee BSN-persona's staan wel in de personadienst, maar de proeftuin toont ze niet: MOZa is de
-zakelijke kant en schrijft ondernemingen aan op KVK-nummer. Ze blijven bruikbaar voor wie de keten
+De twee BSN-persona's staan wel in de personadienst, maar het portaal en de proeftuin tonen ze niet:
+MOZa is de zakelijke kant en schrijft ondernemingen aan op KVK-nummer. Ze blijven bruikbaar voor wie de keten
 rechtstreeks aanroept, en in het paneel (*Bericht plaatsen*, *Ontdubbeling*).
 
 Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzender-OIN). Kies een
@@ -376,6 +381,9 @@ ontvanger nog niets in de cache staat, volgt de ophaalronde vanzelf. Daarna lees
 alleen nog de cache, en verschijnt een nieuw bericht vanzelf via `_volgen`.
 
 ### Een nieuwe ophaalronde
+
+> Dit beschrijft de berichtenbox van de proeftuin, op ZAD. Het portaal start nog geen sessie
+> (MinBZK/MijnOverheidZakelijk#1453); hoe een nieuwe ronde daar werkt, volgt met #1345.
 
 Een knop **Ophalen** heeft de proeftuin niet, en zolang er een sessie leeft levert verversen geen
 nieuwe ronde op: het sessie-id staat in de `sessionStorage` van het tabblad en overleeft een
@@ -544,8 +552,10 @@ de simulator herstarten na regenereren.
 De demo dekt de 14 scenario's uit de eisen, plus #15 (niet alles opgehaald). 14 zijn nu speelbaar; #14 (load/stress) en de rode vlag
 volgen in fase 7.
 
-**Elk scenario speel je in de berichtenbox van de proeftuin** (§5b), met het paneel ernaast. Het
-MOZa-portaal neemt die rol later over (MinBZK/MijnOverheidZakelijk#1345). De proeftuin toont wat de ondernemer ziet. Wat hij niet toont,
+**Elk scenario speel je nu in de berichtenbox van de proeftuin op ZAD**, met het paneel ernaast.
+Lokaal staat de Berichtenbox van het MOZa-portaal (§5b), maar die toont nog geen berichten uit de
+keten (MinBZK/MijnOverheidZakelijk#1453). Welke scenario's in het portaal te spelen zijn, volgt met
+MinBZK/MijnOverheidZakelijk#1345. De proeftuin toont wat de ondernemer ziet. Wat hij niet toont,
 de uitkomst per organisatie en het technische foutdetail, laat je zien in de log van de uitvraag
 (`demo/up.sh compose logs -f berichtenuitvraag`) of in de netwerk-tab van de browser.
 

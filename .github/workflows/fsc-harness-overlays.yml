@@ -287,6 +287,15 @@ jobs:
             -f compose.podman-hostnet.yaml config --format json \
             | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge)"
 
+          # Met het portaal uit een lokale checkout: `demo/up.sh compose` zet die overlay in hostnet
+          # op dezelfde lagen, en dan is het portaal een gebouwde dienst zonder image uit ghcr.
+          DEMO_HOST=localhost DEMO_MAGAZIJNEN=98 docker compose --profile demo \
+            -f compose.yaml \
+            -f compose.podman.yaml \
+            -f compose.podman-hostnet.yaml \
+            -f compose.portaal-lokaal.yaml config --format json \
+            | "$GITHUB_WORKSPACE/.github/scripts/merge-guard.sh" "demo-stack (hostnet-merge, portaal-lokaal)"
+
       - name: Elke bind-mount van de demo-stack draagt een SELinux-label
         # Ook na een eerdere fout in deze job: twee losse signalen zijn meer waard dan één.
         if: ${{ !cancelled() }}

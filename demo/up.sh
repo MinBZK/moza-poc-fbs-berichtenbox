@@ -20,8 +20,8 @@
 # De modus van de laatste start staat in demo/generated/.modus; `down`, `ps` en `compose` lezen
 # hem terug, zodat geen vervolgcommando met minder compose-bestanden de stack half omzet.
 #
-# DEMO_HOST is het adres waarop je de demo benadert (voor de CORS-allowlist van de uitvraag);
-# default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
+# DEMO_HOST is het adres waarop je de demo benadert; het stelseldocument noemt de magazijnen op dat
+# adres. Default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
 # toelichting bij de laatste controle onderaan dit script.
 set -euo pipefail
 
@@ -358,10 +358,9 @@ wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http:/
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "stelselregister"     stelselregister     curl -sSf --max-time 3 http://127.0.0.1:8094/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
-# Op `localhost`: in hostnet bindt het portaal daarop, en dat kan ::1 zijn (compose.podman-hostnet.yaml).
-wacht_op "portaal"             portaal             curl -sSf --max-time 3 -o /dev/null http://localhost:8096/
+wacht_op "portaal"             portaal             curl -sSf --max-time 3 -o /dev/null http://127.0.0.1:8096/
 # Via de proxy, want dat is het adres waarop de demo gegeven wordt; een probe op de container zelf
-# zou een kapotte route naar de console of de uitvraag niet opmerken.
+# zou een kapotte route naar de personadienst niet opmerken.
 wacht_op "demo-proxy"          demo-proxy          curl -sSf --max-time 3 http://127.0.0.1:8097/api/demo/personas
 
 # Opnieuw, nu de console draait: die maakt de proxies zelf aan en overschrijft daarmee wat er uit
@@ -376,12 +375,14 @@ vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 # Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt altijd op loopback (geen
 # authenticatie, en POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases). Een probe
 # op een ander adres zou dus per definitie aflopen op een timeout en de start laten falen terwijl
-# de stack gezond draait. DEMO_HOST stuurt alleen de CORS-allowlist en de URL's hieronder; om er
-# van een andere machine bij te kunnen heb je een tunnel naar de demo-proxy nodig, bijvoorbeeld
-# `ssh -L 8097:127.0.0.1:8097 <host>`, of DEMO_BEDIENING_BIND (zie docs/demo-runbook.md §5b).
+# de stack gezond draait. DEMO_HOST stuurt alleen de magazijnadressen in het stelseldocument en de
+# URL's hieronder. Van een andere machine kom je bij de demo via een tunnel naar de demo-proxy,
+# bijvoorbeeld `ssh -L 8097:127.0.0.1:8097 <host>`: het portaal zet zijn persona-cookie met
+# `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback.
 if [ "$DEMO_HOST" != "localhost" ]; then
-    echo "Let op: DEMO_HOST zet alleen de CORS-allowlist; de demo zelf (poort 8097) luistert op"
-    echo "       ${DEMO_BEDIENING_BIND:-127.0.0.1}. Tunnel 8097, of zie DEMO_BEDIENING_BIND in docs/demo-runbook.md §5b."
+    echo "Let op: DEMO_HOST zet alleen de magazijnadressen in het stelseldocument; de demo zelf (poort"
+    echo "       8097) luistert op ${DEMO_BEDIENING_BIND:-127.0.0.1}. Open hem via een tunnel naar 127.0.0.1:8097"
+    echo "       (zie docs/demo-runbook.md §5b): op een ander adres onthoudt het portaal geen persona."
 fi
 
 echo

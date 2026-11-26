@@ -330,9 +330,9 @@ services:
       TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
-      # Onder dev eist Quarkus dat de Host-header naar localhost wijst. De demo komt binnen via de
-      # demo-proxy of via de proeftuin, die de Host van de bezoeker doorzet; zonder dit levert elke
-      # aanroep van een ander adres dan localhost een lege 400 op. Alleen hier, in de demo-compose:
+      # Onder dev eist Quarkus dat de Host-header naar localhost wijst. Het portaal roept de uitvraag
+      # aan op `berichtenuitvraag:8086`; zonder dit levert elke aanroep met een andere Host dan
+      # localhost een lege 400 op. Alleen hier, in de demo-compose:
       # de service zelf houdt de standaardinstelling.
       QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST: "false"
       # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf). De
@@ -482,8 +482,9 @@ services:
       # praten zonder ander image of andere compose.
       KETEN_BACKEND_URL: ${KETEN_BACKEND_URL:-http://berichtenuitvraag:8086}
       KETEN_PERSONAS_URL: ${KETEN_PERSONAS_URL:-http://demo-personas:8098}
-      # Zonder geheim meldt next-auth bij elk verzoek een fout. De demo heeft geen inlogdienst: dit
-      # geheim ondertekent alleen de cookies van deze lokale stack, die op loopback luistert.
+      # Zonder geheim meldt next-auth bij elk verzoek een fout. De demo heeft geen inlogdienst, dus
+      # het geheim beschermt hier niets: het persona-cookie is niet ondertekend en kiest al de
+      # ondernemer. Daarom een vaste default. Niet overnemen voor een omgeving met een inlogdienst.
       AUTH_SECRET: ${PORTAAL_AUTH_SECRET:-lokale-demo-zonder-inlogdienst}
 
   # De berichtenbox van de proeftuin (MinBZK/moza-poc) draait alleen nog op ZAD. Deze regel is daar de
@@ -495,8 +496,8 @@ services:
     image: ghcr.io/minbzk/moza-poc:latest@sha256:2d900a986c7e545e82557f2e34872b94e812e2cfc9f0236ebd23c25d542d071b
     profiles: [zad-pin]
 
-  # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
-  # adres. Zie demo/proxy/demo.conf voor het waarom.
+  # Eén origin voor de hele demo: het portaal (met zijn /api/keten), het bedieningspaneel en de
+  # personalijst achter hetzelfde adres. Zie demo/proxy/demo.conf.template voor het waarom.
   #
   # Uitsluitend op loopback, om dezelfde reden als demo-console: /api/demo/legen doet via deze
   # proxy net zo goed een TRUNCATE op beide magazijn-databases.

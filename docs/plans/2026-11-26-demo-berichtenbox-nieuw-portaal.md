@@ -62,8 +62,12 @@ staat er op ZAD een Berichtenbox zonder berichten.
   `sessie-ongeldig` is het bekende gat (#1453) en geeft een `LET OP`-regel; al het andere faalt.
   Zo bewijst de proef dat proxy, portaal en uitvraag aan elkaar hangen, zonder rood te staan op
   iets wat deze repo niet kan oplossen. `TODO(#1453)` zet de eis terug op 200/409.
-- **De bijlage-stap gaat rechtstreeks naar de uitvraag**, met de headers die het portaal meegeeft.
-  Wat de proef daar toetst — het adres uit `_links.self` levert de bijlage — blijft gelden.
+- **De bijlage-stap gaat rechtstreeks naar de uitvraag**, met `X-Ontvanger` en `X-Sessie`. Wat de
+  proef daar toetst — het adres uit `_links.self` levert de bijlage — blijft gelden.
+- **De demo-proxy geeft het portaal `X-Forwarded-Host`.** Next.js weigert een Server Action als de
+  `Origin` van de browser niet bij de host past; zonder die header vergelijkt hij met de upstream.
+- **In podman-hostnet luistert het portaal op `localhost`, vastgelegd op IPv4.** Met een letterlijk
+  IP-adres als `HOSTNAME` stuurt Next.js elke pagina met persona-cookie naar zichzelf door.
 
 ## Verificatie stap 1
 

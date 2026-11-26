@@ -260,6 +260,7 @@ uit een lokale checkout.
 ```bash
 PORTAAL_PAD=~/projects/moza-portaal \
   demo/up.sh compose -f compose.portaal-lokaal.yaml up -d --build portaal
+demo/up.sh compose restart demo-proxy
 ```
 
 De rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
@@ -276,7 +277,10 @@ Z=rig.prd1.gn2.quattro.rijksapps.nl
 KETEN_BACKEND_URL=https://uitvraag-test-mpfb-8wh.$Z \
 KETEN_PERSONAS_URL=https://demopersonas-test-mpfm-w3h.$Z \
   demo/up.sh compose up -d portaal
+demo/up.sh compose restart demo-proxy
 ```
+
+De herstart is nodig omdat de demo-proxy het adres van het portaal één keer opzoekt, bij zijn start.
 
 Dat werkt ook via de demo-proxy (`:8097`): die stuurt alles naar het portaal, en het portaal bepaalt
 waar de keten staat.

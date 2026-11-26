@@ -27,14 +27,16 @@ services:
   # Het portaal krijgt zijn gepubliceerde poort als luisterpoort, net als de stubs. Next.js luistert
   # op HOSTNAME; in een gedeelde netns is 0.0.0.0 de hele machine. `localhost` en geen IP-adres: met
   # een letterlijk adres ziet Next.js de rewrite van zijn middleware naar `localhost` als extern,
-  # en stuurt elke pagina met een persona-cookie naar zichzelf door. Node bindt `localhost` op ::1
-  # of op 127.0.0.1; de demo-proxy en de wachtprobe gaan daarom ook naar `localhost`.
+  # en stuurt elke pagina met een persona-cookie naar zichzelf door. Node zet `localhost` standaard
+  # eerst om naar ::1; `ipv4first` legt de listener vast op 127.0.0.1, waar de demo-proxy en de
+  # wachtprobe hem zoeken. Anders blijft 127.0.0.1:8096 vrij voor een ander proces in dezelfde netns.
   portaal:
     network_mode: host
     ports: !reset []
     environment:
       PORT: "8096"
       HOSTNAME: localhost
+      NODE_OPTIONS: --dns-result-order=ipv4first
       KETEN_BACKEND_URL: ${KETEN_BACKEND_URL:-http://127.0.0.1:8086}
       KETEN_PERSONAS_URL: ${KETEN_PERSONAS_URL:-http://127.0.0.1:8098}
 
@@ -47,7 +49,7 @@ services:
       # als bij demo-console: via deze proxy is /api/demo/legen een TRUNCATE.
       PROXY_BIND: "${DEMO_BEDIENING_BIND:-127.0.0.1}"
       PROXY_PORT: "8097"
-      PORTAAL_UPSTREAM: http://localhost:8096
+      PORTAAL_UPSTREAM: http://127.0.0.1:8096
       CONSOLE_UPSTREAM: http://127.0.0.1:8095
       PERSONAS_UPSTREAM: http://127.0.0.1:8098
 

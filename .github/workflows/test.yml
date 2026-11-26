@@ -382,11 +382,17 @@ jobs:
       # De twee overlays draaien alleen als iemand ze er met de hand bij zet, dus een kapotte
       # overlay blijft anders onopgemerkt tot vlak vóór een demo — het moment waarop je hem
       # gebruikt. PORTAAL_IMAGE moet gezet zijn: die overlay eist dat expliciet in plaats van
-      # stil op de gepinde versie terug te vallen.
+      # stil op de gepinde versie terug te vallen. Parsen alleen bewijst niets: een tikfout in de
+      # dienstnaam maakt een nieuwe, geldige dienst en laat de pin staan. Daarom toetst jq wat de
+      # overlay op `portaal` moet zetten.
       - name: compose.portaal-versie.yaml valideren
         env:
           PORTAAL_IMAGE: ghcr.io/minbzk/moza-portaal:valideer
-        run: docker compose -f compose.yaml -f compose.portaal-versie.yaml --profile demo config -q
+        run: |
+          docker compose -f compose.yaml -f compose.portaal-versie.yaml --profile demo config --format json \
+            | jq -e '.services.portaal.image == env.PORTAAL_IMAGE' > /dev/null
 
       - name: compose.portaal-lokaal.yaml valideren
-        run: docker compose -f compose.yaml -f compose.portaal-lokaal.yaml --profile demo config -q
+        run: |
+          docker compose -f compose.yaml -f compose.portaal-lokaal.yaml --profile demo config --format json \
+            | jq -e '.services.portaal.build.context | endswith("/moza-portaal")' > /dev/null

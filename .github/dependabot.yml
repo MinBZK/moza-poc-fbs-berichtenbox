@@ -48,6 +48,10 @@ updates:
       # ruimen zolang die PR bestaat. De workflow Proeftuin-pin doet dit image nu. Expliciet
       # negeren, zodat er geen ecosysteem-regel staat die stilzwijgend niets doet.
       - dependency-name: "minbzk/moza-poc"
+      # De Berichtenbox van het portaal. Zijn tags zijn `main-<sha7>`; Dependabot leest een sha die
+      # alleen uit cijfers bestaat als versienummer en zou dan een willekeurige build aanbieden.
+      # TODO(MinBZK/MijnOverheidZakelijk#1345): een eigen pin-workflow zoals Proeftuin-pin.
+      - dependency-name: "minbzk/moza-portaal"
   # Dagelijks: alerts komen er alleen voor semver-referenties, en alle `uses:` in dit
   # repo zijn op commit-SHA gepind (supply-chain-eis). Ook hier is de version-update
   # dus het enige kanaal; de groepering hieronder houdt het bij hooguit twee PR's.

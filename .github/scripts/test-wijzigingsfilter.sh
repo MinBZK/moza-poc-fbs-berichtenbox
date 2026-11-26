@@ -225,6 +225,15 @@ verwacht "een shellscript direct onder demo/" 'demo/smoke.sh' "$DEMO_STACK"
 # jib-builds en drie previews, terwijl geen image hem leest.
 verwacht "de gedeelde modus-keuze onder demo/lib/" 'demo/lib/podman-modus.sh' "$DEMO_STACK"
 
+# De compose-overlays van de lokale stack: geen uitrol leest ze. compose.yaml zelf wel, want daar
+# staat de pin van de berichtenbox op ZAD; het anker op `compose\.(podman|portaal)` houdt hem erbuiten.
+verwacht "een podman-overlay van de lokale stack" 'compose.podman-hostnet.yaml' "$GEEN_PREVIEW"
+verwacht "een portaal-overlay van de lokale stack" 'compose.portaal-versie.yaml' "$GEEN_PREVIEW"
+verwacht "compose.yaml houdt zijn uitrol" 'compose.yaml' 'run=true
+deploy=true
+demo-only=false
+fuzz=false'
+
 # En de tegenhanger: het generatiescript schrijft de ondernemer-stubs die in het
 # fbs-demo-profiel-image gebakken worden, dus het valt júist niet onder de uitsluiting. Terugzetten
 # van het py-alternatief laat een gewijzigde fan-out zonder preview door — de check meldt dan groen
