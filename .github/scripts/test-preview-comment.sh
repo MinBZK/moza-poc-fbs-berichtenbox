@@ -584,13 +584,16 @@ bestand_bevat "de sectie van het stelselregister hangt aan het slagen van zijn e
 
 # Beide deploy-jobs moeten hun URL's als job-output publiceren; de comment staat in een derde job
 # en kan niet bij hun steps. Valt zo'n `outputs`-blok of step-id weg, dan komt de env leeg binnen —
-# dat faalt luid, maar pas tijdens de deploy van de volgende PR.
-for job in deploy-preview-uitvraag deploy-preview-magazijnen deploy-preview-stelselregister; do
+# dat faalt luid, maar pas tijdens de deploy van de volgende PR. De uitvraag geeft ze door via de
+# stap `oordeel`, die ook een rode deploy beoordeelt (uitvraag-preview-uitrol.sh).
+for job_stap in deploy-preview-uitvraag:oordeel deploy-preview-magazijnen:deploy deploy-preview-stelselregister:deploy; do
+  job=${job_stap%%:*}
+  stap=${job_stap#*:}
   BLOK=$(awk -v job="  $job:" '$0 == job { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
 
   niet_leeg "de job $job is in deploy.yml te vinden" "$BLOK"
-  bevat "$job publiceert zijn URL's als job-output" 'urls: ${{ steps.deploy.outputs.urls }}' "$BLOK"
-  bevat "en zijn deploy-stap draagt de id waar die output naar kijkt" 'id: deploy' "$BLOK"
+  bevat "$job publiceert zijn URL's als job-output" "urls: \${{ steps.$stap.outputs.urls }}" "$BLOK"
+  bevat "en de stap draagt de id waar die output naar kijkt" "id: $stap" "$BLOK"
 done
 
 # Het blok van de job die de comment plaatst, zodat de eisen eronder niet ergens anders in het

@@ -995,9 +995,9 @@ jobs:
     # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
     timeout-minutes: 35
     # De URL's gaan naar `preview-afronding`, die de PR-comment samenstelt: één comment met de demo
-    # én deze uitvraag erin.
+    # én deze uitvraag erin, en naar de wachtstap van `deploy-preview-magazijnen`.
     outputs:
-      urls: ${{ steps.deploy.outputs.urls }}
+      urls: ${{ steps.oordeel.outputs.urls }}
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
     # te breken — een halverwege afgebroken ZAD-deploy laat de deployment in een inconsistente
     # staat achter. De cleanup-job in cleanup-preview.yml draagt voor hetzelfde project + dezelfde
@@ -1012,12 +1012,31 @@ jobs:
     # uitvraag-deploy (de frontend). De andere projecten dragen geen environment.
     environment:
       name: pr-${{ github.event.pull_request.number }}
-      url: ${{ steps.deploy.outputs.url }}
+      url: ${{ steps.oordeel.outputs.url }}
     steps:
+      # Voor uitvraag-preview-uitrol.sh uit .github/scripts/.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+
+      - name: Tel de wachtende uitrollen vóór de deploy
+        id: nulmeting
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          PROJECT: ${{ env.PROJECT_UITVRAAG }}
+          DEPLOYMENT: pr-${{ github.event.pull_request.number }}
+        run: .github/scripts/uitvraag-preview-uitrol.sh nulmeting "$PROJECT" "$DEPLOYMENT" >> "$GITHUB_OUTPUT"
+
       # De inbound-regels voor de console staan al in het projectbestand (`preview-klaarzetten`), dus
       # deze uitrol rendert ze meteen mee.
+      #
+      # Mag falen: een nieuwe preview wacht op de Redis-proxy van een console die pas ná deze job
+      # uitrolt. Waarom, en wanneer `oordeel` dat aanvaardt, staat in de kop van
+      # uitvraag-preview-uitrol.sh.
       - name: Deploy uitvraag-project
         id: deploy
+        continue-on-error: true
         uses: RijksICTGilde/zad-actions/deploy@0b604742a137d43f6fe8fceb06bdffeb0a1665db # v4.4.1
         with:
           api-key: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
@@ -1027,6 +1046,21 @@ jobs:
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: ${{ needs.meta.outputs.componenten-uitvraag }}
+
+      - name: Beoordeel de uitrol
+        id: oordeel
+        env:
+          UITKOMST: ${{ steps.deploy.outcome }}
+          URLS: ${{ steps.deploy.outputs.urls }}
+          URL: ${{ steps.deploy.outputs.url }}
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          PROJECT: ${{ env.PROJECT_UITVRAAG }}
+          DEPLOYMENT: pr-${{ github.event.pull_request.number }}
+          COMPONENTEN: ${{ needs.meta.outputs.componenten-uitvraag }}
+          WACHTEND: ${{ steps.nulmeting.outputs.wachtend }}
+        run: >-
+          .github/scripts/uitvraag-preview-uitrol.sh oordeel "$UITKOMST"
+          "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$WACHTEND" >> "$GITHUB_OUTPUT"
 
   deploy-preview-externe-stubs:
     # Zelfde reden als bij deploy-preview-uitvraag: de impliciete success() struikelt over
@@ -1121,6 +1155,8 @@ jobs:
     # sessiecache en de Toxiproxy's in die projecten kan, en de inbound-policies daarvoor staan pas
     # in het cluster als die deploys ze hebben uitgerold. Parallel zou het afhangen van wie er
     # eerst is, en Operations Manager wacht 300 s op een gezonde sync voordat hij het opgeeft.
+    # Andersom wacht een nieuwe uitvraag-preview op deze console; hoe die kring doorbroken wordt,
+    # staat in de kop van uitvraag-preview-uitrol.sh.
     needs:
       - meta
       - build
@@ -1132,8 +1168,9 @@ jobs:
       - deploy-preview-uitvraag
       - deploy-preview-externe-stubs
     runs-on: ubuntu-latest
-    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
-    timeout-minutes: 35
+    # Twee wachtstappen van PREVIEW_TASK_TIMEOUT, de vijf minuten van de wachtstap op de
+    # uitvraag-preview, plus marge; het waarom staat bij die variabele.
+    timeout-minutes: 42
     concurrency:
       group: zad-magazijnen-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
@@ -1208,6 +1245,19 @@ jobs:
           wait-for-ready: 'false'
           task-timeout: ${{ env.PREVIEW_TASK_TIMEOUT }}
           components: ${{ steps.berichtenbox.outputs.componenten }}
+
+      # De poort die `oordeel` in deploy-preview-uitvraag openliet (zie uitvraag-preview-uitrol.sh).
+      # Blijft de uitvraag ook nu de console draait ongezond, dan ligt het niet aan de volgorde en
+      # hoort de run rood te zijn.
+      - name: Wacht tot de uitvraag-preview gezond is
+        env:
+          ZAD_API_KEY: ${{ secrets.ZAD_API_KEY_UITVRAAG }}
+          PROJECT: ${{ env.PROJECT_UITVRAAG }}
+          DEPLOYMENT: pr-${{ github.event.pull_request.number }}
+          COMPONENTEN: ${{ needs.meta.outputs.componenten-uitvraag }}
+          URLS: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
+        run: >-
+          .github/scripts/uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" 300 10
 
   # De comment met de preview-URL's, in een eigen job omdat hij de URL's van meerdere deploys nodig
   # heeft.
