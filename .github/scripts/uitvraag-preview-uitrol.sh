@@ -11,22 +11,27 @@
 #
 # `nulmeting` telt vóór de uitrol hoeveel wijzigingen er in het project op uitrol wachten. Die telling
 # geldt voor het hele project, en `preview-klaarzetten` laat er bij een nieuwe preview zelf een paar
-# achter die blijven meetellen tot het project ververst wordt. Een absolute eis van nul zou dus elke
-# nieuwe preview rood maken; wat telt is dat er door deze uitrol niets bij kwam.
+# achter die blijven meetellen tot iemand het hele project herverwerkt. Een absolute eis van nul zou dus
+# elke nieuwe preview rood maken.
 #
 # `oordeel` geeft bij een groene deploy de adressen door. Een rode laat hij alleen door als de uitrol
 # zelf geland is: de gevraagde images staan in de deployment, er wacht niet meer op uitrol dan bij de
 # nulmeting, er loopt geen sync, en geen ander component dan de uitvraag meldt een fout of afwijking.
 # Dan staan de netwerkregels in het cluster en kan de console erbij. Elke andere toestand blijft rood.
+# De telling vangt het enige pad waarlangs deze uitrol iets laat wachten: een overname door een andere
+# taak die de wijziging opslaat maar niet uitrolt. Zet een andere PR in die paar minuten iets in de
+# wacht, dan wordt deze run ook rood; dat is de veilige kant, en alleen een herhaling van de hele run
+# doet een nieuwe nulmeting.
 #
 # `wacht` is de eigenlijke poort. Hij draait na de magazijnen-uitrol, ook als de deploy groen was: een
 # groene stap kan "succeeded, but some components are unhealthy" betekenen. Hij eist twee bronnen
 # tegelijk, want elk alleen laat een kapotte preview door. Operations Manager moet de deployment met de
-# gevraagde images, zonder sync en zonder extra wachtende uitrol `Healthy` noemen: bij een bestaande
-# preview blijft de oude pod anders ready, en zijn readiness zegt dan `UP` voor een versie die niet meer
-# gevraagd is. En de readiness van de uitvraag zelf moet `UP` zijn: een component dat Operations Manager
-# heeft uitgeschakeld, staat daar als gezond. Die tweede bron dekt alleen de uitvraag en wat zijn
-# readiness raakt (Redis en `toxiproxy-redis`), niet `toxiproxy-aanmeld`.
+# gevraagde images en zonder sync `Healthy` noemen: bij een bestaande preview blijft de oude pod anders
+# ready, en zijn readiness zegt dan `UP` voor een versie die niet meer gevraagd is. En de readiness van
+# de uitvraag zelf moet `UP` zijn: een component dat Operations Manager heeft uitgeschakeld, staat daar
+# als gezond. Die tweede bron dekt alleen de uitvraag en wat zijn readiness raakt (Redis en
+# `toxiproxy-redis`), niet `toxiproxy-aanmeld`. De telling van wachtende uitrollen telt hier niet mee:
+# deze stap schrijft niets, en een andere PR zou hem anders minutenlang rood kunnen houden.
 #
 # Gebruik:
 #   ZAD_API_KEY=... uitvraag-preview-uitrol.sh nulmeting <project> <deployment>
@@ -34,7 +39,7 @@
 #   ZAD_API_KEY=... uitvraag-preview-uitrol.sh oordeel <uitkomst> <project> <deployment> <component> <componenten-json> <wachtend>
 #     met URLS en URL in de omgeving: de outputs van de deploy-action, doorgegeven als die slaagde.
 #     Zet `urls=` en `url=` op stdout.
-#   ZAD_API_KEY=... uitvraag-preview-uitrol.sh wacht <project> <deployment> <component> <componenten-json> <urls-json> <wachtend> [seconden] [interval]
+#   ZAD_API_KEY=... uitvraag-preview-uitrol.sh wacht <project> <deployment> <component> <componenten-json> <urls-json> [seconden] [interval]
 
 set -euo pipefail
 
@@ -43,11 +48,11 @@ readonly STANDAARD_API_URL='https://operations-manager.rig.prd1.gn2.quattro.rijk
 # Een adres gaat via $GITHUB_OUTPUT verder; een regeleinde erin zou daar een eigen regel worden.
 readonly ADRES='^https://[^[:space:][:cntrl:]]+$'
 
-# `wacht` slaapt tussen twee opvragingen; de tests vervangen dit door een stub die het interval logt.
+# Tussen twee opvragingen; de tests vervangen dit door een stub die het interval logt.
 SLAAP=${ZAD_SLAAP:-sleep}
 
 # De toets op een deployment, gedeeld door `oordeel` en `wacht`. Geeft de reden waarom hij niet klopt,
-# of `gezond` / `nog niet gezond`.
+# of `gezond` / `nog niet gezond`. Met `$max` null telt het aantal wachtende uitrollen niet mee.
 #
 # Een melding hoort bij het component als haar naam `<deployment>-<component>` is, eventueel met de
 # hash-achtervoegsels van ReplicaSet en pod en het achtervoegsel van een event. Kubernetes gebruikt in
@@ -64,10 +69,10 @@ readonly TOETS='
   | ($fouten + (.deviations // [])) as $meldingen
   | if ($afwijkend | length) > 0 then
       "de opgeslagen images wijken af van de gevraagde (" + ($afwijkend | join(", ")) + ")"
-    elif (.pending_rollout.count | type) != "number" then
+    elif $max != null and (.pending_rollout.count | type) != "number" then
       "het aantal wachtende uitrollen ontbreekt"
-    elif .pending_rollout.count > $max then
-      "er wachten \(.pending_rollout.count) wijziging(en) in het project op uitrol, \($max) bij de nulmeting"
+    elif $max != null and .pending_rollout.count > $max then
+      "er wachten \(.pending_rollout.count) wijziging(en) in het project op uitrol, \($max) bij de nulmeting (de telling geldt voor het hele project; komt de stijging van een andere PR, herhaal dan de hele run, niet alleen de mislukte jobs)"
     elif .running_sync != null then
       "er loopt nog een sync"
     elif .status == "Healthy" then
@@ -89,9 +94,9 @@ fout() {
   exit 1
 }
 
-# Wat curl op stderr zei, op één regel. Uit een eigen bestand: met `2>&1` raakt die melding vermengd
-# met de body en de statuscode die `-w` erachter zet.
-curl_melding() {
+# Een stderr-bestand op één regel, ingekort tot 200 tekens. Uit een eigen bestand: met `2>&1` raakt de
+# melding van curl vermengd met de body en de statuscode die `-w` erachter zet.
+stderr_melding() {
   tr '\n' ' ' <"$1" | head -c 200
 }
 
@@ -99,11 +104,15 @@ curl_melding() {
 # antwoord, 1 = mislukt maar opnieuw proberen heeft zin, 2 = de sleutel wordt geweigerd, 3 = de
 # deployment bestaat niet.
 #
+# Met `telling` als derde argument hoeft het antwoord alleen een object te zijn: vlak na
+# `preview-klaarzetten` is de deployment nog niet uitgerold, en wat er dan nog aan velden ontbreekt, is
+# niet vastgelegd.
+#
 # De sleutel gaat via stdin, zodat hij niet in de argv van curl staat. Zonder `-f`, zodat een
 # HTTP-fout geen curl-fout wordt; de statuscode achter de body scheidt een geweigerde sleutel en een
 # verdwenen deployment van een storing.
 vraag_deployment_op() {
-  local project=$1 deployment=$2 ruw http fouten rc=0
+  local project=$1 deployment=$2 vorm=${3:-deployment} ruw http fouten rc=0
 
   fouten=$(mktemp)
   ruw=$(printf 'X-API-Key: %s\n' "$ZAD_API_KEY" | curl -sS --max-time 30 -w '\n%{http_code}' \
@@ -111,7 +120,7 @@ vraag_deployment_op() {
     "${ZAD_API_URL:-$STANDAARD_API_URL}/v2/projects/$project/deployments/$deployment" 2>"$fouten") || rc=$?
 
   if [ "$rc" -ne 0 ]; then
-    opvraagfout="curl $rc: $(curl_melding "$fouten")"
+    opvraagfout="curl $rc: $(stderr_melding "$fouten")"
     rm -f "$fouten"
 
     return 1
@@ -128,9 +137,34 @@ vraag_deployment_op() {
     *) opvraagfout="HTTP $http"; return 1 ;;
   esac
 
+  if [ "$vorm" = telling ]; then
+    jq -e 'type == "object"' <<<"$antwoord" >/dev/null 2>&1 \
+      || { opvraagfout="een antwoord zonder de vorm van een deployment"; return 1; }
+
+    return 0
+  fi
+
   jq -e 'type == "object" and (.status | type) == "string" and has("running_sync")
     and ((.urls // {}) | type) == "object"' <<<"$antwoord" >/dev/null 2>&1 \
     || { opvraagfout="een antwoord zonder de vorm van een deployment"; return 1; }
+}
+
+# `vraag_deployment_op` met drie pogingen, voor de stappen die één keer kijken: één hik van Operations
+# Manager hoort de uitrol niet rood te maken. Een geweigerde sleutel of verdwenen deployment herhaalt
+# niet.
+vraag_deployment_op_met_herhaling() {
+  local poging rc
+
+  for poging in 1 2 3; do
+    rc=0
+    vraag_deployment_op "$@" || rc=$?
+
+    [ "$rc" -eq 1 ] || return "$rc"
+
+    [ "$poging" -eq 3 ] || "$SLAAP" 5
+  done
+
+  return 1
 }
 
 # De reden uit TOETS voor `antwoord`; een fout van jq komt in de reden mee.
@@ -138,8 +172,8 @@ toets() {
   local componenten=$1 component=$2 deployment=$3 max=$4 jqfout
 
   jqfout=$(mktemp)
-  jq -r --argjson gevraagd "$componenten" --arg c "$component" --arg d "$deployment" --argjson max "$max" \
-    "$TOETS" <<<"$antwoord" 2>"$jqfout" || echo "onleesbaar antwoord ($(curl_melding "$jqfout"))"
+  jq -r --argjson gevraagd "$componenten" --arg c "$component" --arg d "$deployment" --argjson max "${max:-null}" \
+    "$TOETS" <<<"$antwoord" 2>"$jqfout" || echo "onleesbaar antwoord ($(stderr_melding "$jqfout"))"
   rm -f "$jqfout"
 }
 
@@ -158,7 +192,7 @@ kies_url() {
 nulmeting() {
   local project=$1 deployment=$2 antwoord opvraagfout="" wachtend
 
-  vraag_deployment_op "$project" "$deployment" \
+  vraag_deployment_op_met_herhaling "$project" "$deployment" telling \
     || fout "$deployment in $project is vóór de uitrol niet op te vragen ($opvraagfout)."
 
   wachtend=$(jq -r '.pending_rollout.count | if type == "number" and . >= 0 and floor == . then . else empty end' \
@@ -185,7 +219,7 @@ oordeel() {
 
   local antwoord opvraagfout="" reden urls url
 
-  vraag_deployment_op "$project" "$deployment" \
+  vraag_deployment_op_met_herhaling "$project" "$deployment" \
     || fout "$deployment in $project is niet op te vragen ($opvraagfout); of de uitrol landde, is onbekend."
 
   reden=$(toets "$componenten" "$component" "$deployment" "$max")
@@ -221,7 +255,7 @@ vraag_readiness_op() {
   ruw=$(curl -sS --max-time 10 -w '\n%{http_code}' "$adres" 2>"$fouten") || rc=$?
 
   if [ "$rc" -ne 0 ]; then
-    readiness="curl $rc: $(curl_melding "$fouten")"
+    readiness="curl $rc: $(stderr_melding "$fouten")"
     rm -f "$fouten"
 
     return
@@ -242,7 +276,7 @@ vraag_readiness_op() {
 }
 
 wacht() {
-  local project=$1 deployment=$2 component=$3 componenten=$4 urls=$5 max=$6 seconden=$7 interval=$8 basis
+  local project=$1 deployment=$2 component=$3 componenten=$4 urls=$5 seconden=$6 interval=$7 basis
 
   basis=$(jq -r --arg c "$component" '.[$c] // empty' <<<"$urls" 2>/dev/null) || basis=""
 
@@ -255,14 +289,15 @@ wacht() {
     vraag_deployment_op "$project" "$deployment" || rc=$?
 
     case "$rc" in
-      0) staat=$(toets "$componenten" "$component" "$deployment" "$max") ;;
+      0) staat=$(toets "$componenten" "$component" "$deployment" "") ;;
       2) fout "$deployment in $project is niet op te vragen ($opvraagfout); opnieuw proberen verandert dit antwoord niet." ;;
       3) fout "$deployment in $project bestaat niet meer; waarschijnlijk is de preview opgeruimd." ;;
       *) staat="niet op te vragen ($opvraagfout)" ;;
     esac
 
-    # `oordeel` keek al naar dezelfde images; wijken ze nu af, dan zette een nieuwere uitrol van deze
-    # deployment ze verder, en wordt deze run niet meer gezond.
+    # De gevraagde images stonden na deze uitrol in de deployment: de deploy slaagde, of `oordeel` zag
+    # ze daar. Wijken ze nu af, dan zette een nieuwere uitrol van deze deployment ze verder, en wordt
+    # deze run niet meer gezond.
     case "$staat" in
       "de opgeslagen images wijken af"*)
         fout "$deployment in $project is intussen door een nieuwere uitrol overgenomen: $staat."
@@ -323,13 +358,12 @@ main() {
       oordeel "$2" "$3" "$4" "$5" "$6" "$7"
       ;;
     wacht)
-      [ "$#" -ge 7 ] && [ "$#" -le 9 ] \
-        || fout "Gebruik: $0 wacht <project> <deployment> <component> <componenten-json> <urls-json> <wachtend> [seconden] [interval]"
+      [ "$#" -ge 6 ] && [ "$#" -le 8 ] \
+        || fout "Gebruik: $0 wacht <project> <deployment> <component> <componenten-json> <urls-json> [seconden] [interval]"
 
       geldige_componenten "$5"
-      geldig_aantal "$7"
       vereis_sleutel
-      wacht "$2" "$3" "$4" "$5" "$6" "$7" "${8:-300}" "${9:-10}"
+      wacht "$2" "$3" "$4" "$5" "$6" "${7:-300}" "${8:-10}"
       ;;
     *)
       fout "Onbekende actie '$actie'; kies nulmeting, oordeel of wacht."

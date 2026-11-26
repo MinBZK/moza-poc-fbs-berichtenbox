@@ -995,10 +995,9 @@ jobs:
     # Twee wachtstappen van PREVIEW_TASK_TIMEOUT plus marge; het waarom staat bij die variabele.
     timeout-minutes: 35
     # De URL's gaan naar `preview-afronding`, die de PR-comment samenstelt: één comment met de demo
-    # én deze uitvraag erin, en met de nulmeting naar de wachtstap van `deploy-preview-magazijnen`.
+    # én deze uitvraag erin, en naar de wachtstap van `deploy-preview-magazijnen`.
     outputs:
       urls: ${{ steps.oordeel.outputs.urls }}
-      wachtend: ${{ steps.nulmeting.outputs.wachtend }}
     # Eén ZAD-taak tegelijk op deze deployment; een nieuwe push wacht op de lopende i.p.v. die af
     # te breken — een halverwege afgebroken ZAD-deploy laat de deployment in een inconsistente
     # staat achter. De cleanup-job in cleanup-preview.yml draagt voor hetzelfde project + dezelfde
@@ -1257,9 +1256,8 @@ jobs:
           DEPLOYMENT: pr-${{ github.event.pull_request.number }}
           COMPONENTEN: ${{ needs.meta.outputs.componenten-uitvraag }}
           URLS: ${{ needs.deploy-preview-uitvraag.outputs.urls }}
-          WACHTEND: ${{ needs.deploy-preview-uitvraag.outputs.wachtend }}
         run: >-
-          .github/scripts/uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" "$WACHTEND" 300 10
+          .github/scripts/uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" 300 10
 
   # De comment met de preview-URL's, in een eigen job omdat hij de URL's van meerdere deploys nodig
   # heeft.

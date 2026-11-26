@@ -81,8 +81,12 @@ cat "$werkmap/\$k.\$n"
 STUB
 chmod +x "$werkmap/curl"
 
+# Met een budget: een regressie die `wacht` nooit gezond laat worden, kost de suite anders vijf minuten
+# per geval, en in CI een timeout zonder de FOUT-regels.
 cat >"$werkmap/slaap" <<STUB
 #!/usr/bin/env bash
+n=\$(wc -l <"$werkmap/geslapen" 2>/dev/null || echo 0)
+[ "\$n" -lt 20 ] || { echo "slaapbudget op" >&2; exit 97; }
 printf '%s\n' "\$1" >>"$werkmap/geslapen"
 [ -z "\${ECHT_SLAPEN:-}" ] || sleep "\$1"
 STUB
@@ -211,11 +215,56 @@ gelijk "nulmeting op een onbekende deployment: rood" 1 "$RC"
 bevat "met de statuscode" 'HTTP 404' "$UITVOER"
 
 wis_stub
+stub_om "$(deployment)"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting met 0 wachtende uitrollen: groen" 0 "$RC"
+gelijk "en geeft 0" 'wachtend=0' "$STDOUT"
+
+# Vlak na `preview-klaarzetten` is de deployment nog niet uitgerold; alleen de telling is nodig.
+wis_stub
+stub_om "$(printf '%s\n%s' '{"status":null,"pending_rollout":{"count":2}}' 200)"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting op een klaargezette deployment: groen" 0 "$RC"
+gelijk "en geeft de telling" 'wachtend=2' "$STDOUT"
+
+wis_stub
+stub_om "$(printf '%s\n%s' '[]' 200)"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting met een antwoord dat geen object is: rood" 1 "$RC"
+
+wis_stub
+stub_om "$(deployment . 503)" FAAL "$(deployment '.pending_rollout.count = 1')"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting na een 503 en een mislukte opvraging: groen" 0 "$RC"
+gelijk "na drie pogingen" 3 "$(aantal api.test)"
+gelijk "met vijf seconden ertussen" "5 5" "$(tr '\n' ' ' <<<"$GESLAPEN" | sed 's/ $//')"
+
+wis_stub
+stub_om "$(deployment . 503)"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting die drie keer 503 krijgt: rood" 1 "$RC"
+gelijk "na drie pogingen" 3 "$(aantal api.test)"
+bevat "met de statuscode" 'HTTP 503' "$UITVOER"
+
+wis_stub
+stub_om "$(deployment . 401)"
+draai nulmeting mpfb-8wh pr-7
+gelijk "nulmeting met een geweigerde sleutel: rood" 1 "$RC"
+gelijk "zonder herhaling" 1 "$(aantal api.test)"
+
+wis_stub
 SLEUTEL='' draai nulmeting mpfb-8wh pr-7
 gelijk "nulmeting zonder API-sleutel: rood" 1 "$RC"
+bevat "en zegt dat" 'ZAD_API_KEY ontbreekt' "$UITVOER"
+gelijk "zonder iets op te vragen" 0 "$(aantal http)"
 
 draai nulmeting mpfb-8wh
 gelijk "nulmeting zonder deployment: rood" 1 "$RC"
+bevat "met de gebruiksregel" 'Gebruik:' "$UITVOER"
+
+draai nulmeting mpfb-8wh pr-7 extra
+gelijk "nulmeting met te veel argumenten: rood" 1 "$RC"
+bevat "met de gebruiksregel" 'Gebruik:' "$UITVOER"
 
 # --- oordeel: een groene deploy -----------------------------------------------------------------
 wis_stub
@@ -324,6 +373,7 @@ wis_stub
 stub_om "$(deployment '.pending_rollout.count = 3')"
 WACHTEND=2 oordeel
 gelijk "meer wachtende uitrollen dan bij de nulmeting: rood" 1 "$RC"
+bevat "en zegt dat een andere PR de oorzaak kan zijn" 'herhaal dan de hele run' "$UITVOER"
 bevat "met beide getallen" '3 wijziging(en) in het project op uitrol, 2 bij de nulmeting' "$UITVOER"
 
 for telling in x -1 ''; do
@@ -487,9 +537,16 @@ gelijk "urls is geen object: rood" 1 "$RC"
 bevat "met een melding" '::error::' "$UITVOER"
 
 wis_stub
+stub_om "$(deployment . 502)" "$(deployment)"
+oordeel
+gelijk "oordeel na een 502: aanvaard" 0 "$RC"
+gelijk "na twee pogingen" 2 "$(aantal api.test)"
+
+wis_stub
 stub_om FAAL
 oordeel
 gelijk "deployment niet op te vragen: rood" 1 "$RC"
+gelijk "na drie pogingen" 3 "$(aantal api.test)"
 bevat "met wat curl meldt" 'Could not resolve host' "$UITVOER"
 
 wis_stub
@@ -534,7 +591,7 @@ gelijk "zonder iets op te vragen" 0 "$(aantal http)"
 readonly URLS_PREVIEW='{"toxiproxy-aanmeld":"https://tp.test","uitvraag":"https://u.test/"}'
 
 wacht() {
-  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" "${WACHTEND-0}" "$@"
+  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" "$@"
 }
 
 wis_stub
@@ -575,14 +632,14 @@ gelijk "Healthy met een oude melding van de uitvraag: groen" 0 "$RC"
 wis_stub
 stub_om "$(deployment '.status = "Healthy" | .pending_rollout.count = 2')"
 stub_ready "$(readiness_up)"
-WACHTEND=2 wacht 0 1
-gelijk "gezond met evenveel wachtende uitrollen als bij de nulmeting: groen" 0 "$RC"
+wacht 0 1
+gelijk "gezond met wachtende uitrollen in het project: groen" 0 "$RC"
 
 wis_stub
-stub_om "$(deployment '.status = "Healthy" | .errors = [] | .pending_rollout.count = 3')"
+stub_om "$(deployment '.status = "Healthy" | .errors = [] | del(.pending_rollout)')"
 stub_ready "$(readiness_up)"
-WACHTEND=2 wacht 0 1
-gelijk "gezond maar meer wachtende uitrollen dan bij de nulmeting: rood" 1 "$RC"
+wacht 0 1
+gelijk "gezond zonder telling van wachtende uitrollen: groen" 0 "$RC"
 
 # Een nieuwere uitrol van dezelfde deployment zette de images verder: daar komt deze run niet meer uit.
 wis_stub
@@ -652,14 +709,6 @@ stub_om "$(deployment '.status = "Progressing" | .errors = []')"
 stub_ready "$(readiness_up)"
 wacht 0 1
 gelijk "readiness UP maar nog Progressing: rood" 1 "$RC"
-
-# Opgeslagen maar niet uitgerold: gezond, met de oude pods.
-wis_stub
-stub_om "$(deployment '.status = "Healthy" | .errors = [] | .pending_rollout.count = 1')"
-stub_ready "$(readiness_up)"
-wacht 0 1
-gelijk "gezond maar een wachtende uitrol: rood" 1 "$RC"
-bevat "en noemt die" 'wachten 1 wijziging' "$UITVOER"
 
 wis_stub
 stub_om "$(deployment '.status = "Healthy" | .errors = [] | .components[3].image = "uv:pr-8-def"')"
@@ -746,13 +795,13 @@ gelijk "na één opvraging" 1 "$(aantal api.test)"
 bevat "met de statuscode" 'HTTP 401' "$UITVOER"
 
 wis_stub
-draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" '{"toxiproxy-aanmeld":"https://tp.test"}' 0 10 1
+draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" '{"toxiproxy-aanmeld":"https://tp.test"}' 10 1
 gelijk "geen adres voor de uitvraag: rood" 1 "$RC"
 gelijk "en vraagt niets op" 0 "$(aantal http)"
 
 for adressen in '{"uitvraag":"http://u.test"}' '' 'geen json' '{"uitvraag":"https://u.test\nx"}'; do
   wis_stub
-  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$adressen" 0 10 1
+  draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$adressen" 10 1
   gelijk "onbruikbare adressen ($adressen): rood" 1 "$RC"
 done
 
@@ -768,14 +817,14 @@ bevat "met de gebruiksregel" 'Gebruik:' "$UITVOER"
 wis_stub
 for lijst in '[]' '["uitvraag"]' '[{"name":"uitvraag"}]' '[{"name":"uitvraag","image":""}]' '[{"image":"uv:1"}]'; do
   wis_stub
-  draai wacht mpfb-8wh pr-7 uitvraag "$lijst" "$URLS_PREVIEW" 0 10 1
+  draai wacht mpfb-8wh pr-7 uitvraag "$lijst" "$URLS_PREVIEW" 10 1
   gelijk "wacht met componentenlijst $lijst: rood" 1 "$RC"
   bevat "en zegt waarom ($lijst)" 'geen niet-lege JSON-lijst van componenten' "$UITVOER"
   gelijk "zonder iets op te vragen ($lijst)" 0 "$(aantal http)"
 done
 
 wis_stub
-SLEUTEL='' draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" 0 10 1
+SLEUTEL='' draai wacht mpfb-8wh pr-7 uitvraag "$GEVRAAGD" "$URLS_PREVIEW" 10 1
 gelijk "wacht zonder API-sleutel: rood" 1 "$RC"
 bevat "en zegt dat" 'ZAD_API_KEY ontbreekt' "$UITVOER"
 gelijk "zonder iets op te vragen" 0 "$(aantal http)"
@@ -827,7 +876,7 @@ bevat "de adressen komen uit het oordeel" 'urls: ${{ steps.oordeel.outputs.urls 
 # shellcheck disable=SC2016 # idem
 bevat "de environment-URL komt uit het oordeel" 'url: ${{ steps.oordeel.outputs.url }}' "$uitvraag_job"
 # shellcheck disable=SC2016 # idem
-bevat "de wachtstap wacht vijf minuten, elke tien seconden" 'uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" "$WACHTEND" 300 10' "$wacht_stap"
+bevat "de wachtstap wacht vijf minuten, elke tien seconden" 'uitvraag-preview-uitrol.sh wacht "$PROJECT" "$DEPLOYMENT" uitvraag "$COMPONENTEN" "$URLS" 300 10' "$wacht_stap"
 # shellcheck disable=SC2016 # idem
 bevat "met de adressen van de uitvraag-job" 'URLS: ${{ needs.deploy-preview-uitvraag.outputs.urls }}' "$wacht_stap"
 # shellcheck disable=SC2016 # idem
@@ -869,11 +918,8 @@ fi
 bevat "de nulmeting roept het script aan" 'uitvraag-preview-uitrol.sh nulmeting "$PROJECT" "$DEPLOYMENT" >> "$GITHUB_OUTPUT"' "$nulmeting_stap"
 mist "de nulmeting mag niet falen" 'continue-on-error' "$nulmeting_stap"
 # shellcheck disable=SC2016 # idem
-bevat "de nulmeting gaat als job-output mee" 'wachtend: ${{ steps.nulmeting.outputs.wachtend }}' "$uitvraag_job"
-# shellcheck disable=SC2016 # idem
 bevat "het oordeel krijgt de nulmeting" 'WACHTEND: ${{ steps.nulmeting.outputs.wachtend }}' "$oordeel_stap"
-# shellcheck disable=SC2016 # idem
-bevat "de wachtstap krijgt de nulmeting" 'WACHTEND: ${{ needs.deploy-preview-uitvraag.outputs.wachtend }}' "$wacht_stap"
+mist "de wachtstap telt geen wachtende uitrollen" 'WACHTEND' "$wacht_stap"
 
 for s in nulmeting_stap oordeel_stap wacht_stap; do
   # shellcheck disable=SC2016 # idem
