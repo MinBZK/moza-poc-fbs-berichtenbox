@@ -45,7 +45,7 @@ object LogboekMeting {
 
     internal fun geweigerdTeller(registry: MeterRegistry): Counter =
         Counter.builder("fbs.logboek.geweigerd")
-            .description("Verzoeken geweigerd omdat het logboek de verwerking niet kon vastleggen")
+            .description("Verzoeken met een 500 omdat het logboek de verwerking niet kon vastleggen")
             .register(registry)
 }
 
@@ -60,8 +60,12 @@ class LogboekMetingStart {
 }
 
 /**
- * Een verzoek dat het logboek tegenhield, krijgt hetzelfde antwoord als elke onverwachte fout; alleen
- * de teller komt erbij. Zo blijft het foutcontract op één plek, in [UncaughtExceptionMapper].
+ * Een verzoek waarvan het logboek de verwerking niet kon vastleggen, krijgt hetzelfde antwoord als
+ * elke onverwachte fout; alleen de teller komt erbij. Zo blijft het foutcontract op één plek, in
+ * [UncaughtExceptionMapper].
+ *
+ * Niet elk geval is een weigering: de wrapper schrijft bij een `@Logboek`-methode pas ná de methode.
+ * Bij een wijzigend verzoek is de wijziging dan al doorgevoerd, zonder logregel.
  */
 @Provider
 class LogboekSchrijffoutMapper : ExceptionMapper<LogboekWriteException> {

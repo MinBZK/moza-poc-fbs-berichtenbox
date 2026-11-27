@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie
 
+import io.micrometer.core.instrument.Metrics
 import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.trace.Span
@@ -95,13 +96,35 @@ abstract class SessieVegerTestBasis {
             override fun close() = Unit
         }
 
+        // Los van de gevraagde bronnen: elke alertregel met het token, uit de veger én het logboek,
+        // hoort precies één keer in de teller.
+        val alertregels = CopyOnWriteArrayList<String>()
+        val alertLoggers = listOf(SessieVeger::class.java, SessieLogboek::class.java).map { Logger.getLogger(it.name) }
+        val alertvanger = object : Handler() {
+            override fun publish(record: LogRecord) {
+                val regel = String.format(record.message, *(record.parameters ?: emptyArray()))
+
+                if (regel.contains(SessieLogboek.ALERT_TOKEN)) alertregels += regel
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val teller = { Metrics.globalRegistry.find("fbs.logboek.waarschuwing").tag("code", SessieLogboek.ALERT_TOKEN).counter()?.count() ?: 0.0 }
+        val voor = teller()
+
         loggers.forEach { it.addHandler(vanger) }
+        alertLoggers.forEach { it.addHandler(alertvanger) }
 
         try {
             blok()
         } finally {
             loggers.forEach { it.removeHandler(vanger) }
+            alertLoggers.forEach { it.removeHandler(alertvanger) }
         }
+
+        assertEquals(alertregels.size.toDouble(), teller() - voor, "alertregels en teller lopen uiteen: $alertregels")
 
         return regels
     }

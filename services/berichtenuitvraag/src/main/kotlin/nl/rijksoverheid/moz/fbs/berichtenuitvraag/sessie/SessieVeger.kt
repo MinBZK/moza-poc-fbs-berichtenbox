@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.LogboekMeting
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -201,6 +202,7 @@ class SessieVeger(
                     OpruimAanleiding.VERLOPEN.waarde,
                     opruiming.uitkomst,
                 )
+                LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.OPRUIMEN_ONTBREEKT)
             }
         }
 

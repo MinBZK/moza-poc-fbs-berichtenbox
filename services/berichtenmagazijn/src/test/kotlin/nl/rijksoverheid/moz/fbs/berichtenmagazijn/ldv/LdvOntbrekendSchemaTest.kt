@@ -9,6 +9,7 @@ import io.restassured.http.ContentType
 import jakarta.inject.Inject
 import javax.sql.DataSource
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 
 /**
@@ -55,6 +56,11 @@ class LdvOntbrekendSchemaTest {
         val onderwerp = "Aanlevering zonder logboekschema"
         val berichtenVooraf = aantalBerichten()
         val geweigerdVooraf = registry.get("fbs.logboek.geweigerd").counter().count()
+
+        // Elke code bestaat vanaf de start, ook zonder één geval: anders mist increase() het eerste.
+        LogboekMeting.Waarschuwing.entries.forEach { soort ->
+            assertNotNull(registry.find("fbs.logboek.waarschuwing").tag("code", soort.code).counter(), soort.code)
+        }
 
         given()
             .contentType(ContentType.JSON)
