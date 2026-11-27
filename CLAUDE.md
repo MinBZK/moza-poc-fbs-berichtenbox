@@ -205,6 +205,11 @@ transitieve libraries, niet uit onze code of config):
   eigen klassen op het bootstrap-classpath, opnieuw na elke herstart van Quarkus in een testrun (een
   nieuwe classloader); met class data sharing (standaard aan sinds JDK 12) meldt de JVM dat. Alleen in test-JVM's, ook op
   `main`, en weg met `-Xshare:off`; dat kost elke test-JVM opstarttijd en lost niets op, dus niet gedaan.
+- Micrometer: `This Gauge has been already registered (MeterId{name='http.server.active.connections'`
+  en `...name='redis.pool.queue.size'` — Quarkus registreert dezelfde gauge twee keer: de eerste
+  voor de applicatiepoort én de beheerpoort, de tweede voor de blocking én de reactieve
+  Redis-datasource op één pool. Micrometer houdt de eerste en negeert de tweede; de meetwaarde
+  klopt. Komt met `quarkus.management.enabled=true`, niet uit onze code.
 - JaCoCo: `Cannot transform ...$$inlined$assertThrows... archive could not be found` — de
   klassen die Kotlin voor een geïnlinede `assertThrows` in een test genereert; alleen
   testklassen, die buiten de meting vallen, dus geen effect op de coverage-gate.

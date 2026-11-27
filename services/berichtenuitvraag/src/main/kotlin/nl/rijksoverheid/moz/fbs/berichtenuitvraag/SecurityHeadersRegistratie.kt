@@ -37,10 +37,10 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  * HTTP-bedrading te bevatten. De tegenhanger in het berichtenmagazijn is identiek en moet
  * dat blijven.
  *
- * **Let op bij `quarkus.management.*`.** Zet een dienst de aparte management-interface aan,
- * dan verhuizen de `/q`-endpoints naar een eigen router die deze observer niet bereikt, en
- * gaan ze stilzwijgend zónder headers de deur uit. Geen van beide diensten heeft hem aan;
- * wie hem aanzet moet deze registratie meenemen.
+ * **Let op bij `quarkus.management.*`.** De beheerpoort heeft een eigen router die deze
+ * observer niet bereikt. Daar staat alleen `/q/metrics`, en die poort heeft geen route naar
+ * buiten, dus headers horen er niet. Verhuist er ooit een pad naar dat wél van buiten bereikbaar
+ * is (health en de spec staan bewust op de applicatiepoort), dan moet deze registratie mee.
  */
 @ApplicationScoped
 class SecurityHeadersRegistratie(

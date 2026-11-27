@@ -3,7 +3,7 @@ package nl.rijksoverheid.moz.fbs.stelselregister
 import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
-import org.eclipse.microprofile.config.ConfigProvider
+import java.io.File
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
@@ -55,12 +55,13 @@ class BeheerpoortTest {
             .body(not(containsString("bestaat-niet-7f3a")))
     }
 
-    // Een vaste poort (de Quarkus-default 9000) botst zodra twee diensten een netns delen.
+    // Een vaste poort (de Quarkus-default 9000) botst zodra twee diensten een netns delen. Getoetst
+    // op de regel zelf: in een test kiest Quarkus beide poorten vrij, dus de draaiende waarden
+    // zeggen niets over de afleiding.
     @Test
     fun `de beheerpoort is de applicatiepoort met een 2 ervoor`() {
-        val config = ConfigProvider.getConfig()
-        val applicatiepoort = config.getValue("quarkus.http.port", String::class.java)
+        val regels = File("src/main/resources/application.properties").readLines()
 
-        assertEquals("2$applicatiepoort", config.getValue("quarkus.management.port", String::class.java))
+        assertEquals(listOf("quarkus.management.port=2\${quarkus.http.port}"), regels.filter { it.startsWith("quarkus.management.port=") })
     }
 }
