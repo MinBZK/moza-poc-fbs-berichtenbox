@@ -552,7 +552,7 @@ gelijk "cleanup-preview.yml draagt dezelfde header als deploy.yml" "$DEPLOY_HEAD
 # commentaar zou het verwijderen van de `run:`-regel deze controle groen laten. `|| true`, want een
 # grep zonder treffer zou de suite hier onder `pipefail` laten sterven — vóór de assertie die daar
 # juist iets over te zeggen heeft.
-AANROEP_REGELS=$(grep -v '^[[:space:]]*#' "$DEPLOY_YML" | grep -A3 'preview-comment\.sh' || true)
+AANROEP_REGELS=$(grep -v '^[[:space:]]*#' "$DEPLOY_YML" | grep -A4 'preview-comment\.sh' || true)
 
 niet_leeg "deploy.yml roept preview-comment.sh aan" "$AANROEP_REGELS"
 
@@ -565,6 +565,8 @@ bevat "de aanroep geeft de uitvraag mee" 'Berichtenuitvraag=$URLS_UITVRAAG' "$AA
 # fout daar de URL's van de demo niet meeneemt.
 bevat "de aanroep geeft het stelselregister mee als die sectie er is" \
   '${SECTIE_STELSELREGISTER:+"$SECTIE_STELSELREGISTER"}' "$AANROEP_REGELS"
+bevat "de aanroep geeft de beheerconsole mee als die sectie er is" \
+  '${SECTIE_BEHEERCONSOLE:+"$SECTIE_BEHEERCONSOLE"}' "$AANROEP_REGELS"
 
 # De demo is de ingang voor wie de PR opent; dat staat zo in de toelichting bij de stap en hoort
 # dus ook de eerste sectie te zijn.
@@ -581,11 +583,13 @@ bestand_bevat "de comment-stap leest de job-output van de magazijnen" \
   '^          URLS_DEMO: \$\{\{ needs\.deploy-preview-magazijnen\.outputs\.urls \}\}$' "$DEPLOY_YML"
 bestand_bevat "de sectie van het stelselregister hangt aan het slagen van zijn eigen deploy" \
   "^          SECTIE_STELSELREGISTER: \\$\\{\\{ needs\\.deploy-preview-stelselregister\\.result == 'success' && format\\('Stelselregister=\\{0\\}', needs\\.deploy-preview-stelselregister\\.outputs\\.urls\\) \\|\\| '' \\}\\}\$" "$DEPLOY_YML"
+bestand_bevat "de sectie van de beheerconsole hangt aan het slagen van zijn eigen deploy" \
+  "^          SECTIE_BEHEERCONSOLE: \\$\\{\\{ needs\\.deploy-preview-beheerconsole\\.result == 'success' && format\\('Beheerconsole=\\{0\\}', needs\\.deploy-preview-beheerconsole\\.outputs\\.urls\\) \\|\\| '' \\}\\}\$" "$DEPLOY_YML"
 
 # Beide deploy-jobs moeten hun URL's als job-output publiceren; de comment staat in een derde job
 # en kan niet bij hun steps. Valt zo'n `outputs`-blok of step-id weg, dan komt de env leeg binnen —
 # dat faalt luid, maar pas tijdens de deploy van de volgende PR.
-for job in deploy-preview-uitvraag deploy-preview-magazijnen deploy-preview-stelselregister; do
+for job in deploy-preview-uitvraag deploy-preview-magazijnen deploy-preview-stelselregister deploy-preview-beheerconsole; do
   BLOK=$(awk -v job="  $job:" '$0 == job { in_job = 1; next } in_job && /^  [a-z]/ { exit } in_job { print }' "$DEPLOY_YML")
 
   niet_leeg "de job $job is in deploy.yml te vinden" "$BLOK"
@@ -601,12 +605,14 @@ niet_leeg "de afrondingsjob is in deploy.yml te vinden" "$AFRONDING_JOB"
 bevat "die job wacht op de uitvraag-deploy" '- deploy-preview-uitvraag' "$AFRONDING_JOB"
 bevat "die job wacht op de magazijnen-deploy" '- deploy-preview-magazijnen' "$AFRONDING_JOB"
 bevat "die job wacht op de stelselregister-deploy" '- deploy-preview-stelselregister' "$AFRONDING_JOB"
+bevat "die job wacht op de beheerconsole-deploy" '- deploy-preview-beheerconsole' "$AFRONDING_JOB"
 # Met een YAML-parser en op de hele voorwaarde: een tekstvergelijking vangt alleen de ene
 # schrijfwijze die er ooit stond, en mist dezelfde eis op een andere plek of in een andere vorm.
 AFRONDING_IF=$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["jobs"]["preview-afronding"]["if"])' "$DEPLOY_YML" 2>&1)
 
 bevat "de voorwaarde van die job is te lezen" 'needs.deploy-preview-uitvraag.result' "$AFRONDING_IF"
 bevat_niet "maar eist niet dat de stelselregister-deploy slaagt" 'deploy-preview-stelselregister' "$AFRONDING_IF"
+bevat_niet "en eist evenmin dat de beheerconsole-deploy slaagt" 'deploy-preview-beheerconsole' "$AFRONDING_IF"
 bevat_niet "ook niet via een eis op alle needs tegelijk" 'needs.*' "$AFRONDING_IF"
 bevat "die job mag op de PR schrijven" 'pull-requests: write' "$AFRONDING_JOB"
 

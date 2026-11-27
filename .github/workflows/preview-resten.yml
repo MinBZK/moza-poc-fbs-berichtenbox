@@ -81,12 +81,16 @@ jobs:
           - naam: stelselregister
             project: mpfs-rab
             key: ZAD_API_KEY_STELSELREGISTER
+          - naam: beheerconsole
+            project: fb-m6c
+            key: ZAD_API_KEY_BEHEERCONSOLE
     # Eén output per leg: bij een matrix wint anders de leg die als laatste klaar is.
     outputs:
       nummers-uitvraag: ${{ steps.lijst.outputs.nummers-uitvraag }}
       nummers-externe-stubs: ${{ steps.lijst.outputs.nummers-externe-stubs }}
       nummers-magazijnen: ${{ steps.lijst.outputs.nummers-magazijnen }}
       nummers-stelselregister: ${{ steps.lijst.outputs.nummers-stelselregister }}
+      nummers-beheerconsole: ${{ steps.lijst.outputs.nummers-beheerconsole }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

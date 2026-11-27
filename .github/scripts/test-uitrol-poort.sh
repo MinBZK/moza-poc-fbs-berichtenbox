@@ -32,8 +32,9 @@ needs_json() {
   printf '%s' "$json"
 }
 
-# Vier previews, vier test-deploys en vier bouw-jobs uit telkens vier resultaten. `-`
-# staat voor een leeg resultaat, zodat woordsplitsing die waarde niet opslokt.
+# Vijf previews, vijf test-deploys en vier bouw-jobs. Vier resultaten per as volstaan: de vijfde
+# uitrol-job (de beheerconsole) volgt de vierde, tenzij een vijfde resultaat hem los zet. `-` staat
+# voor een leeg resultaat, zodat woordsplitsing die waarde niet opslokt.
 #
 # De twee hulpjobs volgen standaard de eerste preview: ze draaien als de previews draaien en blijven
 # stil als zij stilblijven. $4 zet de afronding los daarvan en $5 de klaarzetting, voor de tests die
@@ -50,9 +51,9 @@ fixture() {
     "preview-klaarzetten=$klaarzetten"
     "preview-afronding=$afronding"
     "deploy-preview-uitvraag=${p[0]}" "deploy-preview-externe-stubs=${p[1]}" "deploy-preview-magazijnen=${p[2]}"
-    "deploy-preview-stelselregister=${p[3]}"
+    "deploy-preview-stelselregister=${p[3]}" "deploy-preview-beheerconsole=${p[4]:-${p[3]}}"
     "deploy-test-uitvraag=${t[0]}" "deploy-test-externe-stubs=${t[1]}" "deploy-test-magazijnen=${t[2]}"
-    "deploy-test-stelselregister=${t[3]}"
+    "deploy-test-stelselregister=${t[3]}" "deploy-test-beheerconsole=${t[4]:-${t[3]}}"
     "build=${b[0]}" "build-externe-stubs=${b[1]}" "build-contract-bootstrap=${b[2]}" "build-demo-images=${b[3]}"
   )
 
@@ -115,9 +116,9 @@ for uitkomst in failure cancelled skipped ''; do
 done
 
 # --- C. askeuze per event ------------------------------------------------------------------------
-verwacht_poort "push beoordeelt de test-as" 0 "Alle 4 uitrol-jobs geslaagd" \
+verwacht_poort "push beoordeelt de test-as" 0 "Alle 5 uitrol-jobs geslaagd" \
   push "$MAIN" false success true success "$(fixture "$VIER_UIT" "$VIER_OK")"
-verwacht_poort "pull_request beoordeelt de previews" 0 "Alle 4 uitrol-jobs geslaagd" \
+verwacht_poort "pull_request beoordeelt de previews" 0 "Alle 5 uitrol-jobs geslaagd" \
   pull_request "$PR_REF" false success true success "$(fixture "$VIER_OK" "$VIER_UIT")"
 verwacht_poort "push buiten main blokkeert" 1 "alleen main" \
   push refs/heads/thema false success true success "$(fixture "$VIER_UIT" "$VIER_OK")"
@@ -191,7 +192,9 @@ verwacht_poort "uitrol op positie 2 draaide toch" 1 "'deploy-preview-externe-stu
 verwacht_poort "uitrol op positie 3 draaide toch" 1 "'deploy-preview-magazijnen'" \
   pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped success skipped" "$VIER_UIT")"
 verwacht_poort "uitrol op positie 4 draaide toch" 1 "'deploy-preview-stelselregister'" \
-  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped success" "$VIER_UIT")"
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped success skipped" "$VIER_UIT")"
+verwacht_poort "uitrol op positie 5 draaide toch" 1 "'deploy-preview-beheerconsole'" \
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped skipped success" "$VIER_UIT")"
 
 # --- F. tak "uitrol verwacht" ---------------------------------------------------------------------
 for gate in failure skipped cancelled ''; do
@@ -209,7 +212,9 @@ for resultaat in failure skipped cancelled ''; do
   verwacht_poort "uitrol-job '$resultaat' op positie 3 blokkeert" 1 "'deploy-preview-magazijnen'" \
     pull_request "$PR_REF" false success true success "$(fixture "success success ${resultaat:--} success" "$VIER_UIT")"
   verwacht_poort "uitrol-job '$resultaat' op positie 4 blokkeert" 1 "'deploy-preview-stelselregister'" \
-    pull_request "$PR_REF" false success true success "$(fixture "success success success ${resultaat:--}" "$VIER_UIT")"
+    pull_request "$PR_REF" false success true success "$(fixture "success success success ${resultaat:--} success" "$VIER_UIT")"
+  verwacht_poort "uitrol-job '$resultaat' op positie 5 blokkeert" 1 "'deploy-preview-beheerconsole'" \
+    pull_request "$PR_REF" false success true success "$(fixture "success success success success ${resultaat:--}" "$VIER_UIT")"
 done
 
 # De bouw-jobs zijn de gebruikelijke oorzaak van een overgeslagen uitrol; hun stand hoort in de
@@ -265,54 +270,65 @@ build-demo-images=success'
 TEST_STIL='deploy-test-uitvraag=skipped
 deploy-test-externe-stubs=skipped
 deploy-test-magazijnen=skipped
-deploy-test-stelselregister=skipped'
+deploy-test-stelselregister=skipped
+deploy-test-beheerconsole=skipped'
 PREVIEW_STIL='deploy-preview-uitvraag=skipped
 deploy-preview-externe-stubs=skipped
 deploy-preview-magazijnen=skipped
-deploy-preview-stelselregister=skipped'
+deploy-preview-stelselregister=skipped
+deploy-preview-beheerconsole=skipped'
 HULP='preview-klaarzetten=success
 preview-afronding=success'
 
-verwacht_poort "nul previews in needs blokkeert" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "nul previews in needs blokkeert" 1 "0 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "$TEST_STIL
 $HULP
 $BOUW"
-verwacht_poort "één preview in needs blokkeert" 1 "1 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "één preview in needs blokkeert" 1 "1 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 $TEST_STIL
 $HULP
 $BOUW"
-verwacht_poort "twee previews in needs blokkeert" 1 "2 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "twee previews in needs blokkeert" 1 "2 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 $TEST_STIL
 $HULP
 $BOUW"
-# Het geval van de dag dat er een project bijkomt: drie van de vier jobs op de actieve as.
-verwacht_poort "drie previews in needs blokkeert" 1 "3 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "drie previews in needs blokkeert" 1 "3 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 deploy-preview-magazijnen=success
 $TEST_STIL
 $HULP
 $BOUW"
-verwacht_poort "vijf previews in needs blokkeert" 1 "5 uitrol-jobs gevonden in plaats van 4" \
+# Het geval van de dag dat er een project bijkomt: vier van de vijf jobs op de actieve as.
+verwacht_poort "vier previews in needs blokkeert" 1 "4 uitrol-jobs gevonden in plaats van 5" \
+  pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
+deploy-preview-externe-stubs=success
+deploy-preview-magazijnen=success
+deploy-preview-stelselregister=success
+$TEST_STIL
+$HULP
+$BOUW"
+verwacht_poort "zes previews in needs blokkeert" 1 "6 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "$(fixture "$VIER_OK" "$VIER_UIT")
 deploy-preview-nieuw=success"
-verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "nul test-deploys in needs blokkeert op een push" 1 "0 uitrol-jobs gevonden in plaats van 5" \
   push "$MAIN" false success true success "$PREVIEW_STIL
 $BOUW"
-verwacht_poort "drie test-deploys in needs blokkeert op een push" 1 "3 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "drie test-deploys in needs blokkeert op een push" 1 "3 uitrol-jobs gevonden in plaats van 5" \
   push "$MAIN" false success true success "deploy-test-uitvraag=success
 deploy-test-externe-stubs=success
 deploy-test-magazijnen=success
 $PREVIEW_STIL
 $BOUW"
-verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "0 uitrol-jobs gevonden in plaats van 4" \
+verwacht_poort "een ontbrekende stille as blokkeert ook" 1 "0 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
 deploy-preview-magazijnen=success
 deploy-preview-stelselregister=success
+deploy-preview-beheerconsole=success
 $HULP
 $BOUW"
 
@@ -362,7 +378,7 @@ direct() {
 rc=0
 uitvoer=$(direct success true "$VIER_OK") || rc=$?
 
-if [ "$rc" = 0 ] && [[ $uitvoer == *"Alle 4 uitrol-jobs geslaagd"* ]]; then
+if [ "$rc" = 0 ] && [[ $uitvoer == *"Alle 5 uitrol-jobs geslaagd"* ]]; then
   ok "directe uitvoering velt het positieve oordeel"
 else
   mislukt "directe uitvoering gaf rc=$rc zonder verdict: $(tr '\n' ' ' <<<"$uitvoer")"

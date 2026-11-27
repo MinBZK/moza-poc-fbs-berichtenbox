@@ -1,4 +1,4 @@
-# Ruimt de preview van een PR op: de `pr-<n>`-deployment in elk van de vier ZAD-projecten, de
+# Ruimt de preview van een PR op: de `pr-<n>`-deployment in elk van de vijf ZAD-projecten, de
 # GitHub-omgeving en -deployments, de deploy-comment en de ghcr-versies van die PR.
 #
 # WAAROM EEN EIGEN WORKFLOW EN NIET IN deploy.yml: die filtert met `branches: [main]` op de
@@ -47,6 +47,7 @@
 #   ZAD_API_KEY_PROFIEL     — API-key project mpfpsm-lcl (externe-stubs)
 #   ZAD_API_KEY_MAGAZIJNEN  — API-key project mpfm-w3h
 #   ZAD_API_KEY_STELSELREGISTER — API-key project mpfs-rab
+#   ZAD_API_KEY_BEHEERCONSOLE — API-key project fb-m6c
 #   GH_ADMIN_TOKEN          — PAT met Administration: write op deze repo (fine-grained), of een
 #                             classic token met `repo`-scope én admin op de repo. GITHUB_TOKEN mag
 #                             omgevingen niet verwijderen, en de naam mag niet met `GITHUB_`
@@ -188,6 +189,7 @@ jobs:
       bestond-externe-stubs: ${{ steps.bestaat.outputs.bestond-externe-stubs }}
       bestond-magazijnen: ${{ steps.bestaat.outputs.bestond-magazijnen }}
       bestond-stelselregister: ${{ steps.bestaat.outputs.bestond-stelselregister }}
+      bestond-beheerconsole: ${{ steps.bestaat.outputs.bestond-beheerconsole }}
     strategy:
       # Eén falend project mag de teardown van de andere twee niet afbreken.
       fail-fast: false
@@ -205,6 +207,9 @@ jobs:
           - naam: stelselregister
             project: mpfs-rab
             key: ZAD_API_KEY_STELSELREGISTER
+          - naam: beheerconsole
+            project: fb-m6c
+            key: ZAD_API_KEY_BEHEERCONSOLE
     # Zelfde groepsnaam als de deploy-job van dit project + deze PR in deploy.yml: opruimen mag een
     # lopende deploy niet onder handen wegtrekken. Concurrency-groepen zijn repo-breed, dus de
     # verhuizing naar een eigen workflow verandert daar niets aan — de namen moeten wél gelijk
@@ -545,7 +550,7 @@ jobs:
           #
           # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
           # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
-          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-stelselregister fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
+          for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-stelselregister fbs-beheerconsole fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100" 2>"$RUNNER_TEMP/fout"); then
               # Een package dat nog nooit gepusht is (een nieuw image waarvan de eerste build nog
               # niet draaide), is een geldige toestand en hoort geen rode job op te leveren. Een
@@ -676,5 +681,5 @@ jobs:
           NEEDS: ${{ toJSON(needs) }}
           # De matrix-legs van cleanup-preview-zad: een leg die niets rapporteert, maakt het oordeel
           # dan rood in plaats van weg te vallen. test-opruim-oordeel.sh houdt de twee gelijk.
-          ZAD_LEGS: uitvraag externe-stubs magazijnen stelselregister
+          ZAD_LEGS: uitvraag externe-stubs magazijnen stelselregister beheerconsole
         run: .github/scripts/opruim-oordeel.sh

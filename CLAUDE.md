@@ -222,7 +222,7 @@ Wat je hoe dan ook moet weten:
   `prune: true`, dus een directe `kubectl`- of live-OM-wijziging aan een draaiende deployment wordt
   teruggedraaid. Reactiveren en schalen gaat via OM, dat commit naar de Git-repo die Argo volgt.
 - **Projecten (project-id = OM-project):** `berichtenuitvraag` = `mpfb-8wh`,
-  `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`, `stelselregister` = `mpfs-rab`. Deployment-namen: `test` (baseline,
+  `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`, `stelselregister` = `mpfs-rab`, `beheerconsole` = `fb-m6c`. Deployment-namen: `test` (baseline,
   push→main) en `pr-<n>` (previews). Een id wijzigen moet in `.github/workflows/deploy.yml`, in de
   matrix van `.github/workflows/cleanup-preview.yml` én in de `zad`-matrix van
   `.github/workflows/preview-resten.yml` (`test-preview-resten.sh` eist dat die laatste twee gelijk zijn).

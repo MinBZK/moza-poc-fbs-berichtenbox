@@ -387,7 +387,7 @@ klaar_legs = legs(klaar)
 # aan en worden alleen via hun publieke route bereikt. Die hebben geen leg in de klaarzetting en
 # wel een in de opruiming. Benoemd in plaats van afgeleid, zodat een project dat stil uit de
 # klaarzetting verdwijnt hier opvalt.
-ZONDER_REGELS = [("stelselregister", "mpfs-rab", "ZAD_API_KEY_STELSELREGISTER")]
+ZONDER_REGELS = [("stelselregister", "mpfs-rab", "ZAD_API_KEY_STELSELREGISTER"), ("beheerconsole", "fb-m6c", "ZAD_API_KEY_BEHEERCONSOLE")]
 
 meld(len(klaar_legs) == 3, "de klaarzet-matrix in deploy.yml heeft drie legs")
 # Een project dat alleen hier staat, laat na elke gesloten PR een preview achter.
