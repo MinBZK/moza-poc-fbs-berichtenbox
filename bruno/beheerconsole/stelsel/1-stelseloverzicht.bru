@@ -1,0 +1,15 @@
+meta {
+  name: 1. Stelseloverzicht ophalen
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrlBeheerconsole}}/api/v1/stelsel
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: application/json
+}

@@ -3,11 +3,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { start } from "./onderdelen/start/onderdeel";
+import { stelsel } from "./onderdelen/stelsel/onderdeel";
 import { Shell } from "./shell/Shell";
 import type { Onderdeel } from "./shell/onderdeel";
 
 // De onderdelen van deze console. Een samengevoegd beheerportaal voegt hier zijn eigen toe.
-const onderdelen: Onderdeel[] = [start];
+const onderdelen: Onderdeel[] = [start, stelsel];
 
 const root = document.getElementById("root");
 
