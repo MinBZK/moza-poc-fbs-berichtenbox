@@ -250,10 +250,6 @@ het MOZa-portaal met de bediening ernaast; "Bediening verbergen" geeft de Berich
 breedte voor het moment waarop je laat zien wat de ondernemer ziet. Kies in het portaal een persona
 die op de keten is aangesloten: een "Aangesloten onderneming" (kolom *In het portaal* in §6).
 
-> **Nog geen berichten uit de keten.** Het portaal start nog geen sessie bij de uitvraag
-> ([#1453](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453)). Tot dat in het portaal zit,
-> toont de Berichtenbox voor een aangesloten persona een foutmelding in plaats van berichten.
-
 Dat adres is een kleine nginx (`demo-proxy`) die alles achter één origin zet: `/` naar het portaal,
 `/bediening/` en `/api/demo/` naar de demo-console, `/api/demo/personas` naar de personadienst
 (die lijst hoort bij een eigen component, zodat een berichtenbox hem kan lezen zonder bij de
@@ -284,31 +280,31 @@ gh api /orgs/MinBZK/packages/container/moza-portaal/versions \
         | sort_by(.updated_at) | reverse | .[0].metadata.container.tags[]'
 ```
 
-### Op ZAD een andere berichtenbox draaien
+### Op ZAD een andere Berichtenbox draaien
 
-Op ZAD draait nog de berichtenbox van de proeftuin (MinBZK/moza-poc); de overstap volgt in
-MinBZK/MijnOverheidZakelijk#1345. `PROEFTUIN_IMAGE` bestaat daar als **repo-variabele**. Zetten, de deploy opnieuw draaien, en de
-demo hangt aan die versie — zonder de pin te wijzigen en zonder commit:
+Op ZAD draait het portaal als component `portaal` in het project van de magazijnen, met dezelfde
+pin uit `compose.yaml`. `PORTAAL_IMAGE` bestaat daar als **repo-variabele**. Zetten, de deploy
+opnieuw draaien, en de demo hangt aan die versie — zonder de pin te wijzigen en zonder commit:
 
 ```bash
-gh variable set PROEFTUIN_IMAGE --body ghcr.io/minbzk/moza-poc/preview:pr-151-7bf2f4a
+gh variable set PORTAAL_IMAGE --body ghcr.io/minbzk/moza-portaal:pr-302-5830f5e
 gh workflow run deploy.yml --ref main     # of: gh run rerun <id> op de PR-run van een preview
-gh variable delete PROEFTUIN_IMAGE        # terug naar de pin
+gh variable delete PORTAAL_IMAGE          # terug naar de pin
 ```
 
 De variabele geldt voor **`test` én elke preview**: hij zit in de `meta`-job die alle drie de
 projecten voedt. Een uitrol die hem gebruikt, zet er een `notice` over bovenaan de run, zodat een
-demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/proeftuin-image.sh`
+demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/portaal-image.sh`
 weigert een waarde zonder tag of digest, dus een typfout hangt geen component in ImagePullBackOff.
 
-**Alleen voor één preview.** Om een PR van de proeftuin aan een PR van ons te koppelen, zet je
+**Alleen voor één preview.** Om een PR van het portaal aan een PR van ons te koppelen, zet je
 dezelfde variabele op de GitHub-environment van die preview. Die wint daar van de repo-variabele en
 de pin, en `test` en de andere previews merken er niets van:
 
 ```bash
-gh variable set PROEFTUIN_IMAGE --env pr-336 --body ghcr.io/minbzk/moza-poc/preview:pr-164-42aabac
+gh variable set PORTAAL_IMAGE --env pr-336 --body ghcr.io/minbzk/moza-portaal:pr-303-0d147c4
 gh run rerun <run-id> --job <job-id>    # alleen `deploy-preview-magazijnen` van de laatste run
-gh variable delete PROEFTUIN_IMAGE --env pr-336
+gh variable delete PORTAAL_IMAGE --env pr-336
 ```
 
 Alleen die ene job opnieuw draaien volstaat: hij leest de variabele opnieuw en hergebruikt de rest
@@ -316,8 +312,9 @@ van de run, terwijl een volledige rerun alle images opnieuw bouwt en alle drie d
 uitrolt. De job-id vind je met `gh run view <run-id> --json jobs`.
 
 De environment `pr-<n>` bestaat vanaf de eerste uitrol van de PR en verdwijnt bij het opruimen van
-de preview, en de variabele met hem. Een nieuwe push aan de kant van de proeftuin levert een nieuwe
-tag op; die zet je opnieuw, want de variabele volgt hun PR niet vanzelf.
+de preview, en de variabele met hem. Een nieuwe push aan de kant van het portaal levert een nieuwe
+tag op; die zet je opnieuw, want de variabele volgt hun PR niet vanzelf. Hun `pr-*`-images
+verdwijnen bovendien uit ghcr zodra hun PR sluit.
 
 Wil je een draaiend component *nu* verzetten zonder een deploy af te wachten, dan kan dat met
 `zadctl deployment update-image` — maar de eerstvolgende uitrol zet het terug naar wat de variabele
@@ -343,8 +340,9 @@ De losse adressen blijven bestaan om te debuggen: het portaal zelf op `:8096` en
 `:8095`. Open je het paneel daar, dan blijft het frame leeg met een verwijzing naar de proxy — het
 portaal staat dan op een andere origin.
 
-**Op een gedeelde omgeving is er geen proxy.** Daar draait de proeftuin als eigen component met een
-eigen hostnaam, en wijst `BERICHTENBOX_URL` op de demo-console het frame daarheen. Het paneel toetst
+**Op ZAD is er geen proxy.** Daar draait het portaal als eigen component met een eigen hostnaam,
+en wijst `BERICHTENBOX_URL` op de demo-console het frame naar zijn `/berichtenbox`. Op Fundament
+zet de chart wél een demo-proxy voor portaal en paneel (`charts/fbs-demo/README.md`). Het paneel toetst
 zo'n adres niet vooraf: een HEAD naar een ander component strandt op CORS, en dat is niet van
 onbereikbaar te onderscheiden. Blijft het frame daar leeg, kijk dan eerst of die variabele gezet is
 en of het adres los in de browser opent. Verversen blijft werken — de browser weigert de gerichte
@@ -355,10 +353,11 @@ herlaad over een origin-grens, waarna het paneel het frame opnieuw laadt.
 ## 6. Persona's (berichtenbox → testaccount kiezen)
 
 Bron: `demo.personas.*` in `demo/demo-personas/src/main/resources/META-INF/microprofile-config.properties`.
-Het portaal (lokaal) en de berichtenbox van de proeftuin (op ZAD) kiezen de ondernemer uit hun
-eigen lijst, onder een eigen naam. Ze vragen de personadienst (`GET /api/demo/personas`) alleen
-welke daarvan op de keten zijn aangesloten. De kolom *In het portaal* geeft de id in het portaal en
-de naam in de persona-keuze; de proeftuin gebruikt dezelfde namen. De tabel werk je met de hand bij.
+Het portaal kiest de ondernemer uit zijn eigen lijst, onder een eigen naam. Het vraagt de
+personadienst (`GET /api/demo/personas`) alleen welke daarvan op de keten zijn aangesloten, op
+KVK-nummer. De kolom *In het portaal* geeft de id in het portaal en de naam in de persona-keuze. De
+tabel werk je met de hand bij; `PortaalPersonaTest` in de personadienst bewaakt dat naam en nummer
+met die van het portaal overeenkomen.
 
 | Persona | In het portaal | Identificatie | Bevraagt |
 |---|---|---|---|
@@ -368,37 +367,39 @@ de naam in de persona-keuze; de proeftuin gebruikt dezelfde namen. De tabel werk
 | Garage Van Dijk B.V. | `proeftuin-garage`: Aangesloten onderneming 4 (met bijlagen) | KVK `90000014` | 15 organisaties: A, B en 13 gesimuleerde |
 | Grootbedrijf B.V. | `proeftuin-veel`: Aangesloten onderneming, veel organisaties | KVK `90000001` | 45 organisaties: A, B en 43 gesimuleerde |
 | Landelijk Concern N.V. | `proeftuin-concern`: Aangesloten onderneming, landelijk concern | KVK `90000003` | 100 organisaties: A, B en 98 gesimuleerde — bewust extreem |
-| Demo-onderneming 4 | — (in de proeftuin: Aangesloten onderneming 4) | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
+| Demo-onderneming 4 | `proeftuin-vier`: Aangesloten onderneming, berichten in mappen | KVK `90000015` | Dezelfde 100 organisaties; de persona van de mappen-demo (zie §9) |
 | J. Pietersen | — | BSN `999993653` | 3 organisaties: A, B en 1 gesimuleerde |
 | Bakkerij De Vroege Vogel | — | BSN `999996666` | RVO |
 
-De twee BSN-persona's staan wel in de personadienst, maar het portaal en de proeftuin tonen ze niet:
+De twee BSN-persona's staan wel in de personadienst, maar het portaal toont ze niet:
 MOZa is de zakelijke kant en schrijft ondernemingen aan op KVK-nummer. Ze blijven bruikbaar voor wie de keten
 rechtstreeks aanroept, en in het paneel (*Bericht plaatsen*, *Ontdubbeling*).
 
 Welke magazijnen een persona bevraagt, bepaalt de profiel-stub (opt-in per afzender-OIN). Kies een
-testaccount en open de berichtenbox: het eerste verzoek start de sessie, en omdat er voor die
-ontvanger nog niets in de cache staat, volgt de ophaalronde vanzelf. Daarna leest de berichtenbox
-alleen nog de cache, en verschijnt een nieuw bericht vanzelf via `_volgen`.
+testaccount en open de Berichtenbox: het portaal start een sessie bij de uitvraag (het sessie-id
+staat in een httpOnly-cookie, niet in de pagina), en omdat er voor die ontvanger nog niets in de
+cache staat, volgt de ophaalronde vanzelf. Tijdens de ronde staat er "Wij halen uw berichten op bij
+de organisaties." met de teller "*x* van *y* organisaties, *z* berichten gevonden". Daarna leest de
+Berichtenbox alleen nog de cache, en verschijnt een nieuw bericht vanzelf via `_volgen`. De sessie
+verlengt het portaal alleen bij activiteit van de gebruiker.
 
 ### Een nieuwe ophaalronde
 
-> Dit beschrijft de berichtenbox van de proeftuin, op ZAD. Het portaal start nog geen sessie
-> (MinBZK/MijnOverheidZakelijk#1453); hoe een nieuwe ronde daar werkt, volgt met
-> MinBZK/MijnOverheidZakelijk#1345.
+Zolang de sessie leeft, levert verversen geen nieuwe ronde op: het portaal hergebruikt de sessie
+uit zijn cookie, en de cache van die persona staat er nog. Drie wegen naar een nieuwe ronde:
 
-Een knop **Ophalen** heeft de proeftuin niet, en zolang er een sessie leeft levert verversen geen
-nieuwe ronde op: het sessie-id staat in de `sessionStorage` van het tabblad en overleeft een
-herlading. Een nieuwe ronde komt er pas als de laatste sessie van die persona weg is. Twee wegen:
-
-- **Vanuit het paneel** (de berichtenbox blijft in beeld): Info → klap de persona open →
+- **De knop *Berichten opnieuw ophalen*.** Die staat bij een melding over de volledigheid
+  ("… was niet bereikbaar toen wij uw berichten ophaalden") en bij een verlopen sessie, en doet een
+  nieuwe ronde binnen dezelfde sessie. Voor de storingsscenario's is dat de snelste weg: de melding
+  staat er toch.
+- **Vanuit het paneel** (de Berichtenbox blijft in beeld): Info → klap de persona open →
   *Alle sessies van deze persona beëindigen*, of Scenario's → *Cache verlopen* voor alle persona's
-  tegelijk. Klik daarna in de berichtenbox: die start een nieuwe sessie, de cache is leeg, en de
-  ronde loopt.
-- **Als ondernemer:** *Uitloggen* in de kop van de proeftuin en opnieuw inloggen met hetzelfde
-  testaccount. Uitloggen beëindigt alleen de sessies van dát tabblad: heeft een ander tabblad
-  dezelfde persona open, dan houdt dat de cache in leven en blijft de ronde uit. Sluit dat tabblad
-  eerst, of gebruik de weg via het paneel.
+  tegelijk. De open Berichtenbox merkt dat bij zijn volgende hartslag (binnen 20 s). Deed je de
+  laatste minuut iets, dan start hij meteen een nieuwe sessie met een ronde; anders verschijnt de
+  melding over een verlopen sessie, en volgt de ronde bij de volgende klik, toets of scroll.
+- **Uitloggen of een andere persona kiezen.** Allebei beëindigen de sessie; bij terugkeer start het
+  portaal een nieuwe, met een ronde als de cache weg is. Heeft een ander tabblad dezelfde persona
+  open, dan houdt dat de cache in leven; gebruik dan de weg via het paneel.
 
 De scenario's in §9 zeggen "nieuwe ronde" waar dit nodig is.
 
@@ -554,33 +555,33 @@ de simulator herstarten na regenereren.
 De demo dekt de 14 scenario's uit de eisen, plus #15 (niet alles opgehaald). 14 zijn nu speelbaar; #14 (load/stress) en de rode vlag
 volgen in fase 7.
 
-**Elk scenario speel je nu in de berichtenbox van de proeftuin op ZAD**, met het paneel ernaast.
-Lokaal staat de Berichtenbox van het MOZa-portaal (§5b), maar die toont nog geen berichten uit de
-keten (MinBZK/MijnOverheidZakelijk#1453). Welke scenario's in het portaal te spelen zijn, volgt met
-MinBZK/MijnOverheidZakelijk#1345. De proeftuin toont wat de ondernemer ziet. Wat hij niet toont,
-de uitkomst per organisatie en het technische foutdetail, laat je zien in de log van de uitvraag
-(`demo/up.sh compose logs -f berichtenuitvraag`) of in de netwerk-tab van de browser.
+**Elk scenario speel je in de Berichtenbox van het portaal**, lokaal via §5b of op ZAD, met het
+paneel ernaast. De Berichtenbox toont wat de ondernemer ziet. Wat hij niet toont, de uitkomst per
+organisatie en het technische foutdetail, laat je zien in de log van de uitvraag
+(`demo/up.sh compose logs -f berichtenuitvraag`) of in de netwerk-tab van de browser: de
+Berichtenbox praat met `/api/keten/…`, en het portaal geeft de antwoorden van de uitvraag door.
 
-*Nieuwe ronde* betekent: de sessies van de persona beëindigen en in de berichtenbox klikken (§6).
-De persona's heten hier zoals in de personadienst; in de proeftuin staat de naam uit §6 erbij.
+*Nieuwe ronde* betekent: *Berichten opnieuw ophalen* bij de melding, of de sessies van de persona
+beëindigen en in de Berichtenbox klikken (§6). De persona's heten hier zoals in de personadienst; in
+de persona-keuze van het portaal staat de naam uit §6.
 
 | # | Scenario | Zo speel je het |
 |---|---|---|
 | 1 | Berichten succesvol opgehaald | Kies Demo-onderneming 3: de berichten van RVO en de Belastingdienst verschijnen. De basisvulling staat er sinds het opstarten (na legen: *Herstel demo*) |
-| 2 | Trager dan normaal (>5 s) | Storingen → *Magazijn A* of *B* → *Traag* → nieuwe ronde met Demo-onderneming 3; de voortgang "1 van 2 bronnen" blijft ~6 s staan |
-| 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit* → nieuwe ronde; boven de lijst staat dat die organisatie de berichten niet leverde. Veel: Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → nieuwe ronde → één melding over de organisaties die niet leverden, plus de berichten van de rest |
-| 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → nieuwe ronde; de voortgang meldt de Belastingdienst meteen klaar en wacht ~6 s op RVO |
+| 2 | Trager dan normaal (>5 s) | Storingen → *Magazijn A* of *B* → *Traag* → nieuwe ronde met Demo-onderneming 3; de teller "1 van 2 organisaties" blijft ~6 s staan |
+| 3 | Magazijnen onbereikbaar (weinig/veel) | Echte: Storingen → *Magazijn A* of *B* → *Uit* → nieuwe ronde; boven de lijst staat "… was niet bereikbaar toen wij uw berichten ophaalden", met *Berichten opnieuw ophalen*. Veel: Grootbedrijf → Scenario's → *Actief aantal* op bv. 2 → *Zet actief* → nieuwe ronde → één melding die de organisaties opsomt die niet bereikbaar waren, plus de berichten van de rest |
+| 4 | Enkele magazijnen antwoorden laat | *Magazijn A* → *Traag* terwijl B normaal → nieuwe ronde; de teller staat meteen op "1 van 2 organisaties" met de berichten van de Belastingdienst, en wacht ~6 s op RVO |
 | 5 | Nieuwe berichten tijdens de sessie | Berichtenbox open op Postvak IN → *Bericht plaatsen* voor dezelfde persona (of *Random berichten opvoeren*) → na een paar seconden (het magazijn werkt zijn publicatie-wachtrij af) staat het bericht bovenaan, zonder nieuwe ronde: de aanmelding van het magazijn zet het rechtstreeks in de sessiecache, en `_volgen` brengt het naar de berichtenbox |
-| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → de open berichtenbox krijgt `sessie-verlopen`; deed je de afgelopen minuut iets, dan start hij meteen een nieuwe sessie en ronde, anders meldt hij dat de sessie verlopen is en herstelt hij bij de volgende klik. Wachten werkt ook: na de demo-inactiviteit (`PT2M`) zonder klik of toets verloopt de sessie, want de hartslag van `_volgen` verlengt haar niet |
-| 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open in de berichtenbox een RVO-bericht met een bijlage (uit de cache) → de bijlage opent niet |
+| 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → binnen 20 s merkt de open Berichtenbox het. Deed je de laatste minuut iets, dan haalt hij meteen opnieuw op; anders meldt hij "U was een tijd niet actief op deze pagina. Daarom staan hier misschien niet uw nieuwste berichten." en haalt hij bij de volgende actie (of met *Berichten opnieuw ophalen*) opnieuw op. De oude lijst blijft tot dan staan. Wachten werkt ook: na de demo-inactiviteit (`PT2M`) zonder klik of toets verloopt de sessie, want de hartslag van `_volgen` verlengt haar niet |
+| 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open in de Berichtenbox een RVO-bericht met een bijlage (uit de cache) → het nieuwe tabblad meldt "Wij kunnen deze bijlage nu niet ophalen. Probeer het later opnieuw." |
 | 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding van het paneel |
-| 9 | Profielservice weg | *Profielservice uit* → wacht een halve minuut → nieuwe ronde → "Er gaat iets mis met het ophalen van uw berichten": de uitvraag kan niet bepalen welke organisaties hij moet bevragen. Zonder wachten slaagt de ronde nog, want de uitvraag onthoudt die organisaties per ontvanger 30 seconden (`profiel.resolver.cache.ttl-seconds`). Het problem+json-detail staat in de netwerk-tab |
+| 9 | Profielservice weg | *Profielservice uit* → wacht een halve minuut → nieuwe ronde → "Het ophalen van uw berichten is niet gelukt. Ververs de pagina om het opnieuw te proberen.": de uitvraag kan niet bepalen welke organisaties hij moet bevragen. Zonder wachten slaagt de ronde nog, want de uitvraag onthoudt die organisaties per ontvanger 30 seconden (`profiel.resolver.cache.ttl-seconds`). Het problem+json-detail staat in de netwerk-tab |
 | 10 | Notificatieservice weg | *Notificatie uit* → *Bericht plaatsen* → het bericht verschijnt tóch vanzelf (aanmelden slaagt; de notificatie probeert opnieuw) |
 | 11 | Uitvraagsysteem eruit | *Uitvraag/aanmeld uit* → *Bericht plaatsen* → het bericht verschijnt níet; *Alles normaal* → de outbox levert alsnog af en het bericht verschijnt alsnog vanzelf |
-| 12 | Redis weg | *Redis uit* → de berichtenbox kan zijn lijst niet meer lezen en meldt dat; de uitvraag antwoordt met 502 problem+json (geen kale 500), te zien in de netwerk-tab. *Cache verlopen* blijft werken |
+| 12 | Redis weg | *Redis uit* → de Berichtenbox kan zijn lijst niet meer lezen en meldt "Wij kunnen uw berichten nu niet ophalen. Probeer het over een minuut opnieuw."; de uitvraag antwoordt met problem+json (geen kale 500), te zien in de netwerk-tab. *Cache verlopen* blijft werken |
 | 13 | Ontdubbeling | Berichtenbox open → Scenario's → kies dezelfde persona → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht verschijnt |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
-| 15 | Niet alles opgehaald | Kies Grootbedrijf. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`); de uitvraag geeft dat door als `afgekapt` (27 van 507). De berichtenbox toont één melding tegelijk, en bij Grootbedrijf wint die over de organisaties die niet leverden. Het afkappen zie je daarom in de voortgangsmeldingen van `_ophalen` in de netwerk-tab, of in de log van de uitvraag: `leverde minder dan er beschikbaar` |
+| 15 | Niet alles opgehaald | Kies Grootbedrijf. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`); de uitvraag geeft dat door als `afgekapt` (27 van 507). Het portaal toont alle meldingen tegelijk in één waarschuwing, met een alinea per soort: welke organisaties niet bereikbaar waren, en "Hier staan 27 van uw 507 berichten van Autoriteit Persoonsgegevens." (of, bij meer organisaties, "Hier staan niet al uw berichten van deze organisaties: …"). In de log van de uitvraag: `leverde minder dan er beschikbaar` |
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
 
@@ -594,15 +595,12 @@ Een map is een eigenschap van een bericht en staat bij de organisatie die het ve
 geen centrale mappenlijst. Deze drie scenario's maken de gevolgen zichtbaar. Waarom het zo werkt
 en wat het alternatief kost, staat in [Mappen horen bij het bericht](mappen-bij-het-bericht.md).
 
-> **Speel ze alleen met een proeftuin-versie die de velden hieronder gebruikt.** De keten levert
-> ze; of de gepinde versie ze al toont, bepaalt die box.
-
 Ze draaien op een eigen persona, **Demo-onderneming 4** (KVK `90000015`): of vrije mappen er komen
 is nog niet besloten, dus de andere persona's hebben geen mappen. Hij bevraagt dezelfde honderd
 organisaties als Landelijk Concern, waarvan er vijftien traag zijn en een paar niet leveren. Een
 ophaalronde duurt daardoor lang genoeg om het overzicht te zien aangroeien — zonder storingsknop, dus
-ook op ZAD. Een KVK-persona en geen BSN: de berichtenbox van de proeftuin neemt geen BSN-identiteiten
-over.
+ook op ZAD. Een KVK-persona en geen BSN: het portaal is de zakelijke kant en toont geen
+BSN-identiteiten.
 
 Zijn berichten komen van de simulator, die ze bij het vullen in een map zet naar het gedrag van de
 organisatie:
@@ -617,7 +615,7 @@ organisatie:
 | # | Scenario | Zo speel je het |
 |---|---|---|
 | M1 | Het mappenoverzicht groeit mee | Kies Demo-onderneming 4 (nieuwe ronde als hij al open stond). Het groeien zit in de eerste drie à vier seconden: *Vergunningen* telt op van ~12 naar 87, *Subsidies* komt pas na de trage organisaties op 15. De ronde loopt daarna nog tot ~12 s door op organisaties die niet leveren (gemeten op ZAD) |
-| M2 | Een map verdwijnt met zijn laatste bericht | Open het bericht in *Te bespreken met adviseur* → haal het uit de map (terug naar Postvak IN). De map is weg — er bestaat geen lege map |
+| M2 | Een map verdwijnt met zijn laatste bericht | Open het bericht in *Te bespreken met adviseur* → haal het uit de map; het portaal meldt "U heeft het bericht uit de map Te bespreken met adviseur gehaald." De map is weg — er bestaat geen lege map |
 | M3 | Een organisatie levert niet | Na de ronde staat *Handhaving* er niet, en meldt de Berichtenbox welke organisaties niet leverden — ook na verversen of doorbladeren |
 
 Staan de mappen er niet, dan heeft de simulator nog geen post voor deze persona: hij vult zichzelf
@@ -625,10 +623,9 @@ alleen bij het opstarten en alleen in lege magazijnen. Tabblad Scenario's → **
 vult hem bij, zonder bestaande post te raken. Is M2 al gespeeld, dan zet *Legen en gedrag
 terugzetten* gevolgd door **Berichten klaarzetten** de uitgangssituatie terug.
 
-De berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
-uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`), en
-haalt een bericht uit zijn map met `"map": ""`. Welke organisaties niet alles leverden (`afgekapt`)
-leest de berichtenbox pas vanaf MinBZK/moza-poc#177; dat is voor deze scenario's niet nodig.
+De Berichtenbox leest daarvoor de mappen per organisatie uit de voortgangsmeldingen (`mappen`),
+uit de lijst hoeveel en welke organisaties niet leverden (`aantalNietGeleverd`, `nietGeleverd`) en
+welke niet alles leverden (`afgekapt`), en haalt een bericht uit zijn map met `"map": ""`.
 
 ---
 
