@@ -56,8 +56,8 @@ Eigen meetwaarden:
 |---|---|---|---|
 | `fbs_publicatie_aflevering_seconds_*` | magazijn | `doel`, `uitkomst`, `status` | Elke poging om een CloudEvent bij de aanmeldservice of notificatieservice af te leveren. `doel` is de key uit `magazijn.publicatie.downstreams`, of `_onbekend` voor een doel dat niet (meer) geconfigureerd is. `uitkomst`: `geslaagd`, `http_fout`, `timeout`, `netwerkfout`, `configuratiefout`, `serialisatiefout`, `opbouwfout`. `status`: de statusklasse (`2xx`, `4xx`, `5xx`) of `geen`. |
 | `fbs_publicatie_achterstand` | magazijn | `status` (`te_publiceren`, `mislukt`), `doel` | Aanmeldingen in de outbox die niet gepubliceerd zijn. `mislukt` blijft staan tot iemand ingrijpt: de opschoner ruimt alleen gepubliceerde rijen op. Elke pod telt dezelfde tabel: neem `max()` over de pods, niet `sum()`. |
-| `fbs_publicatie_achterstand_oudste` | magazijn | `status`, `doel` | Leeftijd in seconden van de oudste aanmelding in die achterstand; `0` = geen. Een stijgende waarde bij `te_publiceren` is het teken dat de publicatie stilstaat. |
-| `fbs_publicatie_achterstand_gemeten_op` | magazijn | — | Laatste geslaagde telling (seconden sinds 1970). De telling draait elke `magazijn.publicatie.achterstand.interval` (30s); loopt deze waarde achter, dan zijn de twee hierboven verouderd. |
+| `fbs_publicatie_achterstand_oudste_seconds` | magazijn | `status`, `doel` | Leeftijd in seconden van de oudste aanmelding in die achterstand; `0` = geen. Een stijgende waarde bij `te_publiceren` is het teken dat de publicatie stilstaat. |
+| `fbs_publicatie_achterstand_gemeten_op_seconds` | magazijn | — | Laatste geslaagde telling (seconden sinds 1970). De telling draait elke `magazijn.publicatie.achterstand.interval` (30s); loopt deze waarde achter, dan zijn de twee hierboven verouderd. |
 
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op

@@ -55,14 +55,16 @@ class PublicatieAchterstand(
                     .tags("status", status.name.lowercase(), "doel", doel)
                     .register(registry)
                 Gauge.builder("fbs.publicatie.achterstand.oudste", o) { it.get().toDouble() }
-                    .description("Leeftijd in seconden van de oudste aanmelding in die achterstand (0 = geen)")
+                    .description("Leeftijd van de oudste aanmelding in die achterstand (0 = geen)")
+                    .baseUnit(SECONDEN)
                     .tags("status", status.name.lowercase(), "doel", doel)
                     .register(registry)
             }
         }
 
         Gauge.builder("fbs.publicatie.achterstand.gemeten.op", gemetenOp) { it.get().toDouble() }
-            .description("Laatste geslaagde telling van de achterstand (seconden sinds 1970; 0 = nog geen)")
+            .description("Laatste geslaagde telling van de achterstand, sinds 1970 (0 = nog geen)")
+            .baseUnit(SECONDEN)
             .register(registry)
     }
 
@@ -126,5 +128,8 @@ class PublicatieAchterstand(
 
     private companion object {
         val GETELD = listOf(DeliveryStatus.TE_PUBLICEREN, DeliveryStatus.MISLUKT)
+
+        /** Prometheus plakt de eenheid achter de naam: `..._oudste_seconds`. */
+        const val SECONDEN = "seconds"
     }
 }
