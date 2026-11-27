@@ -37,6 +37,9 @@ class PostgresPublicatieClaimerIntegrationTest {
     @Inject
     lateinit var outbox: PublicatieOutbox
 
+    @Inject
+    lateinit var achterstand: PublicatieAchterstand
+
     @BeforeEach
     @Transactional
     fun clean() {
@@ -171,5 +174,32 @@ class PostgresPublicatieClaimerIntegrationTest {
                 volledig.contains("23505"),
             "verwachte UNIQUE-violation in causal chain, kreeg: $volledig",
         )
+    }
+
+
+    // Echte Postgres: de GROUP BY, de statusfilter en de typen die pgjdbc teruggeeft.
+    @Test
+    @Transactional
+    fun `de telling van de achterstand telt alleen niet-gepubliceerde rijen, per status en doel`() {
+        val nu = Instant.now()
+        val ids = List(4) { maakBericht(nu.minusSeconds(60)) }
+        val claims = claimer.claimNuVerwerkbaar(maxBatch = 10).associateBy { it.berichtId }
+
+        claimer.markeerGeslaagd(claims.getValue(ids[0]).claimId, nu)
+        claimer.markeerMislukt(claims.getValue(ids[1]).claimId, "test", volgendePoging = null)
+
+        val rijen = achterstand.telRijen().associateBy { it.status to it.doel }
+        val doel = claims.getValue(ids[2]).doel.key
+
+        assertEquals(setOf(DeliveryStatus.TE_PUBLICEREN to doel, DeliveryStatus.MISLUKT to doel), rijen.keys)
+        assertEquals(2L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to doel).aantal)
+        assertEquals(1L, rijen.getValue(DeliveryStatus.MISLUKT to doel).aantal)
+        assertTrue(rijen.values.all { !it.oudste.isAfter(Instant.now()) })
+    }
+
+    @Test
+    @Transactional
+    fun `een lege outbox levert geen rijen`() {
+        assertTrue(achterstand.telRijen().isEmpty())
     }
 }

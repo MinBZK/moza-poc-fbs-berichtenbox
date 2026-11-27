@@ -36,6 +36,7 @@ interface PublicatieConfig {
     fun organisatie(): Organisatie
     fun polling(): Polling
     fun opschonen(): Opschonen
+    fun achterstand(): Achterstand
     fun client(): Client
     fun outway(): Outway
 
@@ -87,6 +88,15 @@ interface PublicatieConfig {
         @WithDefault("3")
         @Min(1)
         fun maxOpeenvolgendeFouten(): Int
+    }
+
+    interface Achterstand {
+        /**
+         * Hoe vaak [PublicatieAchterstand] de outbox telt. Korter maakt de meetwaarde actueler en
+         * kost één `GROUP BY` per pod per ronde.
+         */
+        @WithDefault("30s")
+        fun interval(): Duration
     }
 
     interface Opschonen {
