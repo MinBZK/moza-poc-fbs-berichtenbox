@@ -55,6 +55,10 @@ Eigen meetwaarden:
 | Meetwaarde | Dienst | Labels | Betekenis |
 |---|---|---|---|
 | `fbs_publicatie_aflevering_seconds_*` | magazijn | `doel`, `uitkomst`, `status` | Elke poging om een CloudEvent bij de aanmeldservice of notificatieservice af te leveren. `doel` is de key uit `magazijn.publicatie.downstreams`, of `_onbekend` voor een doel dat niet (meer) geconfigureerd is. `uitkomst`: `geslaagd`, `http_fout`, `timeout`, `netwerkfout`, `configuratiefout`, `serialisatiefout`, `opbouwfout`. `status`: de statusklasse (`2xx`, `4xx`, `5xx`) of `geen`. |
+| `fbs_stelseldocument_geldig_tot`, `fbs_stelseldocument_uitgegeven_op` | stelselregister | — | Einde van de geldigheid en moment van uitgifte van het geldende stelseldocument, in seconden sinds 1970; `0` als er geen geldend exemplaar is. |
+| `fbs_stelseldocument_organisaties` | stelselregister | — | Organisaties in het geldende document. |
+| `fbs_stelseldocument_sleutel_geldig_tot` | stelselregister | `herkomst` (`keystore`, `wegwerp`) | Het vroegste einde van de certificaatketen van de ondertekensleutel. Een melding hoort te volgen ruim vóór dit moment; de dienst waarschuwt in de log vanaf 30 dagen. |
+| `fbs_magazijnregister_magazijnen` | stelselregister | — | Ingeschreven magazijnen in het register van de dienst. |
 
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op

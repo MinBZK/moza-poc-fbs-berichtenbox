@@ -63,7 +63,9 @@ niet met `QUARKUS_PROFILE=dev`.
 ## Bewaken
 
 - **Meetgegevens** staan op de beheerpoort (28094), niet via het publieke adres:
-  [operations/meetgegevens.md](operations/meetgegevens.md).
+  [operations/meetgegevens.md](operations/meetgegevens.md). Voor een melding vóór het verlopen:
+  `fbs_stelseldocument_sleutel_geldig_tot` (de keten) en `fbs_stelseldocument_geldig_tot` (het
+  document; `0` = geen geldend exemplaar, gelijk aan "niet gereed").
 - **Readiness** (`/q/health/ready`, check `stelseldocument`) is `UP` zolang er een onverlopen
   document klaarstaat. De check zegt niets over de sleutel: het pad is publiek bereikbaar.
 - **Bij elke uitgifte** staat er een regel `Stelseldocument uitgegeven` in de log met `kid`,
