@@ -15,6 +15,7 @@ import jakarta.enterprise.context.ApplicationScoped
 @ApplicationScoped
 class HardDeleteJob(
     private val service: HardDeleteService,
+    private val meting: HardDeleteMeting,
 ) {
 
     @Scheduled(
@@ -23,6 +24,12 @@ class HardDeleteJob(
         identity = "hard-delete-soft-deleted-berichten",
     )
     fun fire() {
-        service.run()
+        try {
+            service.run()
+        } catch (ex: RuntimeException) {
+            // Een ronde die als geheel afbreekt, hoort in de meting; de scheduler logt de exceptie zelf.
+            meting.rondeAfgebroken()
+            throw ex
+        }
     }
 }

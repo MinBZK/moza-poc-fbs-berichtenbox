@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
+import io.micrometer.core.instrument.MeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -50,6 +51,12 @@ class HardDeleteJobIntegrationTest {
 
     @Inject
     lateinit var entityManager: EntityManager
+
+    @Inject
+    lateinit var ops: HardDeleteTransactionalOps
+
+    @Inject
+    lateinit var registry: MeterRegistry
 
     private lateinit var ldvMock: HardDeleteLdvLogger
 
@@ -239,5 +246,27 @@ class HardDeleteJobIntegrationTest {
             berichtRepository.findIncludingDeleted(berichtId),
             "bericht moet uit DB zijn — LDV-fout mag delete niet terugdraaien",
         )
+    }
+
+    // De telling gebruikt dezelfde drempels als de claim: alleen oud én lang genoeg verwijderd telt.
+    @Test
+    fun `de telling van wachtende berichten volgt de drempels van de claim`() {
+        repeat(2) { saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000) }
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = null)
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -1, verwijderdOpOffsetDagen = -1)
+
+        val drempel = Instant.now().minus(2557, ChronoUnit.DAYS)
+
+        assertEquals(2L, ops.telWachtend(drempel, drempel))
+        assertEquals(0L, ops.telWachtend(Instant.now().minus(4000, ChronoUnit.DAYS), drempel))
+    }
+
+    @Test
+    fun `na een volledige ronde wacht er niets meer`() {
+        repeat(3) { saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000) }
+
+        service.run()
+
+        assertEquals(0.0, registry.get("fbs.retentie.wachtend").gauge().value())
     }
 }

@@ -173,6 +173,24 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
      * Hard-delete van de bericht-rij op de surrogate PK. Caller MOET eerst de
      * child-rijen (bijlagen, status) verwijderen — FK is RESTRICT.
      */
+    /** Hoeveel berichten aan beide drempels van [claimVoorHardDelete] voldoen, zonder ze te claimen. */
+    fun telKandidatenVoorHardDelete(receiptDeadline: Instant, softDeleteDeadline: Instant): Long =
+        (
+            getEntityManager()
+                .createNativeQuery(
+                    """
+                    SELECT COUNT(*)
+                    FROM berichten
+                    WHERE verwijderd_op IS NOT NULL
+                      AND verwijderd_op      <= :softDeadline
+                      AND tijdstip_ontvangst <= :receiptDeadline
+                    """.trimIndent(),
+                )
+                .setParameter("softDeadline", softDeleteDeadline)
+                .setParameter("receiptDeadline", receiptDeadline)
+                .singleResult as Number
+            ).toLong()
+
     fun hardDeleteByDbId(berichtDbId: Long): Int =
         delete("id = ?1", berichtDbId).toInt()
 

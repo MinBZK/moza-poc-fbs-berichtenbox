@@ -26,6 +26,7 @@ class HardDeleteService(
     private val ops: HardDeleteTransactionalOps,
     private val ldv: HardDeleteLdvLogger,
     private val config: RetentionConfig,
+    private val meting: HardDeleteMeting,
 ) {
 
     private val log = Logger.getLogger(HardDeleteService::class.java)
@@ -78,7 +79,11 @@ class HardDeleteService(
             if (candidates.size < batchSize) break
         }
 
-        val durationMs = Duration.between(start, Instant.now()).toMillis()
+        val einde = Instant.now()
+        val durationMs = Duration.between(start, einde).toMillis()
+        val resultaat = RunResultaat(totaal, fouten, ldvFouten, durationMs)
+
+        meting.ronde(resultaat, einde, telWachtend(receiptDeadline, softDeleteDeadline))
         log.infof(
             "hard-delete run finished totaalVerwijderd=%d fouten=%d ldvFouten=%d durationMs=%d",
             totaal,
@@ -86,7 +91,19 @@ class HardDeleteService(
             ldvFouten,
             durationMs,
         )
-        return RunResultaat(totaal, fouten, ldvFouten, durationMs)
+
+        return resultaat
+    }
+
+    /**
+     * De achterstand na de ronde. Een fout hier laat de ronde zelf staan: die is al gedaan, en de
+     * meetwaarde houdt dan de vorige stand.
+     */
+    private fun telWachtend(receiptDeadline: Instant, softDeleteDeadline: Instant): Long? = try {
+        ops.telWachtend(receiptDeadline, softDeleteDeadline)
+    } catch (ex: RuntimeException) {
+        log.warnf(ex, "Telling van de wachtende berichten na de hard-delete-ronde mislukt")
+        null
     }
 
     /**
