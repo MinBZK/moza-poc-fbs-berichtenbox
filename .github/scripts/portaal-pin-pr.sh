@@ -1,21 +1,16 @@
 #!/usr/bin/env bash
 #
-# Biedt een verouderde berichtenbox-pin (de proeftuin, MinBZK/moza-poc) als pull request aan, en
-# ruimt die PR op zodra de pin buiten deze weg om weer bij is.
+# Biedt een verouderde Berichtenbox-pin (het MOZa-portaal, MinBZK/moza-portaal) als pull request
+# aan, en ruimt die PR op zodra de pin buiten deze weg om weer bij is.
 #
-# Dit vervangt Dependabot voor dít image. Zijn docker_compose-updater kan de bump niet meer
-# aanbieden: hij houdt PR #271 vast als "bestaande PR voor minbzk/moza-poc op versie latest", en
-# omdat elke volgende bump van datzelfde image opnieuw `latest` heet, matcht die vastlegging altijd.
-# In de joblog staat dan `Pull request #271 already exists for minbzk/moza-poc with latest version
-# latest` en gebeurt er verder niets — ook niet na `@dependabot recreate` of een handmatige run
-# vanaf de Dependency graph. De vastlegging is niet op te ruimen zolang die PR bestaat, en PR's zijn
-# niet te verwijderen. Zonder dit script komt de bump dus nooit meer langs.
+# Dit vervangt Dependabot voor dít image; de reden staat bij de `ignore`-regel in
+# .github/dependabot.yml.
 #
-# De uitkomst van .github/scripts/proeftuin-pin.sh is de invoer; dat script bepaalt wat de stand is,
+# De uitkomst van .github/scripts/portaal-pin.sh is de invoer; dat script bepaalt wat de stand is,
 # dit script handelt er alleen naar. Verwacht in de omgeving:
-#   STATUS   — status uit proeftuin-pin.sh
+#   STATUS   — status uit portaal-pin.sh
 #   REGEL    — de complete compose-regel die gezet moet worden (alleen bij `verouderd`)
-#   TAG      — de sha-tag van hun main-commit, voor de PR-tekst
+#   TAG      — de commit-tag van hun main (`main-<sha7>`), voor de PR-tekst
 #   HUIDIG   — de referentie die er nu staat, voor de PR-tekst
 #   GH_TOKEN — PAT met Contents: write en Pull requests: write (FUZZ_PIN_TOKEN, gedeeld met
 #              fuzz-base-image.yml); dekt alleen de gh-aanroepen, de git push leunt op de
@@ -25,7 +20,7 @@
 set -euo pipefail
 
 COMPOSE=${COMPOSE:-compose.yaml}
-BRANCH=${BRANCH:-chore/proeftuin-pin}
+BRANCH=${BRANCH:-chore/portaal-pin}
 SECRET=FUZZ_PIN_TOKEN
 
 # Het PR-onderhoud zelf is gedeeld met fuzz-basis-pin.sh: token eisen, de eigen PR vinden, de branch
@@ -34,7 +29,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=.github/scripts/pin-pr-lib.sh
 source "$HERE/pin-pr-lib.sh"
 
-# De vorm toetsen vóór hij in compose.yaml belandt. `proeftuin-pin.sh` stelt de regel zelf samen, maar
+# De vorm toetsen vóór hij in compose.yaml belandt. `portaal-pin.sh` stelt de regel zelf samen, maar
 # een lege of afgekapte waarde (een uitgebleven digest-lookup, een gewijzigd outputformaat) zou hier
 # anders stilzwijgend een onbruikbare image-regel opleveren: de diff is dan niet leeg, de PR ziet er
 # normaal uit, en pas een herstart van de demo loopt vast op een referentie die niemand kan trekken.
@@ -78,7 +73,7 @@ vervang_pin() {
   # de telling die erover besliste.
   PIN_PAD=$(printf '%s' "$pad" | sed 's/\./\\./g')
   # Tellen op een regel die met `image:` begint, zodat een commentaarregel die de referentie citeert
-  # niet meetelt. Een aanhalingsteken ervoor mag: compose leest die vorm, en proeftuin-image.sh
+  # niet meetelt. Een aanhalingsteken ervoor mag: compose leest die vorm, en portaal-image.sh
   # ondersteunt hem expliciet.
   PIN_REGELPATROON="^[[:blank:]]*image:[[:blank:]]*[${aanhaling}]?${PIN_PAD}[:@]"
   # Alleen de referentie zelf vervangen, niet de hele regel: inspringing, aanhalingstekens en een
@@ -103,7 +98,7 @@ vervang_pin() {
 
   # Precies één: bij nul is de regel van vorm veranderd of verdwenen, bij meer dan één zou dit
   # script er willekeurig één kiezen en de andere laten staan — en dan draait de demo op twee
-  # verschillende berichtenboxen terwijl de PR er compleet uitziet.
+  # verschillende Berichtenboxen terwijl de PR er compleet uitziet.
   if [ "$aantal" -ne 1 ]; then
     echo "::error::$COMPOSE heeft $aantal image-regels voor ${pad}; verwacht precies één."
     return 1
@@ -142,7 +137,7 @@ vervang_pin() {
 
 pr_body() {
   cat <<EOM
-De berichtenbox van de demo loopt achter op de main van [MinBZK/moza-poc](https://github.com/MinBZK/moza-poc).
+De Berichtenbox van de demo loopt achter op de main van [MinBZK/moza-portaal](https://github.com/MinBZK/moza-portaal).
 
 | | |
 |---|---|
@@ -150,24 +145,23 @@ De berichtenbox van de demo loopt achter op de main van [MinBZK/moza-poc](https:
 | gaat naar | \`$TAG\` |
 
 **Dit vraagt een oordeel, geen automatische merge.** Hun main draagt ook werk dat halfaf kan zijn.
-Klik de preview van deze PR door voordat je hem merget; een oudere berichtenbox is een oudere demo,
-geen kapotte build, dus laten staan mag ook. De lokale demo draait de Berichtenbox van het portaal en
-merkt van deze pin niets.
+Klik de preview van deze PR door voordat je hem merget; een oudere Berichtenbox is een oudere demo,
+geen kapotte build, dus laten staan mag ook.
 
-**Deze regel is de pin voor ZAD**; daar hoeft niets apart gezet te worden. De deploy leest hem
-uit \`compose.yaml\`: de preview van deze PR draait de nieuwe berichtenbox al, en na het mergen
-volgt \`test\` vanzelf. Alleen een gezette variabele \`PROEFTUIN_IMAGE\` (repo of environment) wint
-van deze pin.
+**Deze regel is de pin voor de lokale demo én voor ZAD**; daar hoeft niets apart gezet te worden. De
+deploy leest hem uit \`compose.yaml\`: de preview van deze PR draait de nieuwe Berichtenbox al, en na
+het mergen volgt \`test\` vanzelf. Alleen een gezette variabele \`PORTAAL_IMAGE\` (repo of
+environment) wint van deze pin.
 
 Deze PR wordt bij elke run opnieuw op de laatste stand gezet, en sluit zichzelf zodra de pin buiten
 deze PR om bij is. Sluiten is dus geen manier om de bump te weigeren: de volgende run opent hem
 opnieuw. Wil je een versie overslaan, laat deze PR dan staan tot de volgende langskomt.
 
-Dependabot biedt deze bump niet meer aan; de reden staat bij de \`ignore\`-regel in
+Dependabot biedt deze bump niet aan; de reden staat bij de \`ignore\`-regel in
 \`.github/dependabot.yml\`.
 
 Een andere versie draaien dan de gepinde — een release-tag voor een gebruikersonderzoek, of nog niet
-gemergd werk van hun kant — gaat via de variabele \`PROEFTUIN_IMAGE\`, niet via deze regel.
+gemergd werk van hun kant — gaat via de variabele \`PORTAAL_IMAGE\`, niet via deze regel.
 EOM
 }
 
@@ -175,7 +169,7 @@ bied_pin_aan() {
   local open_pr=$1 body
 
   if ! regel_is_welgevormd "${REGEL:-}"; then
-    echo "::error::proeftuin-pin.sh leverde geen bruikbare image-regel ('${REGEL:-}') — er valt niets aan te bieden."
+    echo "::error::portaal-pin.sh leverde geen bruikbare image-regel ('${REGEL:-}') — er valt niets aan te bieden."
     return 1
   fi
 
@@ -198,7 +192,7 @@ bied_pin_aan() {
   fi
 
   pin_pr_publiceer_branch "$BRANCH" "$COMPOSE" \
-    "chore(demo): zet de berichtenbox op de huidige main van de proeftuin"
+    "chore(demo): zet de Berichtenbox op de huidige main van het portaal"
   body=$(pr_body)
 
   # Ook de body verversen: hij noemt de stand van déze run.
@@ -209,7 +203,7 @@ bied_pin_aan() {
   fi
 
   gh pr create --base main --head "$BRANCH" \
-    --title "chore(demo): zet de berichtenbox op de huidige main van de proeftuin" \
+    --title "chore(demo): zet de Berichtenbox op de huidige main van het portaal" \
     --body "$body"
 }
 
@@ -234,13 +228,13 @@ main() {
       # De pin kan ook buiten deze PR om goed komen: iemand werkt hem met de hand bij, of een
       # preview-pin wordt teruggezet. Blijft de PR dan openstaan, dan draagt hij een diff die niets
       # meer verandert en kan een reviewer niet zien of hij nog actueel is.
-      echo "De pin staat op de huidige main van de proeftuin."
+      echo "De pin staat op de huidige main van het portaal."
 
       # Ook zónder open PR opruimen: een vorige run die tussen het sluiten en het verwijderen
       # afbrak laat een branch achter die anders nooit meer wordt aangeraakt, en die de
       # eerstvolgende bump dan met de historie van die vorige cyclus zou dragen.
       pin_pr_ruim_op "$open_pr" "$BRANCH" \
-        "De pin in \`$COMPOSE\` hoort inmiddels bij de huidige main van de proeftuin; deze PR heeft geen wijziging meer te brengen."
+        "De pin in \`$COMPOSE\` hoort inmiddels bij de huidige main van het portaal; deze PR heeft geen wijziging meer te brengen."
 
       if [ -n "$open_pr" ]; then
         echo "Openstaande pin-PR #$open_pr gesloten."
@@ -266,7 +260,7 @@ main() {
       # pin-onvindbaar, bron-weg, geen-pin en alles wat niet bestaat. Geen van deze laat zich met een
       # PR oplossen, en stil groen worden zou deze run waardeloos maken: bij een verdwenen image
       # loopt de eerstvolgende herstart van het component vast.
-      echo "::error::Pin niet aan te bieden (status=${STATUS:-<leeg>}); de statuslijst staat in de kop van proeftuin-pin.sh."
+      echo "::error::Pin niet aan te bieden (status=${STATUS:-<leeg>}); de statuslijst staat in de kop van portaal-pin.sh."
       return 1
       ;;
   esac

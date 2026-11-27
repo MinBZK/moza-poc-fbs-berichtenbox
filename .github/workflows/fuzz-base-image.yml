@@ -6,7 +6,7 @@
 # bijgewerkt worden; de job `pin` hieronder biedt die wijziging als PR aan.
 #
 # Vereist de repo-secret FUZZ_PIN_TOKEN — zie de job `pin` voor wat erin hoort en waarom
-# GITHUB_TOKEN hier niet volstaat. Die secret is gedeeld met proeftuin-pin.yml, dat dezelfde rechten
+# GITHUB_TOKEN hier niet volstaat. Die secret is gedeeld met portaal-pin.yml, dat dezelfde rechten
 # nodig heeft: een rotatie of intrekking raakt dus beide workflows.
 name: Fuzz-basis-image
 
@@ -168,7 +168,7 @@ jobs:
   # strict main niet te mergen. Het werk gaat daarmee volledig langs GITHUB_TOKEN heen, vandaar de
   # lege `permissions:` hieronder.
   #
-  # Gedeeld met proeftuin-pin.yml, dat dezelfde rechten nodig heeft voor dezelfde soort PR; een
+  # Gedeeld met portaal-pin.yml, dat dezelfde rechten nodig heeft voor dezelfde soort PR; een
   # rotatie of intrekking legt dus beide paden stil.
   pin:
     needs: build

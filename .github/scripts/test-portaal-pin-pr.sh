@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fixture-tests voor proeftuin-pin-pr.sh. Het script muteert gedeelde toestand — een branch, een PR
+# Fixture-tests voor portaal-pin-pr.sh. Het script muteert gedeelde toestand — een branch, een PR
 # en de pin in compose.yaml — en de dure faalwijze is niet "rood", maar "groen terwijl het de
 # verkeerde kant op ging": een status die verkeerd valt, sluit de PR die de bump droeg, of zet een
 # onbruikbare image-regel op main-koers.
@@ -10,8 +10,8 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT="$HERE/proeftuin-pin-pr.sh"
-TESTBRANCH=chore/proeftuin-pin
+SCRIPT="$HERE/portaal-pin-pr.sh"
+TESTBRANCH=chore/portaal-pin
 # Het gemeten script leest het te wijzigen bestand als COMPOSE; het harnas zet die naam per geval.
 DOELVAR=COMPOSE
 
@@ -24,11 +24,11 @@ trap 'rm -rf "$WERKMAP"' EXIT
 source "$HERE/pin-pr-teststubs.sh"
 pin_pr_stubs_opzetten
 
-IMAGE=ghcr.io/minbzk/moza-poc
+IMAGE=ghcr.io/minbzk/moza-portaal
 OUD_DIGEST=sha256:bd4a32fe0a52616509a8dcee6f3cdcd198463f9cc4a2c0e0486a6d30a231f571
 NIEUW_DIGEST=sha256:03b37173b801a479450006d32ae74509da67bdf98215a2622f66f549ccdc94e9
-OUDE_REGEL="    image: $IMAGE:latest@$OUD_DIGEST"
-NIEUWE_REGEL="    image: $IMAGE:latest@$NIEUW_DIGEST"
+OUDE_REGEL="    image: $IMAGE:main@$OUD_DIGEST"
+NIEUWE_REGEL="    image: $IMAGE:main@$NIEUW_DIGEST"
 
 # $1 = de image-regel, rest = extra regels erboven (commentaar of een tweede image-regel).
 schrijf_compose() {
@@ -37,7 +37,7 @@ schrijf_compose() {
 
   {
     echo "services:"
-    echo "  proeftuin:"
+    echo "  portaal:"
     [ "$#" -gt 0 ] && printf '%s\n' "$@"
     printf '%s\n' "$image"
     echo "    profiles: [demo]"
@@ -45,8 +45,8 @@ schrijf_compose() {
 }
 
 export GH_TOKEN=stub-token
-export TAG=sha-7f1455f
-export HUIDIG="$IMAGE:latest@$OUD_DIGEST"
+export TAG=main-7f1455f
+export HUIDIG="$IMAGE:main@$OUD_DIGEST"
 
 EIGEN_PR='[{"number":42,"isCrossRepository":false}]'
 FORK_PR='[{"number":99,"isCrossRepository":true}]'
@@ -60,18 +60,18 @@ vastleggen
 PR_LIJST='[]' STATUS=verouderd REGEL="$NIEUWE_REGEL" uitvoeren
 gelijk "verouderde pin zonder open PR eindigt groen" "$CODE" 0
 bevat "verouderde pin zonder open PR opent een PR" "gh pr create"
-bevat "verouderde pin zonder open PR pusht de branch" "git push -f origin chore/proeftuin-pin"
+bevat "verouderde pin zonder open PR pusht de branch" "git push -f origin chore/portaal-pin"
 body "de nieuwe PR noemt de tag waarnaar hij gaat" "$TAG"
 body "de nieuwe PR noemt de referentie die er stond" "$HUIDIG"
-body "de nieuwe PR zegt dat de pin voor ZAD geldt" "Deze regel is de pin voor ZAD"
+body "de nieuwe PR zegt dat de pin ook voor ZAD geldt" "Deze regel is de pin voor de lokale demo én voor ZAD"
 regel "de image-regel draagt de nieuwe digest" "$NIEUWE_REGEL"
 regel_niet "de oude image-regel is weg" "$OUDE_REGEL"
 # De volledige aanroepen, niet alleen het commando: een `commit -a` of een weggevallen pathspec zou
 # stilzwijgend andere wijzigingen uit de checkout meedragen in een PR die één regel belooft, en een
 # PR op een andere base zou nergens opvallen.
-bevat "de commit is tot compose.yaml begrensd" "git commit -m chore(demo): zet de berichtenbox op de huidige main van de proeftuin -- $COMPOSE"
+bevat "de commit is tot compose.yaml begrensd" "git commit -m chore(demo): zet de Berichtenbox op de huidige main van het portaal -- $COMPOSE"
 bevat "de commit draagt de bot-identiteit" "git config user.email 41898282+github-actions[bot]@users.noreply.github.com"
-bevat "de PR gaat naar main met de eigen branch als head" "gh pr create --base main --head chore/proeftuin-pin"
+bevat "de PR gaat naar main met de eigen branch als head" "gh pr create --base main --head chore/portaal-pin"
 
 # --- 2. Verouderd met open PR: verversen, geen tweede PR ---
 nieuw_geval met-pr
@@ -81,7 +81,7 @@ PR_LIJST=$EIGEN_PR STATUS=verouderd REGEL="$NIEUWE_REGEL" uitvoeren
 gelijk "verouderde pin met open PR eindigt groen" "$CODE" 0
 bevat "verouderde pin met open PR werkt de body bij" "gh pr edit 42"
 bevat_niet "verouderde pin met open PR opent geen tweede" "gh pr create"
-bevat "verouderde pin met open PR pusht de branch" "git push -f origin chore/proeftuin-pin"
+bevat "verouderde pin met open PR pusht de branch" "git push -f origin chore/portaal-pin"
 body "de bijgewerkte body noemt de tag van deze run" "$TAG"
 regel "de bijgewerkte PR draagt de nieuwe digest" "$NIEUWE_REGEL"
 
@@ -92,9 +92,9 @@ vastleggen
 PR_LIJST=$EIGEN_PR STATUS=ok uitvoeren
 gelijk "een bijgewerkte pin met open PR eindigt groen" "$CODE" 0
 bevat "een bijgewerkte pin sluit de overbodige PR" "gh pr close 42"
-bevat "een bijgewerkte pin ruimt de branch op" "git push origin --delete chore/proeftuin-pin"
+bevat "een bijgewerkte pin ruimt de branch op" "git push origin --delete chore/portaal-pin"
 # De sluitreden is de enige uitleg die een reviewer op zijn verdwenen PR ziet.
-bevat "de sluitreden zegt waarom de PR dichtging" "hoort inmiddels bij de huidige main van de proeftuin"
+bevat "de sluitreden zegt waarom de PR dichtging" "hoort inmiddels bij de huidige main van het portaal"
 
 # --- 4. Pin bij, geen open PR en geen branch: niets doen ---
 nieuw_geval bij-zonder-pr
@@ -115,7 +115,7 @@ schrijf_compose "$NIEUWE_REGEL"
 vastleggen
 PR_LIJST='[]' STATUS=ok uitvoeren
 gelijk "een verweesde pin-branch zonder PR eindigt groen" "$CODE" 0
-bevat "een verweesde pin-branch wordt alsnog verwijderd" "git push origin --delete chore/proeftuin-pin"
+bevat "een verweesde pin-branch wordt alsnog verwijderd" "git push origin --delete chore/portaal-pin"
 bevat_niet "een verweesde pin-branch levert geen PR-sluiting op" "gh pr close"
 
 # --- 5. Branch al opgeruimd (ls-remote 2): sluiten blijft groen ---
@@ -150,7 +150,7 @@ regel "een lege image-regel laat compose.yaml ongemoeid" "$OUDE_REGEL"
 nieuw_geval regel-zonder-digest
 schrijf_compose "$OUDE_REGEL"
 vastleggen
-PR_LIJST='[]' STATUS=verouderd REGEL="    image: $IMAGE:sha-7f1455f" uitvoeren
+PR_LIJST='[]' STATUS=verouderd REGEL="    image: $IMAGE:main-7f1455f" uitvoeren
 niet_nul "een regel zonder digest faalt hard" "$CODE"
 meldt "een regel zonder digest noemt de oorzaak" "geen bruikbare image-regel"
 bevat_niet "een regel zonder digest opent geen PR" "gh pr create"
@@ -177,16 +177,16 @@ regel "twee image-regels laten compose.yaml ongemoeid" "$OUDE_REGEL"
 
 # --- 11. Een image-referentie in commentaar telt niet mee ---
 nieuw_geval referentie-in-commentaar
-schrijf_compose "$OUDE_REGEL" "#    image: $IMAGE:latest@$NIEUW_DIGEST"
+schrijf_compose "$OUDE_REGEL" "#    image: $IMAGE:main@$NIEUW_DIGEST"
 vastleggen
 PR_LIJST='[]' STATUS=verouderd REGEL="$NIEUWE_REGEL" uitvoeren
 gelijk "een referentie in commentaar laat de echte regel tellen" "$CODE" 0
 bevat "een referentie in commentaar leidt tot een PR" "gh pr create"
-regel "een referentie in commentaar laat het commentaar staan" "#    image: $IMAGE:latest@$NIEUW_DIGEST"
+regel "een referentie in commentaar laat het commentaar staan" "#    image: $IMAGE:main@$NIEUW_DIGEST"
 regel "een referentie in commentaar werkt de echte regel bij" "$NIEUWE_REGEL"
 
 # --- 11b. Een toelichting áchter de image-regel blijft staan ---
-# Die vorm komt in dit repo voor — test-proeftuin-image.sh dekt hem expliciet — en wie hem schrijft,
+# Die vorm komt in dit repo voor — test-portaal-image.sh dekt hem expliciet — en wie hem schrijft,
 # zet er een reden bij. Een vervanging die de hele regel platslaat, gooit die reden elke run opnieuw
 # weg zonder dat de PR er anders uitziet.
 nieuw_geval toelichting-achter-de-regel
@@ -197,25 +197,25 @@ gelijk "een regel met een toelichting erachter eindigt groen" "$CODE" 0
 regel "de toelichting achter de regel blijft staan" "$NIEUWE_REGEL # gepind, zie pin-consistency.yml"
 
 # --- 11c. Een geciteerde image-regel ---
-# proeftuin-image.sh leest deze vorm expliciet, dus de pin kan zo in compose.yaml staan. Struikelde
+# portaal-image.sh leest deze vorm expliciet, dus de pin kan zo in compose.yaml staan. Struikelde
 # dit script daarover, dan brak één nette quote de hele bump — met een melding die "0 image-regels"
 # beweert terwijl er wel degelijk één staat.
 nieuw_geval geciteerde-image-regel
-schrijf_compose "    image: \"$IMAGE:latest@$OUD_DIGEST\""
+schrijf_compose "    image: \"$IMAGE:main@$OUD_DIGEST\""
 vastleggen
 PR_LIJST='[]' STATUS=verouderd REGEL="$NIEUWE_REGEL" uitvoeren
 gelijk "een geciteerde image-regel eindigt groen" "$CODE" 0
-regel "een geciteerde image-regel houdt zijn aanhalingstekens" "    image: \"$IMAGE:latest@$NIEUW_DIGEST\""
+regel "een geciteerde image-regel houdt zijn aanhalingstekens" "    image: \"$IMAGE:main@$NIEUW_DIGEST\""
 
 # --- 11d. Een afwijkende inspringing blijft afwijkend ---
 # De aangeboden regel draagt altijd vier spaties. Werd de hele regel vervangen, dan zou een pin die
 # dieper staat stil verspringen — en dat verandert de YAML-structuur zonder dat iemand het vroeg.
 nieuw_geval afwijkende-inspringing
-schrijf_compose "      image: $IMAGE:latest@$OUD_DIGEST"
+schrijf_compose "      image: $IMAGE:main@$OUD_DIGEST"
 vastleggen
 PR_LIJST='[]' STATUS=verouderd REGEL="$NIEUWE_REGEL" uitvoeren
 gelijk "een dieper ingesprongen image-regel eindigt groen" "$CODE" 0
-regel "de inspringing van de bestaande regel blijft staan" "      image: $IMAGE:latest@$NIEUW_DIGEST"
+regel "de inspringing van de bestaande regel blijft staan" "      image: $IMAGE:main@$NIEUW_DIGEST"
 
 # --- 11e. De aangeboden regel staat er al ---
 # Zo ziet een bron eruit die `ok` en `verouderd` verwisselt, of een race waarin de pin tussen de
@@ -256,14 +256,14 @@ regel "een regel voor een ander image laat compose.yaml ongemoeid" "$OUDE_REGEL"
 # De tegenhanger van het vorige geval: klopt de pin mét de aangeboden regel, dan hoort een ander pad
 # gewoon te werken. Zonder dit geval zou een hardgecodeerd pad in dit script niemand opvallen.
 nieuw_geval verhuisd-pad
-schrijf_compose "    image: ghcr.io/minbzk/moza-poc-berichtenbox:latest@$OUD_DIGEST"
+schrijf_compose "    image: ghcr.io/minbzk/moza-portaal-berichtenbox:latest@$OUD_DIGEST"
 vastleggen
 PR_LIJST='[]' STATUS=verouderd \
-  HUIDIG="ghcr.io/minbzk/moza-poc-berichtenbox:latest@$OUD_DIGEST" \
-  REGEL="    image: ghcr.io/minbzk/moza-poc-berichtenbox:latest@$NIEUW_DIGEST" uitvoeren
+  HUIDIG="ghcr.io/minbzk/moza-portaal-berichtenbox:latest@$OUD_DIGEST" \
+  REGEL="    image: ghcr.io/minbzk/moza-portaal-berichtenbox:latest@$NIEUW_DIGEST" uitvoeren
 gelijk "een verhuisd image-pad eindigt groen" "$CODE" 0
 bevat "een verhuisd image-pad levert een PR op" "gh pr create"
-regel "een verhuisd image-pad wordt bijgewerkt" "    image: ghcr.io/minbzk/moza-poc-berichtenbox:latest@$NIEUW_DIGEST"
+regel "een verhuisd image-pad wordt bijgewerkt" "    image: ghcr.io/minbzk/moza-portaal-berichtenbox:latest@$NIEUW_DIGEST"
 
 # --- 12. Statussen zonder oordeel: niets doen, openstaande PR laten staan ---
 for status in preview ontbreekt; do

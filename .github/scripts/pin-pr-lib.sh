@@ -2,7 +2,7 @@
 # shellcheck shell=bash
 #
 # Gedeeld PR-onderhoud voor de twee pin-scripts: fuzz-basis-pin.sh (het fuzz-basis-image) en
-# proeftuin-pin-pr.sh (de berichtenbox van de demo).
+# portaal-pin-pr.sh (de Berichtenbox van de demo).
 #
 # Beide bieden één regel in één bestand aan op een vaste branch, en beide moeten daarvoor dezelfde
 # vier dingen goed doen: het token eisen, de eigen PR vinden zonder een fork-PR te raken, de branch

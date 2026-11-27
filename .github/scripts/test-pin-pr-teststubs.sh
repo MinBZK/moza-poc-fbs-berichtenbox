@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Zelftest van pin-pr-teststubs.sh: de harness die test-fuzz-basis-pin.sh en test-proeftuin-pin-pr.sh
+# Zelftest van pin-pr-teststubs.sh: de harness die test-fuzz-basis-pin.sh en test-portaal-pin-pr.sh
 # delen.
 #
 # Zonder deze suite draagt één ongetoetst bestand de onderscheidende kracht van beide pin-suites. Eén

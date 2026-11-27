@@ -17,7 +17,7 @@ DOELVAR=DOCKERFILE
 WERKMAP=$(mktemp -d)
 trap 'rm -rf "$WERKMAP"' EXIT
 
-# De stubs, de asserties en de opzet per geval zijn gedeeld met test-proeftuin-pin-pr.sh: beide
+# De stubs, de asserties en de opzet per geval zijn gedeeld met test-portaal-pin-pr.sh: beide
 # suites meten een script dat een branch, een PR en één regel in één bestand muteert.
 # shellcheck source=.github/scripts/pin-pr-teststubs.sh
 source "$HERE/pin-pr-teststubs.sh"

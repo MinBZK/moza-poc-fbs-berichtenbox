@@ -400,11 +400,11 @@ esac
 echo
 echo "== uitrollen aan het eind"
 
-variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||' \
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|portaal|tcp|3000||' \
   'mpfb-8wh|fsc-logius|logius-fscbootstrap|none|||')"
 
 : >"${TMP}/log"
-STUB_COMPONENTEN="uitvraag proeftuin logius-fscbootstrap" STUB_LOG="${TMP}/log" \
+STUB_COMPONENTEN="uitvraag portaal logius-fscbootstrap" STUB_LOG="${TMP}/log" \
   draai "$variant" apply; rc=$RC
 
 # `mpfb-8wh` komt in twee deployments voor, dus dit onderscheidt één refresh per PROJECT van één
@@ -433,17 +433,17 @@ case "$uitvraagregel" in
   *) fout "de argumenten voor uitvraag kloppen niet: $uitvraagregel" ;;
 esac
 
-proeftuinregel="$(grep 'service config set' "${TMP}/log" | grep proeftuin | head -1)"
+portaalregel="$(grep 'service config set' "${TMP}/log" | grep portaal | head -1)"
 
-case "$proeftuinregel" in
-  *"--set scheme=tcp"*"--set port=8080"*) ;;
-  "") fout "geen config set voor proeftuin in het log"; proeftuinregel="x" ;;
-  *) fout "de argumenten voor proeftuin kloppen niet: $proeftuinregel"; proeftuinregel="x" ;;
+case "$portaalregel" in
+  *"--set scheme=tcp"*"--set port=3000"*) ;;
+  "") fout "geen config set voor portaal in het log"; portaalregel="x" ;;
+  *) fout "de argumenten voor portaal kloppen niet: $portaalregel"; portaalregel="x" ;;
 esac
 
-case "$proeftuinregel" in
+case "$portaalregel" in
   x) ;;
-  *liveness-path*|*readiness-path*) fout "een tcp-regel stuurde tóch een pad mee: $proeftuinregel" ;;
+  *liveness-path*|*readiness-path*) fout "een tcp-regel stuurde tóch een pad mee: $portaalregel" ;;
   *) ok "een tcp-regel stuurt scheme en poort, en geen paden" ;;
 esac
 
@@ -456,7 +456,7 @@ case "$bootstrapregel" in
   *) fout "de argumenten voor de bootstrap kloppen niet: $bootstrapregel" ;;
 esac
 
-STUB_COMPONENTEN="uitvraag proeftuin logius-fscbootstrap" STUB_REFRESH_FAAL=mpfm-w3h \
+STUB_COMPONENTEN="uitvraag portaal logius-fscbootstrap" STUB_REFRESH_FAAL=mpfm-w3h \
   draai "$variant" apply; rc=$RC
 
 # Mét het afsluitende punt: zonder dat zou een lijst die te vroeg gevuld wordt — en dus ook het
@@ -472,10 +472,10 @@ echo "== de API-key per project"
 
 # De key is per project; met de key van een ander project geeft OM 401. Zonder deze assert zou een
 # script dat één key voor alles gebruikt er pas tegenaan lopen als het al halverwege is.
-variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|portaal|tcp|3000||')"
 
 : >"${TMP}/log"
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
+STUB_COMPONENTEN="uitvraag portaal" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
 
 if [ "$rc" -ne 0 ]; then
   fout "de apply voor de key-controle faalde met exit $rc: $UIT"
@@ -498,11 +498,11 @@ esac
 echo
 echo "== de idempotente waarschuwing van het binden"
 
-variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|portaal|tcp|3000||')"
 
 # Zodra de dienst op projectniveau staat meldt `service assign` dit, met exitcode 1 onder --strict.
 # Dat is het idempotente geval: elke tweede aanroep zou anders afbreken.
-STUB_COMPONENTEN="uitvraag proeftuin" \
+STUB_COMPONENTEN="uitvraag portaal" \
   STUB_ASSIGN_WAARSCHUWING="Service 'health-check' already exists on the project" \
   draai "$variant" apply; rc=$RC
 
@@ -511,7 +511,7 @@ STUB_COMPONENTEN="uitvraag proeftuin" \
 
 # En elke ándere waarschuwing moet wél een fout blijven: de uitzondering hoort zo smal te zijn dat
 # alleen die ene, verwachte melding erdoorheen komt.
-STUB_COMPONENTEN="uitvraag proeftuin" \
+STUB_COMPONENTEN="uitvraag portaal" \
   STUB_ASSIGN_WAARSCHUWING="approval denied by an administrator" \
   draai "$variant" apply; rc=$RC
 
@@ -520,7 +520,7 @@ STUB_COMPONENTEN="uitvraag proeftuin" \
 
 # En beide mutaties dragen --strict; een verwisseling van de twee aanroepen is anders onzichtbaar.
 : >"${TMP}/log"
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
+STUB_COMPONENTEN="uitvraag portaal" STUB_LOG="${TMP}/log" draai "$variant" apply; rc=$RC
 
 if [ "$rc" -ne 0 ]; then
   fout "de apply voor de --strict-controle faalde met exit $rc: $UIT"
@@ -535,7 +535,7 @@ fi
 echo
 echo "== een key die uitblijft"
 
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_GEEN_KEY=1 draai "$variant" apply; rc=$RC
+STUB_COMPONENTEN="uitvraag portaal" STUB_GEEN_KEY=1 draai "$variant" apply; rc=$RC
 
 case "$rc:$UIT" in
   0:*) fout "een ontbrekende API-key werd stilzwijgend geaccepteerd" ;;
@@ -544,7 +544,7 @@ case "$rc:$UIT" in
 esac
 
 # Een `project use` die het bestand ongemoeid laat: dan zou de key van de werkmap kunnen doorwerken.
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_USE_NOOP=1 draai "$variant" apply; rc=$RC
+STUB_COMPONENTEN="uitvraag portaal" STUB_USE_NOOP=1 draai "$variant" apply; rc=$RC
 
 case "$rc:$UIT" in
   0:*) fout "de key van de werkmap werd stilzwijgend hergebruikt" ;;
@@ -554,7 +554,7 @@ esac
 
 # Een key met een vorm die niet door een header past: aanhalingstekens, spatie, of een achtergebleven
 # CR uit een bestand met Windows-regeleindes.
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_KEY_VORM='"key met spatie"' draai "$variant" apply; rc=$RC
+STUB_COMPONENTEN="uitvraag portaal" STUB_KEY_VORM='"key met spatie"' draai "$variant" apply; rc=$RC
 
 case "$rc:$UIT" in
   0:*) fout "een key met een onmogelijke vorm ging gewoon de deur uit" ;;
@@ -569,7 +569,7 @@ esac
 # `|| rc=$?`: zonder die vangst breekt `set -e` de hele suite af op exact het geval dat deze test
 # moet aanwijzen — een hang levert exit 124, en dan zou er geen FAIL en geen slotregel komen.
 rc=0
-( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_USE_LEEST_STDIN=1 \
+( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag portaal" STUB_USE_LEEST_STDIN=1 \
   timeout 8 bash "$variant" apply ) >"${TMP}/stdin-uit" 2>&1 < <(sleep 15) || rc=$?
 
 if [ "$rc" -eq 124 ]; then
@@ -580,7 +580,7 @@ fi
 
 # De tijdelijke map draagt een SSO-sessie; die hoort na afloop weg te zijn.
 : >"${TMP}/sleutelmap"
-STUB_COMPONENTEN="uitvraag proeftuin" STUB_PWD_LOG="${TMP}/sleutelmap" draai "$variant" apply
+STUB_COMPONENTEN="uitvraag portaal" STUB_PWD_LOG="${TMP}/sleutelmap" draai "$variant" apply
 sleutelmap="$(head -1 "${TMP}/sleutelmap")"
 
 if [ -z "$sleutelmap" ]; then
@@ -597,7 +597,7 @@ echo "== afbreken tijdens de voorbeschouwing"
 # De traagste stap praat met OM; een signaal daar moet dezelfde stand opleveren als elders. Zonder
 # een `zonder_regel` die vóór de traps bestaat sneuvelt de handler hier op `set -u`.
 : >"${TMP}/log"
-( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_DESCRIBE_TRAAG=1 \
+( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag portaal" STUB_DESCRIBE_TRAAG=1 \
   bash "$variant" apply ) >"${TMP}/vooraf-uit" 2>&1 &
 vooraf_pid=$!
 
@@ -638,10 +638,10 @@ echo "== afbreken tijdens een mutatie"
 # De trap is het enige pad waar het script iets meldt zonder dat een aanroep faalde. Zonder deze
 # test overleeft een refactor die de trap laat doorlopen of `meld_stand` eruit haalt: de operator
 # krijgt dan "afgebroken" te zien terwijl de rest gewoon gemuteerd wordt.
-variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|proeftuin|tcp|8080||')"
+variant="$(tabel_met "$GOEDE_RIJ" 'mpfm-w3h|test|portaal|tcp|3000||')"
 
 : >"${TMP}/log"
-( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag proeftuin" STUB_LOG="${TMP}/log" \
+( cd "$WERKMAP" && STUB_COMPONENTEN="uitvraag portaal" STUB_LOG="${TMP}/log" \
   STUB_HANG=uitvraag bash "$variant" apply ) >"${TMP}/trap-uit" 2>&1 &
 trap_pid=$!
 

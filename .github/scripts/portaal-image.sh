@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# Print de image-referentie van de berichtenbox (de proeftuin, MinBZK/moza-poc) uit compose.yaml.
+# Print de image-referentie van de Berichtenbox (het MOZa-portaal, MinBZK/moza-portaal) uit compose.yaml.
 #
-# Compose is de bron omdat de pin daar staat: één letterlijke referentie, die proeftuin-pin-pr.sh
+# Compose is de bron omdat de pin daar staat: één letterlijke referentie, die portaal-pin-pr.sh
 # leest en vervangt wanneer hij een bump aanbiedt. Alles wat wil weten welke berichtenbox er draait,
 # leest die regel via dit script — anders zou elke bump op meerdere plekken met de hand nagelopen
 # moeten worden.
 #
-# `PROEFTUIN_IMAGE` overschrijft die regel voor één draai. Bedoeld om nog niet gemergd werk van hun
+# `PORTAAL_IMAGE` overschrijft die regel voor één draai. Bedoeld om nog niet gemergd werk van hun
 # kant te beproeven, of een demo op een bevroren release-tag te zetten. Bewust een omgevingsvariabele
 # en geen tweede regel in compose.yaml: zo blijft er één gepinde waarde die bijgehouden wordt, en is
 # de afwijking zichtbaar op de plek waar hij gezet wordt in plaats van in de repo te blijven staan.
@@ -15,11 +15,11 @@ set -euo pipefail
 
 REPO_ROOT=${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 COMPOSE=${COMPOSE:-$REPO_ROOT/compose.yaml}
-COMPOSE_PAD=${COMPOSE_PAD:-ghcr.io/minbzk/moza-poc}
+COMPOSE_PAD=${COMPOSE_PAD:-ghcr.io/minbzk/moza-portaal}
 
 # De vorm toetsen vóór hij op een component belandt. Een referentie zonder tag of digest trekt
 # stilzwijgend `latest` en zet een demo op een andere versie dan het repo denkt; een lege tag
-# (`...moza-poc:`) is bovendien geen geldige referentie, maar passeert wél `docker compose config`
+# (`...moza-portaal:`) is bovendien geen geldige referentie, maar passeert wél `docker compose config`
 # zodra de waarde geciteerd is. Het `?` in de patronen eist dus minstens één teken ná de scheiding.
 toets() {
   case "$1" in
@@ -38,11 +38,11 @@ toets() {
 # toe en hoeft een ontbrekende compose.yaml deze draai niet te blokkeren. De vormcontrole onderaan
 # geldt voor beide bronnen — een typfout in een handmatig gezette waarde hangt een component net zo
 # hard in ImagePullBackOff als een typfout in de pin.
-if [ -n "${PROEFTUIN_IMAGE:-}" ]; then
-  echo "let op: PROEFTUIN_IMAGE overschrijft de pin in ${COMPOSE}" >&2
+if [ -n "${PORTAAL_IMAGE:-}" ]; then
+  echo "let op: PORTAAL_IMAGE overschrijft de pin in ${COMPOSE}" >&2
 
-  toets "$PROEFTUIN_IMAGE"
-  printf '%s\n' "$PROEFTUIN_IMAGE"
+  toets "$PORTAAL_IMAGE"
+  printf '%s\n' "$PORTAAL_IMAGE"
 
   exit 0
 fi

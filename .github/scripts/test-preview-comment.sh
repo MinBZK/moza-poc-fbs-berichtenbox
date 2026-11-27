@@ -148,7 +148,7 @@ readonly GEEN='[]'
 # De fixtures staan bewust NIET op alfabetische volgorde: anders kan geen enkele assertie
 # "de volgorde van de aanroep" onderscheiden van "gesorteerd".
 readonly UITVRAAG_URLS='{"uitvraag":"https://uitvraag-pr-9.example","redis":"https://redis-pr-9.example"}'
-readonly DEMO_URLS='{"proeftuin":"https://proeftuin-pr-9.example","democonsole":"https://democonsole-pr-9.example"}'
+readonly DEMO_URLS='{"portaal":"https://portaal-pr-9.example","democonsole":"https://democonsole-pr-9.example"}'
 
 # --- de body ------------------------------------------------------------------------------------
 
@@ -171,7 +171,7 @@ bevat "de console van de demo staat er met URL in" \
   '- **democonsole:** https://democonsole-pr-9.example' "$BODY"
 
 bevat "de berichtenbox van de demo staat er met URL in" \
-  '- **proeftuin:** https://proeftuin-pr-9.example' "$BODY"
+  '- **portaal:** https://portaal-pr-9.example' "$BODY"
 
 bevat "een component van de uitvraag staat er met URL in" \
   '- **uitvraag:** https://uitvraag-pr-9.example' "$BODY"
@@ -195,7 +195,7 @@ regels_van_sectie() {
 
 # Ook binnen een sectie is de volgorde die van de map, niet gesorteerd.
 gelijk "de componenten staan in de volgorde van de map" \
-  '- **proeftuin:** https://proeftuin-pr-9.example
+  '- **portaal:** https://portaal-pr-9.example
 - **democonsole:** https://democonsole-pr-9.example' \
   "$(regels_van_sectie Demo "$BODY")"
 
@@ -246,10 +246,10 @@ draai "$GEEN" 0 0 9 "Demo=$DEMO_URLS"
 gelijk "één sectie volstaat" 0 "$RC"
 bevat_niet "dan staat de andere sectie er niet in" '### Berichtenuitvraag' "$BODY"
 
-draai "$GEEN" 0 0 9 'Demo={"proeftuin":"https://proeftuin-pr-9.example"}'
+draai "$GEEN" 0 0 9 'Demo={"portaal":"https://portaal-pr-9.example"}'
 
 gelijk "een sectie met één component" 0 "$RC"
-bevat "die ene component staat erin" '- **proeftuin:** https://proeftuin-pr-9.example' "$BODY"
+bevat "die ene component staat erin" '- **portaal:** https://portaal-pr-9.example' "$BODY"
 
 # Een lege map betekent dat de deploy-action de URL's niet opleverde. Stil weglaten zou lezen als
 # "dat project hoort niet bij deze preview".
@@ -263,7 +263,7 @@ draai "$GEEN" 0 0 9 'Demo=geen-json'
 
 gelijk "een sectie die geen JSON is, faalt" 1 "$RC"
 
-draai "$GEEN" 0 0 9 'Demo=["proeftuin"]'
+draai "$GEEN" 0 0 9 'Demo=["portaal"]'
 
 gelijk "een JSON-lijst in plaats van een map faalt" 1 "$RC"
 
@@ -286,7 +286,7 @@ done
 
 # Een component zonder publiek adres komt als null of leeg terug. Een regel die naar niets wijst
 # oogt compleet en is dat niet.
-for waardeloos in '{"proeftuin":null}' '{"proeftuin":""}' '{"proeftuin":{"host":"x"}}' '{"proeftuin":false}'; do
+for waardeloos in '{"portaal":null}' '{"portaal":""}' '{"portaal":{"host":"x"}}' '{"portaal":false}'; do
   draai "$GEEN" 0 0 9 "Demo=$waardeloos"
 
   gelijk "een component zonder URL-string faalt" 1 "$RC"

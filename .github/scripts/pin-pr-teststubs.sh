@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 #
-# Gedeelde harness voor de twee pin-suites: test-fuzz-basis-pin.sh en test-proeftuin-pin-pr.sh.
+# Gedeelde harness voor de twee pin-suites: test-fuzz-basis-pin.sh en test-portaal-pin-pr.sh.
 #
 # Beide scripts muteren dezelfde soort gedeelde toestand — een branch, een PR en één regel in één
 # bestand — en hebben daardoor dezelfde stubs nodig: een `gh` en een `git` die elke aanroep

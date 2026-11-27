@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 #
-# Vergelijkt de image-referentie van de berichtenbox in compose.yaml met de laatste main-commit van
-# MinBZK/moza-poc.
+# Vergelijkt de image-referentie van de Berichtenbox in compose.yaml met de laatste main-commit van
+# MinBZK/moza-portaal.
 #
 # Stelt alleen vast wat de stand is; de aanroeper beslist wat hij ermee doet. pin-consistency.yml
-# blokkeert een PR bij een pin die niet te trekken is, en proeftuin-pin.yml biedt een achterlopende
+# blokkeert een PR bij een pin die niet te trekken is, en portaal-pin.yml biedt een achterlopende
 # pin als PR aan. Dependabot doet dit image niet meer — de reden staat bij de `ignore`-regel in
 # .github/dependabot.yml — dus dit is geen vangnet naast dat pad, maar het pad zelf.
 #
 # Eindigt ALTIJD met 0 en schrijft `status` naar GITHUB_OUTPUT; de aanroeper beslist wat elke
 # status betekent. Statussen:
-#   ok               — de pin wijst naar de huidige main-commit van de proeftuin
+#   ok               — de pin wijst naar de huidige main-commit van het portaal
 #   verouderd        — er staat een image voor een nieuwere main-commit klaar
-#   ontbreekt        — die main-commit heeft nog geen image (hun bouw loopt nog, of viel)
+#   ontbreekt        — die main-commit heeft nog geen image. Hun main-images worden met de hand
+#                      gebouwd (`workflow_dispatch` op hun deploy.yml), dus dat kan dagen duren
 #   preview          — de pin staat op nog niet gemergd werk van hun kant; die tag verdwijnt zodra
 #                      hun PR sluit, dus hier valt niets te vergelijken met main
 #   pin-onvindbaar   — de gepinde tag bestaat niet (meer) in het register
@@ -21,11 +22,11 @@
 #   oncontroleerbaar — GitHub of ghcr niet te bevragen; er is niets vastgesteld
 set -euo pipefail
 
-BRON_REPO=${BRON_REPO:-MinBZK/moza-poc}
-# Het register-pad van hun main-image. Niet te verwarren met COMPOSE_PAD in proeftuin-image.sh: dat
+BRON_REPO=${BRON_REPO:-MinBZK/moza-portaal}
+# Het register-pad van hun main-image. Niet te verwarren met COMPOSE_PAD in portaal-image.sh: dat
 # is de prefix waarop dáár in compose.yaml gematcht wordt. Waar de pin werkelijk staat, leidt dit
-# script hieronder uit de referentie zelf af — hun preview-images liggen in een ánder repository.
-MAIN_PAD=${MAIN_PAD:-minbzk/moza-poc}
+# script hieronder uit de referentie zelf af.
+MAIN_PAD=${MAIN_PAD:-minbzk/moza-portaal}
 REPO_ROOT=${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 
 meld() {
@@ -83,17 +84,21 @@ digest_van() {
   esac
 }
 
-if ! image=$("$REPO_ROOT/.github/scripts/proeftuin-image.sh"); then
+if ! image=$("$REPO_ROOT/.github/scripts/portaal-image.sh"); then
   meld geen-pin
 fi
 
 # Het register-pad uit de referentie zelf: `ghcr.io/` eraf, en alles vanaf de tag of digest ook.
-# Hardcoden zou een pin op hun preview-repository (`minbzk/moza-poc/preview`) onder het main-pad
-# opzoeken, daar een 404 krijgen en die als "geen pin" rapporteren — een harde fout op een route
-# die het runbook juist als toegestaan beschrijft.
+# Hardcoden zou een pin op een ander repository (een fork, een verhuisd image) onder het main-pad
+# opzoeken, daar een 404 krijgen en die als "geen pin" rapporteren in plaats van als preview.
 zonder_registry=${image#ghcr.io/}
 pad=${zonder_registry%%@*}
-pad=${pad%:*}
+tag=""
+
+if [[ $pad == *:* ]]; then
+  tag=${pad##*:}
+  pad=${pad%:*}
+fi
 
 if [ "$zonder_registry" = "$image" ]; then
   echo "referentie '$image' staat niet op ghcr.io; deze controle kent alleen dat register" >&2
@@ -116,9 +121,10 @@ case "$image" in
     ;;
 esac
 
-# Een pin buiten het main-repository is nog niet gemergd werk van hun kant. Vergelijken met hun main
-# heeft dan geen betekenis: die tag hóórt af te wijken, en hij verdwijnt zodra hun PR sluit.
-if [ "$pad" != "$MAIN_PAD" ]; then
+# Een pin op een `pr-*`-tag, of buiten het main-repository, is nog niet gemergd werk van hun kant.
+# Vergelijken met hun main heeft dan geen betekenis: die tag hóórt af te wijken. Hun previews staan
+# in hetzelfde repository als main, dus alleen de tag onderscheidt ze.
+if [ "$pad" != "$MAIN_PAD" ] || [[ $tag == pr-* ]]; then
   meld preview "" "" "$image"
 fi
 
@@ -152,7 +158,7 @@ if ! kop=$(curl -fsS "${gh_auth[@]}" \
 fi
 
 # `jq -er` grijpt alleen op `null` en `false`, dus een antwoord met een lege of afgekapte `.sha`
-# passeert. Dat zou hieronder een tag als `sha-` opleveren, die in het register een 404 geeft en
+# passeert. Dat zou hieronder een tag als `main-` opleveren, die in het register een 404 geeft en
 # daarmee als `ontbreekt` langskomt — een status die "hun bouw loopt nog" betekent en de aanroeper
 # rustig laat wachten op iets wat nooit komt.
 if ! [[ $kop =~ ^[0-9a-f]{40}$ ]]; then
@@ -160,10 +166,10 @@ if ! [[ $kop =~ ^[0-9a-f]{40}$ ]]; then
   meld oncontroleerbaar "" "" "$image"
 fi
 
-# Hun bouw tagt op de korte sha van zeven tekens. Die tag is af te leiden uit de commit, waar de
+# Hun bouw tagt een main-image als `main-<korte sha van zeven tekens>`. Die tag is af te leiden uit de commit, waar de
 # tag-lijst van het register ongesorteerd terugkomt en "de nieuwste" er dus niet uit te lezen valt.
 # Via de commit weten we bovendien wélke wijzigingen een bump zou meenemen.
-verwachte_tag="sha-${kop:0:7}"
+verwachte_tag="main-${kop:0:7}"
 
 verwachte_digest=$(digest_van "$MAIN_PAD" "$verwachte_tag" "$token") || case $? in
   2) meld ontbreekt "$verwachte_tag" "" "$image" ;;
@@ -176,13 +182,13 @@ fi
 
 # De hele regel meegeven en niet alleen de digest: het image-pad staat dan op één plek in dit repo
 # in plaats van ook nog eens in de tekst van de aangeboden regel, die bij een verhuizing stil
-# achterblijft. `latest` als leesbare aanduiding hoort bij de digest die dáár nu op staat, dus die
-# zoeken we op — de digest van de sha-tag hoeft die van `latest` niet te zijn, en juist in het geval
+# achterblijft. `main` als leesbare aanduiding hoort bij de digest die dáár nu op staat, dus die
+# zoeken we op — de digest van de commit-tag hoeft die van `main` niet te zijn, en juist in het geval
 # waarvoor deze regel wordt aangeboden lopen ze uiteen.
-latest_digest=$(digest_van "$MAIN_PAD" latest "$token" || true)
+main_digest=$(digest_van "$MAIN_PAD" main "$token" || true)
 
-if [ "$latest_digest" = "$verwachte_digest" ]; then
-  meld verouderd "$verwachte_tag" "    image: ghcr.io/${MAIN_PAD}:latest@${verwachte_digest}" "$image"
+if [ "$main_digest" = "$verwachte_digest" ]; then
+  meld verouderd "$verwachte_tag" "    image: ghcr.io/${MAIN_PAD}:main@${verwachte_digest}" "$image"
 fi
 
 meld verouderd "$verwachte_tag" "    image: ghcr.io/${MAIN_PAD}:${verwachte_tag}@${verwachte_digest}" "$image"

@@ -464,11 +464,14 @@ services:
   # heeft voor de lokale demo dus geen CORS-allowlist nodig. Welke persona berichten uit het stelsel
   # krijgt, leest het portaal uit de personadienst: bron `keten`, op KVK-nummer.
   #
-  # Gepind op digest. De tag noemt alleen de main-commit waaruit het image gebouwd is en wordt
-  # nergens geverifieerd. Een andere versie draaien gaat via compose.portaal-versie.yaml, een lokale
-  # checkout via compose.portaal-lokaal.yaml.
+  # Gepind op digest. De tag noemt alleen de commit waaruit het image gebouwd is en wordt nergens
+  # geverifieerd. Deze regel is ook de pin voor ZAD: .github/scripts/portaal-image.sh leest hem voor
+  # de deploy en het ZAD-creatiescript, en de workflow Portaal-pin biedt een achterlopende digest als
+  # PR aan. Zet hier dus geen variabele: dat script leest en vervangt één letterlijke referentie. Een
+  # andere versie draaien gaat via compose.portaal-versie.yaml, een lokale checkout via
+  # compose.portaal-lokaal.yaml.
   portaal:
-    image: ghcr.io/minbzk/moza-portaal:main-0213834@sha256:c0bde336d9934b19933ed83e12c0569109c36c9cf6dd4022b7ed036566fcc97c
+    image: ghcr.io/minbzk/moza-portaal:pr-303-0d147c4@sha256:a29b8501653a7d7cc506026e217a2df39549fa8d2153056e9658e95cca82e9bb
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:3000"
@@ -487,15 +490,6 @@ services:
       # het geheim beschermt hier niets: het persona-cookie is niet ondertekend en kiest al de
       # ondernemer. Daarom een vaste default. Niet overnemen voor een omgeving met een inlogdienst.
       AUTH_SECRET: ${PORTAAL_AUTH_SECRET:-lokale-demo-zonder-inlogdienst}
-
-  # De berichtenbox van de proeftuin (MinBZK/moza-poc) draait alleen nog op ZAD. Deze regel is daar de
-  # pin van: .github/scripts/proeftuin-image.sh leest hem voor de deploy en het ZAD-creatiescript, en
-  # de workflow Proeftuin-pin biedt een achterlopende digest als PR aan. Het eigen profiel houdt hem
-  # buiten de lokale demo. Zet hier geen variabele: dat script leest en vervangt één letterlijke
-  # referentie. TODO(MinBZK/MijnOverheidZakelijk#1345): weg zodra ZAD het portaal draait.
-  proeftuin:
-    image: ghcr.io/minbzk/moza-poc:latest@sha256:2d900a986c7e545e82557f2e34872b94e812e2cfc9f0236ebd23c25d542d071b
-    profiles: [zad-pin]
 
   # Eén origin voor de hele demo: het portaal (met zijn /api/keten), het bedieningspaneel en de
   # personalijst achter hetzelfde adres. Zie demo/proxy/demo.conf.template voor het waarom.

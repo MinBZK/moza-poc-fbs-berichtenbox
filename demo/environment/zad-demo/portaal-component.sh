@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Zet de twee componenten die de berichtenbox naast het paneel mogelijk maken: `proeftuin` (het
-# image van MinBZK/moza-poc) en `demopersonas` (onze personadienst). Eenmalig handwerk: de
+# Zet de twee componenten die de Berichtenbox naast het paneel mogelijk maken: `portaal` (het
+# image van MinBZK/moza-portaal) en `demopersonas` (onze personadienst). Eenmalig handwerk: de
 # tag-updates lopen daarna via .github/workflows/deploy.yml, dat allebei in zijn componentenlijst
 # noemt.
 #
 # Hoofdstuk 7 van README.md hiernaast beschrijft het waarom — de aliassen, de afwezige muur op
-# beide componenten, en waarom de berichtenbox als eigen component in dít project draait.
+# beide componenten, en waarom de Berichtenbox als eigen component in dít project draait.
 #
-# DRAAI DIT VÓÓR de merge van de PR die `demopersonas` én `proeftuin` in deploy.yml zet: die
+# DRAAI DIT VÓÓR de merge van de PR die `demopersonas` én `portaal` in deploy.yml zet: die
 # workflow noemt ze bij naam, en een verwijzing naar een component dat niet bestaat laat de uitrol
 # falen. Voor een component waarvan het image nog niet gebouwd is, geef je met PERSONAS_IMAGE een
 # bestaand, onschadelijk image mee; de eerste uitrol vervangt het door de juiste tag.
@@ -20,8 +20,8 @@
 #
 # Usage:
 #   zadctl login && zadctl project use mpfm-w3h
-#   demo/environment/zad-demo/proeftuin-component.sh plan  [deployment=test]
-#   demo/environment/zad-demo/proeftuin-component.sh apply [deployment=test]
+#   demo/environment/zad-demo/portaal-component.sh plan  [deployment=test]
+#   demo/environment/zad-demo/portaal-component.sh apply [deployment=test]
 
 set -euo pipefail
 
@@ -33,7 +33,7 @@ if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${
     exit 1
 fi
 
-MODE="${1:?usage: proeftuin-component.sh <plan|apply> [deployment=test]}"
+MODE="${1:?usage: portaal-component.sh <plan|apply> [deployment=test]}"
 DEPLOYMENT="${2:-test}"
 BASE_DOMAIN="${ZAD_BASE_DOMAIN:-rig.prd1.gn2.quattro.rijksapps.nl}"
 PROJECT_MAGAZIJNEN="${ZAD_PROJECT_MAGAZIJNEN:-mpfm-w3h}"
@@ -45,7 +45,7 @@ case "$MODE" in
     *) echo "onbekende modus '$MODE'; gebruik plan of apply" >&2; exit 1 ;;
 esac
 
-for hulp in zadctl python3 sed; do
+for hulp in zadctl python3 sed openssl; do
     command -v "$hulp" >/dev/null || {
         echo "$hulp niet gevonden; dit script heeft het nodig" >&2
         echo "zadctl: https://github.com/RijksICTGilde/zad-cli/releases/latest" >&2
@@ -80,13 +80,13 @@ meld_zadctl_fout() {
 # Hetzelfde script leest hem voor deploy.yml, inclusief de vormcontrole.
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
-IMAGE="$("$REPO_ROOT/.github/scripts/proeftuin-image.sh")"
+IMAGE="$("$REPO_ROOT/.github/scripts/portaal-image.sh")"
 
-# Een preview-tag van de proeftuin verdwijnt uit ghcr zodra hún PR sluit, en dan trekt de
+# Een preview-tag van het portaal verdwijnt uit ghcr zodra hún PR sluit, en dan trekt de
 # eerstvolgende herstart een tag die niet meer bestaat. Dat mag tijdelijk, om nog niet gemergd werk
 # te beproeven, maar niet ongemerkt: waarschuwen en doorgaan.
 case "$IMAGE" in
-    */preview:*|*:pr-*)
+    *:pr-*)
         echo "LET OP: '$IMAGE' is een preview-tag. Die verdwijnt zodra de bijbehorende PR sluit;" >&2
         echo "  zwaai vóór het mergen terug naar de digest-pin uit hun main." >&2
         echo >&2
@@ -142,11 +142,10 @@ fi
 
 UITVRAAG_HOST="uitvraag-\$DEPLOYMENT_NAME-${PROJECT_UITVRAAG}.${BASE_DOMAIN}"
 PERSONAS_HOST="demopersonas-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
-CONSOLE_HOST="democonsole-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
-PROEFTUIN_HOST="proeftuin-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
+PORTAAL_HOST="portaal-\$DEPLOYMENT_NAME-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}"
 
 echo "== ${PROJECT_MAGAZIJNEN}, deployment ${DEPLOYMENT}"
-echo "   proeftuin:    ${IMAGE}"
+echo "   portaal:      ${IMAGE}"
 echo "   demopersonas: ${PERSONAS_IMAGE}"
 echo
 
@@ -176,15 +175,16 @@ component_add demopersonas \
     --port 8098 \
     --service publish-on-web
 
-component_add proeftuin \
+# Next.js luistert op `PORT`; het image zet die op 3000 en `HOSTNAME` op 0.0.0.0.
+component_add portaal \
     --image "$IMAGE" \
     --deployment "$DEPLOYMENT" \
-    --port 8080 \
+    --port 3000 \
     --service publish-on-web
 
 # Apart van het aanmaken en niet als `--aliases`: dit script draait juist ook op omgevingen die er
 # al staan, en dan komt config-bij-creatie nooit langs. Verschuift er een variabelenaam aan de kant
-# van de proeftuin, dan trekt een tweede aanroep hem hiermee recht.
+# van het portaal, dan trekt een tweede aanroep hem hiermee recht.
 alias_zet() {
     local component="$1"
     shift
@@ -215,18 +215,39 @@ alias_zet() {
     done
 }
 
-alias_zet proeftuin \
-    "BACKEND_KETEN=https://${UITVRAAG_HOST}" \
-    "BACKEND_KETEN_HOST=${UITVRAAG_HOST}" \
-    "BACKEND_PERSONAS=https://${PERSONAS_HOST}" \
-    "BACKEND_PERSONAS_HOST=${PERSONAS_HOST}" \
-    "BACKEND_DEMO=https://${CONSOLE_HOST}" \
-    "BACKEND_DEMO_HOST=${CONSOLE_HOST}"
+# Het portaal praat server-side met de uitvraag en de personadienst, over hun publieke adres: de
+# NetworkPolicy van ZAD laat verkeer tussen projecten alleen via de route toe.
+alias_zet portaal \
+    "KETEN_BACKEND_URL=https://${UITVRAAG_HOST}" \
+    "KETEN_PERSONAS_URL=https://${PERSONAS_HOST}"
+
+# next-auth ondertekent zijn cookies met dit geheim. Alleen zetten als het er nog niet is: een nieuw
+# geheim bij elke aanroep zou iedereen met een open Berichtenbox uitloggen. De waarde komt niet in
+# de uitvoer, ook niet in plan-modus.
+geheim_zet() {
+    local component="$1" naam="$2"
+
+    if component_bestaat "$component" && "${ZAD[@]}" alias get "$naam" -c "$component" >/dev/null; then
+        echo "alias '$naam' op '$component' bestaat al; ongewijzigd gelaten." >&2
+
+        return 0
+    fi
+
+    if [ "$MODE" = plan ]; then
+        echo "plan: '$naam' krijgt op '$component' een willekeurig geheim van 32 bytes." >&2
+
+        return 0
+    fi
+
+    "${ZAD[@]}" alias add --component "$component" "${naam}=$(openssl rand -base64 32)"
+}
+
+geheim_zet portaal AUTH_SECRET
 
 # Het paneel toetst dit adres niet vooraf: een HEAD naar een ander component strandt op CORS, en
 # die uitkomst is niet van onbereikbaar te onderscheiden. Staat de alias fout, dan blijft het frame
 # dus leeg zonder dat iets dat meldt.
-alias_zet democonsole "BERICHTENBOX_URL=https://${PROEFTUIN_HOST}/moza/berichtenbox/"
+alias_zet democonsole "BERICHTENBOX_URL=https://${PORTAAL_HOST}/berichtenbox"
 
 # Cluster-intern adres, want dit is het enige component waarvoor de console geen adres heeft dat ze
 # ergens anders al voor gebruikt: de persona's leest ze in-process uit dezelfde jar. Zonder deze
@@ -244,13 +265,16 @@ cat <<KLAAR
 Klaar. Verifiëren (stap 7 van verify-zad.md):
 
   curl -sS -o /dev/null -w '%{http_code}\\n' \\
-    "https://proeftuin-${DEPLOYMENT}-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}/moza/berichtenbox/"
+    "https://portaal-${DEPLOYMENT}-${PROJECT_MAGAZIJNEN}.${BASE_DOMAIN}/berichtenbox"
 
-Verwacht 200. Een 502 of 503 betekent meestal dat er geen pod draait: kijk dan eerst naar replicas
-in het gerenderde deployment.yaml, niet naar het image. Daarna het paneel openen en kijken of de
-berichtenbox in het frame staat; dat vraagt wel een democonsole-image waarin BERICHTENBOX_URL
-gelezen wordt.
+Verwacht 307 naar de persona-keuze: zonder persona-cookie stuurt het portaal daarheen. Een 502 of
+503 betekent meestal dat er geen pod draait: kijk dan eerst naar replicas in het gerenderde
+deployment.yaml, niet naar het image. Daarna het paneel openen, een aangesloten persona kiezen en
+kijken of de Berichtenbox in het frame berichten toont.
 
-Richt de health-check niet op /health: dat pad proxyt naar een chat-backend die in dit project niet
-bestaat, en een probe erop herstart de pod anderhalve minuut later.
+Ruim daarna het oude component op, pas als de PR die het portaal uitrolt gemerged is:
+
+  zadctl --strict -p ${PROJECT_MAGAZIJNEN} component remove proeftuin --deployment ${DEPLOYMENT}
+
+Alleen het component, nooit de deployment: die verwijderen wist de database van de magazijnen.
 KLAAR

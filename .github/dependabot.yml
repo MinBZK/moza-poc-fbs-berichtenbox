@@ -39,18 +39,11 @@ updates:
     schedule:
       interval: "daily"
     ignore:
-      # De berichtenbox van de proeftuin. Dependabot kán deze bump niet meer aanbieden: hij
-      # houdt de gesloten, niet-gemergde PR #271 vast als bestaande PR voor dit image op
-      # versie `latest`, en elke volgende bump heet opnieuw `latest` — dus die vastlegging
-      # matcht altijd. Zijn joblog eindigt dan op `Pull request #271 already exists for
-      # minbzk/moza-poc with latest version latest`; `@dependabot recreate` en een handmatige
-      # run vanaf de Dependency graph lopen op hetzelfde vast, en de vastlegging is niet op te
-      # ruimen zolang die PR bestaat. De workflow Proeftuin-pin doet dit image nu. Expliciet
-      # negeren, zodat er geen ecosysteem-regel staat die stilzwijgend niets doet.
-      - dependency-name: "minbzk/moza-poc"
-      # De Berichtenbox van het portaal. Zijn tags zijn `main-<sha7>`; Dependabot leest een sha die
-      # alleen uit cijfers bestaat als versienummer en zou dan een willekeurige build aanbieden.
-      # TODO(MinBZK/MijnOverheidZakelijk#1345): een eigen pin-workflow zoals Proeftuin-pin.
+      # De Berichtenbox van het portaal. Zijn tags zijn `main-<sha7>` en `pr-<n>-<sha7>`; Dependabot
+      # leest een sha die alleen uit cijfers bestaat als versienummer en zou dan een willekeurige
+      # build aanbieden, of een preview die verdwijnt zodra hun PR sluit. De workflow Portaal-pin
+      # vergelijkt met hun main-commit en biedt de bump zelf aan. Expliciet negeren, zodat er geen
+      # ecosysteem-regel staat die een verkeerde versie voorstelt.
       - dependency-name: "minbzk/moza-portaal"
   # Dagelijks: alerts komen er alleen voor semver-referenties, en alle `uses:` in dit
   # repo zijn op commit-SHA gepind (supply-chain-eis). Ook hier is de version-update
