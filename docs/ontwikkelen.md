@@ -41,6 +41,11 @@ ongewijzigde code.
 ./mvnw clean test -pl services/beheerconsole -am             # geen Docker; Quinoa installeert Node en bouwt de app
 ```
 
+Lokaal haalt Quinoa Node zelf op. In CI zet `.github/actions/node-beheerconsole` dezelfde versie
+klaar met een gecontroleerde checksum (`services/beheerconsole/node.sha256`), en slaat Quinoa zijn
+eigen download over. Hoog je `quarkus.quinoa.package-manager-install.node-version` op, werk dan de
+pin mee bij; hoe, staat in dat bestand. Zonder die pin faalt de build in CI.
+
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services
 (Testcontainers) — je hoeft `docker compose up -d` daar niet apart voor te starten. De demo-console
 start zijn Redis rechtstreeks met Testcontainers (`LaatVerlopenRedisTest`): hij wijst

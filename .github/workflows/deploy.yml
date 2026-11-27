@@ -494,6 +494,8 @@ jobs:
       - uses: ./.github/actions/maven-cache
         with:
           scope: build-${{ matrix.service }}
+      - uses: ./.github/actions/node-beheerconsole
+        if: matrix.service == 'beheerconsole'
       - name: Build + push image (jib)
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         # Het GHCR-token gaat via de MicroProfile-env-vorm QUARKUS_CONTAINER_IMAGE_PASSWORD
