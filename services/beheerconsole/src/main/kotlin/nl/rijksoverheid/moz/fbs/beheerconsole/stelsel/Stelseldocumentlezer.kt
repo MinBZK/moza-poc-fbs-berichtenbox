@@ -197,18 +197,32 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
         uitgever = payload.path("iss").asText(),
         omgeving = payload.path("environment").asText(),
         versie = payload.path("version").asText(),
-        uitgegevenOp = Instant.ofEpochSecond(payload.path("iat").asLong()),
-        geldigTot = Instant.ofEpochSecond(payload.path("exp").asLong()),
+        uitgegevenOp = weergaveTijdstip(payload.path("iat")),
+        geldigTot = weergaveTijdstip(payload.path("exp")),
         organisaties = payload.path("organizations").map {
             Organisatie(it.path("oin").asText(), it.path("name").asText(), it.path("magazijn_url").asText())
         },
     )
+
+    /**
+     * Alleen een tijdstip dat als RFC 3339-datum te schrijven is (jaar 1 tot en met 9999). Een
+     * uitgever die milliseconden stuurt, levert anders een jaartal van vijf cijfers op, en dat valt
+     * buiten het schema en buiten wat een browser kan tonen. Zo'n document heeft dan geen inhoud.
+     */
+    private fun weergaveTijdstip(waarde: JsonNode): Instant {
+        require(waarde.isIntegralNumber && waarde.asLong() in 1..LAATSTE_WEERGEEFBARE_SECONDE) { "geen weergeefbaar tijdstip" }
+
+        return Instant.ofEpochSecond(waarde.asLong())
+    }
 
     private fun json(deel: String): JsonNode? =
         runCatching { JSON.readTree(Base64.getUrlDecoder().decode(deel)) }.getOrNull()?.takeIf { it.isObject }
 
     companion object {
         private const val DELEN_IN_JWS = 3
+
+        /** 9999-12-31T23:59:59Z. */
+        private const val LAATSTE_WEERGEEFBARE_SECONDE = 253_402_300_799L
 
         private val HEADERVELDEN = setOf("alg", "typ", "kid", "x5c")
 

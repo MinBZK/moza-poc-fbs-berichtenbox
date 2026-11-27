@@ -64,6 +64,14 @@ class OpenApiContractTest {
         given().filter(filter).`when`().get("/api/v1/stelsel").then().statusCode(200)
     }
 
+    // Een uitgever die milliseconden stuurt: het document is ongeldig en heeft geen inhoud, maar het antwoord blijft binnen de spec.
+    @Test
+    fun `tijdstippen buiten bereik volgen de spec`() {
+        StubStelselregister.antwoord = { Testketen.ander.document(Instant.now().plusSeconds(300_000_000_000)) }
+
+        given().filter(filter).`when`().get("/api/v1/stelsel").then().statusCode(200)
+    }
+
     @Test
     fun `een onverwachte fout volgt de spec`() {
         StubStelselregister.antwoord = { throw IllegalStateException("onverwacht") }

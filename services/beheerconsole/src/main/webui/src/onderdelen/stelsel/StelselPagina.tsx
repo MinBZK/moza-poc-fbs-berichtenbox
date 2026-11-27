@@ -13,8 +13,14 @@ const VERIFICATIE = {
   NIET_GETOETST: { variant: "warning", tekst: "Het stelseldocument is niet getoetst" },
 } as const;
 
-const datum = (iso: string) =>
-  new Intl.DateTimeFormat("nl-NL", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Amsterdam" }).format(new Date(iso));
+// Een ongeldig document kan elke waarde bevatten; een onleesbare datum mag het scherm niet breken.
+const datum = (iso: string) => {
+  const d = new Date(iso);
+
+  if (Number.isNaN(d.getTime())) return iso;
+
+  return new Intl.DateTimeFormat("nl-NL", { dateStyle: "long", timeStyle: "short", timeZone: "Europe/Amsterdam" }).format(d);
+};
 
 export function StelselPagina() {
   const [overzicht, setOverzicht] = useState<Stelseloverzicht>();

@@ -292,6 +292,7 @@ Wat je hoe dan ook moet weten:
 | `REDIS_HOSTS`          | per profiel | Adres van de tijdelijke berichtenopslag; buiten dev/test `rediss://` verplicht (`RedisVerbindingValidator`) |
 | `REDIS_PASSWORD`       | per profiel | Wachtwoord van de berichtenopslag; buiten dev/test verplicht |
 | `FBS_REDIS_UNSAFE_ALLOW_PLAINTEXT` | `false` | Zet de TLS-/auth-eis op de berichtenopslag BEWUST uit; logt bij elke boot `REDIS_UNPROTECTED` voor alert-routing |
+| `FBS_BEHEERCONSOLE_UNSAFE_ZONDER_ROOT` | `false` | Laat de beheerconsole buiten dev/test BEWUST starten zonder root van de stelselbeheerder (stelseldocument dan niet geverifieerd); logt bij elke boot `STELSELDOCUMENT_NIET_GETOETST` voor alert-routing |
 | `FBS_OUTWAY_UNSAFE_ALLOW_UNVERIFIED_TLS` | `false` | Staat een `outway`-TLS-configuratie toe die certificaten niet verifieert (`trust-all`, hostnaam-verificatie `NONE`); logt bij elke boot `OUTWAY_TLS_UNVERIFIED` voor alert-routing |
 | `QUARKUS_TLS_OUTWAY_TRUST_STORE_PEM_CERTS` | leeg | Trust anchor voor uitgaand verkeer door de eigen FSC-outway; leeg = JVM-default trust-store |
 | `MAGAZIJN_A_GRANT_HASH` | leeg    | Grant-hash van het valide FSC-contract voor magazijn-a; leeg = geen `Fsc-Grant-Hash`-header, magazijn wordt dan direct/zonder outway aangeroepen |

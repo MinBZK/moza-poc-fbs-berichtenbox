@@ -10,8 +10,8 @@ import java.util.Optional
 interface StelseldocumentConfig {
 
     /**
-     * De root van de stelselbeheerder als PEM. Ontbreekt hij, dan is de keten niet te controleren
-     * en meldt het overzicht `NIET_GETOETST` in plaats van te doen alsof het document klopt.
+     * De root van de stelselbeheerder als PEM. In dev en test mag hij ontbreken: dan meldt het
+     * overzicht `NIET_GETOETST`. Daarbuiten weigert de start zonder root, tenzij [unsafeZonderRoot].
      */
     fun root(): Optional<String>
 

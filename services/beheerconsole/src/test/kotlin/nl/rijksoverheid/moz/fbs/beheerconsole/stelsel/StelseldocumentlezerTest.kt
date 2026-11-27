@@ -26,7 +26,7 @@ class StelseldocumentlezerTest {
             override fun uitgever(): String = Testketen.OIN
             override fun omgeving(): String = Testketen.OMGEVING
             override fun unsafeZonderRoot(): Boolean = false
-                    },
+        },
     )
 
     private fun reden(gelezen: Stelseldocumentlezer.Gelezen): String =
@@ -85,7 +85,7 @@ class StelseldocumentlezerTest {
                 override fun uitgever(): String = Testketen.OIN
                 override fun omgeving(): String = Testketen.OMGEVING
                 override fun unsafeZonderRoot(): Boolean = false
-                            },
+            },
         ).lees(Testketen.andereUitgever.document(nu), nu)
 
         assertTrue("stelselbeheerder" in reden(gelezen))
@@ -147,7 +147,7 @@ class StelseldocumentlezerTest {
                     override fun uitgever(): String = Testketen.OIN
                     override fun omgeving(): String = Testketen.OMGEVING
                     override fun unsafeZonderRoot(): Boolean = false
-                                    },
+                },
             ).lees(keten.document(nu), nu)
 
             assertEquals("het eerste certificaat is geen ondertekencertificaat", reden(gelezen))

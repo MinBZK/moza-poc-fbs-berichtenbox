@@ -18,7 +18,8 @@ Het stelseloverzicht (`/stelsel`) leest het stelseldocument bij een stelselregis
 | Variabele | Standaard in dev | Betekenis |
 |---|---|---|
 | `STELSELREGISTER_URL` | `http://localhost:8094` | Het stelselregister; buiten dev en test alleen `https://` |
-| `STELSELDOCUMENT_ROOT_PEM` | leeg | De root van de stelselbeheerder (PEM). Leeg: het overzicht meldt `NIET_GETOETST` |
+| `STELSELDOCUMENT_ROOT_PEM` | leeg | De root van de stelselbeheerder (PEM). In dev leeg toegestaan (`NIET_GETOETST`); daarbuiten weigert de start zonder root |
+| `FBS_BEHEERCONSOLE_UNSAFE_ZONDER_ROOT` | `false` | Start buiten dev en test BEWUST zonder root; logt bij elke start `STELSELDOCUMENT_NIET_GETOETST` voor alert-routing |
 | `STELSELDOCUMENT_UITGEVER_OIN` | `00000000000000001000` | De OIN van de stelselbeheerder |
 | `STELSELDOCUMENT_OMGEVING` | `lokaal` | De omgeving waarvoor de console het document accepteert |
 

@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.beheerconsole.stelsel
 
 import io.quarkus.runtime.StartupEvent
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.assertDoesNotThrow
 import org.junit.jupiter.api.assertThrows
@@ -31,6 +32,12 @@ class StelselregisterAdresTest {
     @Test
     fun `zonder root mag alleen bewust`() {
         assertDoesNotThrow { controle("prod", zonderRoot = true).controleer(StartupEvent()) }
+    }
+
+    // Ops hangt een alert-regel aan dit token; de waarde wijzigt niet zonder die regel mee te verhuizen.
+    @Test
+    fun `het alert-token ligt vast`() {
+        assertEquals("STELSELDOCUMENT_NIET_GETOETST", StelselregisterAdres.ZONDER_ROOT_ALERT_TOKEN)
     }
 
     @Test
