@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv
 
+import io.micrometer.core.instrument.MeterRegistry
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
@@ -32,6 +33,9 @@ class LdvOntbrekendSchemaTest {
     @Inject
     lateinit var dataSource: DataSource
 
+    @Inject
+    lateinit var registry: MeterRegistry
+
     class OntbrekendSchemaProfile : QuarkusTestProfile {
         override fun getConfigOverrides(): Map<String, String> = mapOf(
             "logboekdataverwerking.enabled" to "true",
@@ -50,6 +54,7 @@ class LdvOntbrekendSchemaTest {
     fun `een aanlevering faalt zichtbaar als het logboekschema ontbreekt`() {
         val onderwerp = "Aanlevering zonder logboekschema"
         val berichtenVooraf = aantalBerichten()
+        val geweigerdVooraf = registry.get("fbs.logboek.geweigerd").counter().count()
 
         given()
             .contentType(ContentType.JSON)
@@ -76,6 +81,8 @@ class LdvOntbrekendSchemaTest {
             aantalBerichten(),
             "een aanlevering die niet in het logboek kwam, mag geen bericht achterlaten",
         )
+        // De weigering moet als zodanig herkenbaar zijn, niet alleen als een 500 tussen de andere.
+        assertEquals(geweigerdVooraf + 1, registry.get("fbs.logboek.geweigerd").counter().count())
     }
 
     private fun aantalBerichten(): Int = dataSource.connection.use { connectie ->

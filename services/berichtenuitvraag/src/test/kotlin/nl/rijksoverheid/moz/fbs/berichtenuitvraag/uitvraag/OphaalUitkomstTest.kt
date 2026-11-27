@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag
 
+import io.micrometer.core.instrument.Metrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -61,8 +63,11 @@ class OphaalUitkomstTest {
         override fun close() = Unit
     }
 
+    private val meting = SimpleMeterRegistry()
+
     @BeforeEach
     fun installHandler() {
+        Metrics.globalRegistry.add(meting)
         julLogger.addHandler(handler)
         julLogger.level = Level.ALL
         records.clear()
@@ -71,6 +76,13 @@ class OphaalUitkomstTest {
     @AfterEach
     fun removeHandler() {
         julLogger.removeHandler(handler)
+        Metrics.globalRegistry.remove(meting)
+
+        // Elke alertregel telt één keer mee, in elke test van deze klasse.
+        val alertregels = records.count { r -> (r.parameters?.let { String.format(r.message, *it) } ?: r.message).contains(OphaalUitkomst.ALERT_TOKEN) }
+        val geteld = meting.find("fbs.logboek.waarschuwing").tag("code", OphaalUitkomst.ALERT_TOKEN).counter()?.count() ?: 0.0
+
+        assertEquals(alertregels.toDouble(), geteld, "alertregels en teller lopen uiteen")
     }
 
     @Test

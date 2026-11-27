@@ -7,6 +7,7 @@ import nl.mijnoverheidzakelijk.ldv.exporter.LogboekWriteFailureRecorder
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekContext
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.LogboekMeting
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Identificatienummer
 import org.jboss.logging.Logger
@@ -75,6 +76,7 @@ class SessieLogboek(private val processingHandler: ProcessingHandler) {
             ontvanger.type,
             oorzaak,
         )
+        LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.OPRUIMEN_ONTBREEKT)
     }
 
     private fun schrijf(ontvanger: Identificatienummer, aanleiding: OpruimAanleiding, uitkomst: OpruimUitkomst) {

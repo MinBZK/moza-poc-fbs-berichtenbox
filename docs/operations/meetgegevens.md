@@ -55,6 +55,8 @@ Eigen meetwaarden:
 | Meetwaarde | Dienst | Labels | Betekenis |
 |---|---|---|---|
 | `fbs_publicatie_aflevering_seconds_*` | magazijn | `doel`, `uitkomst`, `status` | Elke poging om een CloudEvent bij de aanmeldservice of notificatieservice af te leveren. `doel` is de key uit `magazijn.publicatie.downstreams`, of `_onbekend` voor een doel dat niet (meer) geconfigureerd is. `uitkomst`: `geslaagd`, `http_fout`, `timeout`, `netwerkfout`, `configuratiefout`, `serialisatiefout`, `opbouwfout`. `status`: de statusklasse (`2xx`, `4xx`, `5xx`) of `geen`. |
+| `fbs_logboek_geweigerd_total` | magazijn, uitvraag | — | Verzoeken die een 500 kregen omdat het logboek de verwerking niet kon vastleggen (fail-closed). Zo is een logboekstoring te onderscheiden van een storing elders. Alleen HTTP-verzoeken; een publicatie die om die reden niet doorgaat, blijft in de outbox staan (`fbs_publicatie_achterstand`). |
+| `fbs_logboek_waarschuwing_total` | magazijn, uitvraag | `code` (`LDV_UITKOMST_ONTBREEKT`, `LDV_OPSLAG_ONZEKER`, `LDV_OPRUIMEN_ONTBREEKT`) | Eén per alertregel met dat token: het logboek geeft een verwerking mogelijk onjuist weer. Wat te doen staat per token in de operator-handleiding van de dienst. |
 
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op
