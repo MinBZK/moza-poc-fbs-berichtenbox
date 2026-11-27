@@ -10,9 +10,10 @@
 # demo-credentials en de WireMock-admin-API's. Op een ontwikkelmachine
 # aan een kantoor- of thuisnetwerk is dat het hele subnet.
 #
-# Wil je de demo aan iemand anders tonen, zet 'm dan bewust open met `DEMO_BIND=0.0.0.0`, in plaats
-# van dat het de default is. `demo-console` doet hier NIET aan mee en
-# blijft altijd op loopback; zie de toelichting daar.
+# Wil je de demo aan iemand anders tonen, gebruik dan een tunnel naar 127.0.0.1:8097
+# (docs/demo-runbook.md §4). `DEMO_BIND=0.0.0.0` zet alleen de diensten zelf open, en dat doe je
+# bewust, in plaats van dat het de default is. `demo-console` en `demo-proxy` doen hier NIET aan
+# mee: die volgen `DEMO_BEDIENING_BIND` (default loopback); zie de toelichting bij demo-console.
 #
 # Elke service krijgt `TZ: Europe/Amsterdam`, zodat logtijden overeenkomen met de klok van wie
 # meekijkt; zet hem ook op een nieuwe service. In een image zonder tijdzonedatabase (Redis,
@@ -330,9 +331,9 @@ services:
       TZ: Europe/Amsterdam
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
-      # Onder dev eist Quarkus dat de Host-header naar localhost wijst. De demo komt binnen via de
-      # demo-proxy of via de proeftuin, die de Host van de bezoeker doorzet; zonder dit levert elke
-      # aanroep van een ander adres dan localhost een lege 400 op. Alleen hier, in de demo-compose:
+      # Onder dev eist Quarkus dat de Host-header naar localhost wijst. Het portaal roept de uitvraag
+      # aan op `berichtenuitvraag:8086`; zonder dit levert elke aanroep met een andere Host dan
+      # localhost een lege 400 op. Alleen hier, in de demo-compose:
       # de service zelf houdt de standaardinstelling.
       QUARKUS_HTTP_HOST_VALIDATION_REQUIRE_LOCALHOST: "false"
       # Alle uitvraag-afhankelijkheden lopen via Toxiproxy (transparant bij normaal bedrijf). De
@@ -349,20 +350,6 @@ services:
       LDV_POSTGRES_URL: jdbc:postgresql://postgres-uitvraag:5432/ldv_logging
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
-      # CORS voor de berichtenbox van de proeftuin (:8096) en de demo-proxy (:8097).
-      # Runtime-property, dus geen rebuild nodig, en alleen in het demo-profiel. Methods en
-      # headers blijven ongezet; die spiegelt Quarkus uit het preflight-verzoek.
-      #
-      # Nodig al gaat hun API-verkeer server-side door hun nginx: een browser stuurt bij elke
-      # schrijf-request (PATCH, zoals een bericht uit zijn map halen) zijn eigen origin mee, de
-      # proxy geeft die door, en voor de uitvraag is dat een vreemde origin: zonder deze regels een
-      # 403 "CORS Rejected". Lezen merkt er niets van, omdat een browser bij een GET naar zijn
-      # eigen origin geen Origin stuurt.
-      QUARKUS_HTTP_CORS_ENABLED: "true"
-      # De allowlist hoort er expliciet bij: enabled zónder origins laat Quarkus alleen
-      # same-origin door. Elk adres waarop de demo geopend wordt moet hier staan; zet DEMO_HOST op
-      # het VM- of container-adres, de default localhost dekt de gewone lokale demo.
-      QUARKUS_HTTP_CORS_ORIGINS: "http://localhost:8096,http://127.0.0.1:8096,http://${DEMO_HOST:-localhost}:8096,http://localhost:8097,http://127.0.0.1:8097,http://${DEMO_HOST:-localhost}:8097"
       # Korte inactiviteitstermijn voor de demo: een sessie verloopt na ~2 min zonder verzoek.
       # Alleen demo; prod houdt PT15M.
       BERICHTENSESSIECACHE_SESSIE_INACTIVITEIT: PT2M
@@ -471,73 +458,43 @@ services:
       # dienst verder nergens aan.
       BEREIKBAARHEID_PERSONADIENST_URL: http://demo-personas:8098
 
-  # Berichtenbox van de proeftuin (MinBZK/moza-poc) als container, zodat de demo geen Node, npm ci
-  # of Eleventy op de machine vraagt. Zijn nginx zet het API-verkeer server-side door, dus de
-  # browser praat met één origin; alleen schrijfverzoeken dragen die origin mee, en daarvoor staat
-  # hij op de CORS-allowlist van de uitvraag.
+  # De Berichtenbox van het MOZa-portaal (MinBZK/moza-portaal) als container, zodat de demo geen Node
+  # of npm op de machine vraagt. Het portaal praat server-side met de uitvraag: zijn route
+  # /api/keten zet `X-Ontvanger` uit het persona-cookie en stuurt geen `Origin` mee. De uitvraag
+  # heeft voor de lokale demo dus geen CORS-allowlist nodig. Welke persona berichten uit het stelsel
+  # krijgt, leest het portaal uit de personadienst: bron `keten`, op KVK-nummer.
   #
-  # Gepind op digest. Die bepaalt wat er getrokken wordt; `latest` staat er alleen bij als
-  # leesbare aanduiding van wat het is — hun main — en wordt nergens geverifieerd. Alleen die tag
-  # zou stil onder een lopende demo door verschuiven.
-  #
-  # Bijwerken doet de workflow Proeftuin-pin: die vergelijkt deze digest op werkdagen met hun main
-  # en biedt een achterlopende pin als PR aan. Dependabot doet dit image niet meer; de reden staat
-  # bij de `ignore`-regel in .github/dependabot.yml. Zet hier dus geen variabele terug: dat script
-  # leest en vervangt één letterlijke referentie. Een andere versie draaien gaat via
-  # compose.proeftuin-versie.yaml.
-  #
-  # Deze regel is de enige vindplaats: alles wat wil weten welke berichtenbox draait — de deploy en
-  # het ZAD-creatiescript — leest hem via .github/scripts/proeftuin-image.sh, zodat een bump hier
-  # vanzelf ook de demo op ZAD bijwerkt.
-  #
-  # Deze versie splitst het keten-verkeer per prefix; de BACKEND_*-regels hieronder werken vanaf
-  # hier. Op een oudere valt dat weg en loopt alleen het leespad, want /api/demo/personas valt daar
-  # nog onder dezelfde `location /api/` en komt dus bij de uitvraag uit.
-  proeftuin:
-    image: ghcr.io/minbzk/moza-poc:latest@sha256:2d900a986c7e545e82557f2e34872b94e812e2cfc9f0236ebd23c25d542d071b
+  # Gepind op digest. De tag noemt alleen de commit waaruit het image gebouwd is en wordt nergens
+  # geverifieerd. Deze regel is ook de pin voor ZAD: .github/scripts/portaal-image.sh leest hem voor
+  # de deploy en het ZAD-creatiescript, en de workflow Portaal-pin biedt een achterlopende digest als
+  # PR aan. Zet hier dus geen variabele: dat script leest en vervangt één letterlijke referentie. Een
+  # andere versie draaien gaat via compose.portaal-versie.yaml, een lokale checkout via
+  # compose.portaal-lokaal.yaml.
+  portaal:
+    image: ghcr.io/minbzk/moza-portaal:pr-303-5e4c590@sha256:d9dddaa78e317dbd5890d302c9c6a4319e0d0e4a9f8cef81efa30d5f40c77c54
     profiles: [demo]
     ports:
-      - "${DEMO_BIND:-127.0.0.1}:8096:8080"
+      - "${DEMO_BIND:-127.0.0.1}:8096:3000"
     depends_on:
       berichtenuitvraag:
         condition: service_started
+      demo-personas:
+        condition: service_started
     environment:
       TZ: Europe/Amsterdam
-      # Alleen in gebruik wanneer de container rechtstreeks op 8096 benaderd wordt; via de
-      # demo-proxy onderschept die /api/ al vóór het de container bereikt.
-      #
-      # De proeftuin-nginx splitst het verkeer per prefix: /api/v1/ naar de uitvraag,
-      # /api/demo/personas naar de personadienst en de rest van /api/demo/ naar het paneel. Nodig
-      # omdat de catch-all /api/ een leestijdslimiet van zestig seconden draagt: een ophaalronde
-      # langs tientallen magazijnen ligt langer stil dan dat en wordt daar middenin afgekapt.
-      #
-      # BACKEND_PERSONAS apart en niet via de terugval op BACKEND_DEMO: die terugval bestaat voor
-      # opstellingen van vóór de splitsing, en erop leunen zou het paneel onbereikbaar maken voor
-      # alles wat niet de personalijst is.
-      #
-      # De drie bestemmingen zijn te overschrijven vanuit de shell, zodat een lokale berichtenbox
-      # tegen een keten elders kan praten zonder ander image of andere compose. Dat werkt alleen op
-      # de container zelf (:8096): via de demo-proxy (:8097) is /api/ al onderschept vóór het hier
-      # aankomt.
-      BACKEND_KETEN: ${BACKEND_KETEN:-http://berichtenuitvraag:8086}
-      BACKEND_PERSONAS: ${BACKEND_PERSONAS:-http://demo-personas:8098}
-      BACKEND_DEMO: ${BACKEND_DEMO:-http://demo-console:8095}
-      # De *_HOST-varianten zetten de Host-header apart, voor een ingress die daarop routeert. Leeg
-      # gelaten neemt de proeftuin de host van de browser, en dat is precies goed zolang de keten
-      # hier in het containernetwerk staat: lokaal routeert niets op Host en is er geen TLS.
-      BACKEND_KETEN_HOST: ${BACKEND_KETEN_HOST:-}
-      BACKEND_PERSONAS_HOST: ${BACKEND_PERSONAS_HOST:-}
-      BACKEND_DEMO_HOST: ${BACKEND_DEMO_HOST:-}
-      # Sinds de padsplitsing draagt deze variabele alleen nog /chat, /health en /tools plus de
-      # terugval van de catch-all /api/. Die drie paden hebben in deze demo geen dienst achter zich;
-      # de uitvraag antwoordt er met een 404. Blijft staan omdat leeglaten die locaties een 502 laat
-      # geven die een ontbrekende variabele meldt — een storing die er geen is.
-      BACKEND_ORIGIN: ${BACKEND_ORIGIN:-http://berichtenuitvraag:8086}
+      # Te overschrijven vanuit de shell, zodat een lokale Berichtenbox tegen een keten elders kan
+      # praten zonder ander image of andere compose.
+      KETEN_BACKEND_URL: ${KETEN_BACKEND_URL:-http://berichtenuitvraag:8086}
+      KETEN_PERSONAS_URL: ${KETEN_PERSONAS_URL:-http://demo-personas:8098}
+      # Zonder geheim meldt next-auth bij elk verzoek een fout. De demo heeft geen inlogdienst, dus
+      # het geheim beschermt hier niets: het persona-cookie is niet ondertekend en kiest al de
+      # ondernemer. Daarom een vaste default. Niet overnemen voor een omgeving met een inlogdienst.
+      AUTH_SECRET: ${PORTAAL_AUTH_SECRET:-lokale-demo-zonder-inlogdienst}
 
-  # Eén origin voor de hele demo: berichtenbox, bedieningspaneel en keten-API's achter hetzelfde
-  # adres. Zie demo/proxy/demo.conf voor het waarom.
+  # Eén origin voor de hele demo: het portaal (met zijn /api/keten), het bedieningspaneel en de
+  # personalijst achter hetzelfde adres. Zie demo/proxy/demo.conf.template voor het waarom.
   #
-  # Uitsluitend op loopback, om dezelfde reden als demo-console: /api/demo/legen doet via deze
+  # Standaard op loopback (DEMO_BEDIENING_BIND), om dezelfde reden als demo-console: /api/demo/legen doet via deze
   # proxy net zo goed een TRUNCATE op beide magazijn-databases.
   demo-proxy:
     image: docker.io/library/nginx:1.31-alpine
@@ -545,25 +502,22 @@ services:
     ports:
       - "${DEMO_BEDIENING_BIND:-127.0.0.1}:8097:8080"  # zie de toelichting bij demo-console
     depends_on:
-      proeftuin:
+      portaal:
         condition: service_started
       demo-console:
         condition: service_started
       demo-personas:
-        condition: service_started
-      berichtenuitvraag:
         condition: service_started
     environment:
       TZ: Europe/Amsterdam
       # Binnen het containernetwerk; wat er van buiten bereikbaar is bepaalt de ports-regel.
       PROXY_BIND: "0.0.0.0"
       PROXY_PORT: "8080"
-      PROEFTUIN_UPSTREAM: http://proeftuin:8080
+      PORTAAL_UPSTREAM: http://portaal:3000
       CONSOLE_UPSTREAM: http://demo-console:8095
       PERSONAS_UPSTREAM: http://demo-personas:8098
-      UITVRAAG_UPSTREAM: http://berichtenuitvraag:8086
       # Beperk envsubst tot deze variabelen, zodat nginx-eigen namen ($$host, $$uri) blijven staan.
-      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|PERSONAS|UITVRAAG)_UPSTREAM)$$'
+      NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PORTAAL|CONSOLE|PERSONAS)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
 

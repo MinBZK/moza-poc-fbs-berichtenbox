@@ -55,9 +55,9 @@ images:
   simulator: ghcr.io/minbzk/fbs-magazijn-simulator
   profiel: ghcr.io/minbzk/fbs-demo-profiel
   notificatie: ghcr.io/minbzk/fbs-externe-stubs
-  # Verplicht, met digest: de proeftuin-regel uit compose.yaml (.github/scripts/proeftuin-image.sh
-  # leest hem). Zo draait de berichtenbox dezelfde versie als de rest van de demo.
-  proeftuin: ""
+  # Verplicht, met digest: de portaal-regel uit compose.yaml (.github/scripts/portaal-image.sh
+  # leest hem). Zo draait de Berichtenbox dezelfde versie als de lokale demo en ZAD.
+  portaal: ""
   # Images van anderen staan op digest. Toxiproxy op het amd64-image: zijn manifest-list gaf op
   # een mirror een 500 (zie TOXIPROXY_IMAGE in .github/workflows/deploy.yml).
   nginx: docker.io/nginxinc/nginx-unprivileged:1.31-alpine@sha256:c3bcf3d1a53a027bfa515b9fe4fbbe7bf6b791476a5af853de439ad494b145bd
@@ -68,6 +68,8 @@ images:
 geheimen:
   # Keys REDIS_PASSWORD en BEHEER_TOKEN. Dezelfde REDIS_PASSWORD gaat naar de uitvraag.
   demo: fbs-demo-geheimen
+  # Key AUTH_SECRET: next-auth ondertekent er de cookies van het portaal mee.
+  portaal: fbs-demo-portaal
   # Key htpasswd: gebruikers van het bedieningspaneel, in het formaat van nginx; zie README.md
   # (openssl passwd -6).
   bediening: fbs-demo-bediening
@@ -115,9 +117,10 @@ resources:
   simulator:
     requests: {cpu: 100m, memory: 512Mi, ephemeral-storage: 50Mi}
     limits: {cpu: "1", memory: 768Mi, ephemeral-storage: 1Gi}
-  proeftuin:
-    requests: {cpu: 20m, memory: 32Mi, ephemeral-storage: 50Mi}
-    limits: {cpu: 500m, memory: 128Mi, ephemeral-storage: 1Gi}
+  # Node.js met de server van Next.js.
+  portaal:
+    requests: {cpu: 50m, memory: 192Mi, ephemeral-storage: 50Mi}
+    limits: {cpu: "1", memory: 512Mi, ephemeral-storage: 1Gi}
   demo-proxy:
     requests: {cpu: 20m, memory: 32Mi, ephemeral-storage: 50Mi}
     limits: {cpu: 500m, memory: 128Mi, ephemeral-storage: 1Gi}

@@ -415,8 +415,8 @@ een vangnet, en mogen niet vóór die van het portaal verlopen:
   blijven de bron, en de berichtenbox haalt na het inloggen alles opnieuw op. Een berichthash van
   vóór de overgang staat niet in de `:sleutels`-set van zijn ontvanger, dus het opruimen bij
   uitloggen of verlopen vindt hem niet en hij blijft staan tot zijn oude TTL afloopt.
-- **Volgorde:** de PR in `moza-poc` (de berichtenbox die sessies start) wordt eerst gemerged; pas
-  daarna gaat de gepinde berichtenbox in `compose.yaml` mee. Een berichtenbox zonder sessies krijgt
+- **Volgorde:** de Berichtenbox die sessies start (het portaal, MinBZK/moza-portaal#303) wordt eerst
+  gemerged; pas daarna gaat de gepinde Berichtenbox in `compose.yaml` mee. Een berichtenbox zonder sessies krijgt
   `401` op elk pad onder `/berichten`.
 - **Redis standalone of Sentinel, geen Cluster.** De sessiescripts wissen sleutels van één
   ontvanger die niet als `KEYS` worden meegegeven en dus over hash-slots heen kunnen liggen.

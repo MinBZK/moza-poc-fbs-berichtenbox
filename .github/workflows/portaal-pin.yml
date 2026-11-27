@@ -1,21 +1,20 @@
-# Houdt de berichtenbox van de proeftuin (MinBZK/moza-poc) bij: loopt de pin in compose.yaml achter
-# op hun main, dan biedt deze workflow die bump als pull request aan.
+# Houdt de Berichtenbox van het MOZa-portaal (MinBZK/moza-portaal) bij: loopt de pin in compose.yaml
+# achter op hun main, dan biedt deze workflow die bump als pull request aan.
 #
-# Dit werk lag bij Dependabot en kan daar niet meer liggen; de reden staat bij de `ignore`-regel in
-# `.github/dependabot.yml`, waar de vraag "waarom doet dat ecosysteem hier niets" thuishoort.
+# Dependabot doet dit image niet; de reden staat bij de `ignore`-regel in `.github/dependabot.yml`,
+# waar de vraag "waarom doet dat ecosysteem hier niets" thuishoort.
 #
 # De controle zelf staat in pin-consistency.yml en blijft daar: die job blokkeert een PR bij een pin
-# die niet te trekken is. Deze workflow deelt het oordeel — beide draaien proeftuin-pin.sh — en
+# die niet te trekken is. Deze workflow deelt het oordeel — beide draaien portaal-pin.sh — en
 # handelt er alleen naar.
-name: Proeftuin-pin
+name: Portaal-pin
 
 on:
   # Op werkdagen vroeg in de ochtend, want hun main loopt door en de bump hoort niet op PR-verkeer
   # te wachten. Het tijdstip ligt vóór de werkdag, zodat de PR er al ligt wanneer iemand begint.
   #
-  # Niet dezelfde dag proberen te halen: hun merges vallen grotendeels tussen 12:00 en 16:00 UTC, en
-  # met één run per dag verschuift dat werk hoe dan ook naar de volgende ochtend. Een middagrun zou
-  # die vertraging niet wegnemen, maar de PR wél midden in de werkdag laten verschijnen.
+  # Eén run per dag volstaat: hun main-images worden met de hand gebouwd (`workflow_dispatch` op hun
+  # deploy.yml), dus een nieuwe versie verschijnt hooguit een paar keer per week.
   #
   # Geen heel uur: dat is het drukste moment op de planner van GitHub, en een geplande run schuift
   # dan op. Het valt ook vóór de twee maandagochtendjobs (codeql 06:00, pin-consistency 06:17).
@@ -83,7 +82,7 @@ jobs:
           # dat IP) te ontlopen; het gaat om een publiek repo. Een scopeloze GITHUB_TOKEN volstaat
           # daarvoor.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: .github/scripts/proeftuin-pin.sh
+        run: .github/scripts/portaal-pin.sh
 
       - name: Bied de pin als PR aan
         env:
@@ -92,4 +91,4 @@ jobs:
           REGEL: ${{ steps.pin.outputs.verwachte_regel }}
           TAG: ${{ steps.pin.outputs.verwachte_tag }}
           HUIDIG: ${{ steps.pin.outputs.huidige_referentie }}
-        run: .github/scripts/proeftuin-pin-pr.sh
+        run: .github/scripts/portaal-pin-pr.sh

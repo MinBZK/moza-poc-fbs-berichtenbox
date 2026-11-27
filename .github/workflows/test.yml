@@ -381,12 +381,25 @@ jobs:
 
       # De twee overlays draaien alleen als iemand ze er met de hand bij zet, dus een kapotte
       # overlay blijft anders onopgemerkt tot vlak vóór een demo — het moment waarop je hem
-      # gebruikt. PROEFTUIN_IMAGE moet gezet zijn: die overlay eist dat expliciet in plaats van
-      # stil op de gepinde versie terug te vallen.
-      - name: compose.proeftuin-versie.yaml valideren
+      # gebruikt. PORTAAL_IMAGE moet gezet zijn: die overlay eist dat expliciet in plaats van
+      # stil op de gepinde versie terug te vallen. Parsen alleen bewijst niets: een tikfout in de
+      # dienstnaam maakt een nieuwe, geldige dienst en laat de pin staan. Daarom toetst jq wat de
+      # overlay op `portaal` moet zetten.
+      - name: compose.portaal-versie.yaml valideren
         env:
-          PROEFTUIN_IMAGE: ghcr.io/minbzk/moza-poc:valideer
-        run: docker compose -f compose.yaml -f compose.proeftuin-versie.yaml --profile demo config -q
+          PORTAAL_IMAGE: ghcr.io/minbzk/moza-portaal:valideer
+        run: |
+          docker compose -f compose.yaml -f compose.portaal-versie.yaml --profile demo config --format json \
+            | jq -e '.services.portaal.image == env.PORTAAL_IMAGE' > /dev/null
 
-      - name: compose.proeftuin-lokaal.yaml valideren
-        run: docker compose -f compose.yaml -f compose.proeftuin-lokaal.yaml --profile demo config -q
+          # En zonder waarde moet de overlay weigeren, niet stil op de pin terugvallen.
+          if env -u PORTAAL_IMAGE docker compose -f compose.yaml -f compose.portaal-versie.yaml --profile demo config -q 2>/dev/null; then
+            echo "::error::compose.portaal-versie.yaml start zonder PORTAAL_IMAGE; verwacht een weigering"
+            exit 1
+          fi
+
+      - name: compose.portaal-lokaal.yaml valideren
+        run: |
+          docker compose -f compose.yaml -f compose.portaal-lokaal.yaml --profile demo config --format json \
+            | jq -e '(.services.portaal.build.context | endswith("/moza-portaal"))
+                and .services.portaal.image == "localhost/moza-portaal-lokaal"' > /dev/null

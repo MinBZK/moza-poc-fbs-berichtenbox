@@ -1,0 +1,15 @@
+# Overlay om de Berichtenbox op een andere versie van het portaal te zetten dan de digest in
+# compose.yaml. Bedoeld voor een bevroren versie (een gebruikersonderzoek) of om nog niet gemergd
+# werk van hun kant te beproeven: elke PR op moza-portaal krijgt een image
+# `ghcr.io/minbzk/moza-portaal:pr-<n>-<sha>`.
+#
+#   PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh
+#
+# `demo/up.sh` neemt deze overlay vanzelf mee zodra PORTAAL_IMAGE gezet is, en legt de waarde vast
+# voor vervolgcommando's in een nieuwe shell.
+#
+# `:?` en geen default: zonder waarde stopt compose met die melding, in plaats van de overlay stil
+# te negeren en de gepinde versie te starten die je juist niet wilde.
+services:
+  portaal:
+    image: ${PORTAAL_IMAGE:?zet PORTAAL_IMAGE op de volledige image-referentie van het gewenste portaal}

@@ -59,7 +59,7 @@ trap 'rm -rf "$WERKMAP"' EXIT
 
 # Wat het script uit de omgeving leest; een geëxporteerde waarde op de machine mag geen geval
 # veranderen.
-OMGEVING=(TAG NS KUBE_CONTEXT BASISDOMEIN EXTRA_VALUES PROEFTUIN GATEWAY GATEWAY_SECRET ISSUER GATEWAY_ADRES
+OMGEVING=(TAG NS KUBE_CONTEXT BASISDOMEIN EXTRA_VALUES PORTAAL_IMAGE KETEN_PERSONA GATEWAY GATEWAY_SECRET ISSUER GATEWAY_ADRES
   HTTPS_POORT CA_BESTAND KETEN_ONTVANGER KETEN_SECONDEN)
 
 # Draait $2 (bash) met het script gesourcet, in een eigen map met een log. Zet UIT (uitvoer), CODE
@@ -195,6 +195,7 @@ bevat_niet "geheimen bestaan: niets nieuw" "create secret" "$LOG"
 draai geheimen-nieuw 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in "get secret stelselregister-"*" -o name --ignore-not-found") echo "secret/$3" ;; esac; }; geheimen'
 gelijk "nieuwe geheimen: in orde" 0 "$CODE"
 bevat "nieuwe geheimen: Redis en beheer" "create secret generic fbs-demo-geheimen --from-file=REDIS_PASSWORD=" "$LOG"
+bevat "nieuw geheim: cookies van het portaal" "create secret generic fbs-demo-portaal --from-file=AUTH_SECRET=" "$LOG"
 gelijk "Redis-wachtwoord zonder regelovergang" 64 "$(wc -c <"$WERKMAP/geheimen-nieuw/redis-wachtwoord")"
 [[ $(cat "$WERKMAP/geheimen-nieuw/htpasswd") =~ ^demo:\$6\$ ]] && ok "htpasswd: gebruiker demo met SHA-512" || faal "htpasswd: $(cat "$WERKMAP/geheimen-nieuw/htpasswd")"
 bevat_niet "bestaande keystore blijft" "delete secret" "$LOG"
@@ -221,7 +222,7 @@ echo "== installeren =="
 
 mkdir -p "$WERKMAP/extra"
 echo "dienst: {}" >"$WERKMAP/extra/berichtenuitvraag.yaml"
-draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; installeren"
+draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; EXTRA_VALUES='$WERKMAP/extra'; installeren"
 gelijk "installeren: in orde" 0 "$CODE"
 gelijk "vijf releases" 5 "$(grep -c '^hm upgrade --install' <<<"$LOG")"
 uitvraag=$(grep '^hm upgrade --install berichtenuitvraag ' <<<"$LOG")
@@ -244,7 +245,18 @@ gelijk "precies één extra values-bestand" 1 "$(grep -o "$WERKMAP/extra/[a-z-]*
 bevat "register herstart na de installatie" "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
 bevat "register uit een kopie, niet uit demo/generated" "magazijnenregister=$WERKMAP/installeren/repo/demo/generated/" "$LOG"
 
-draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
+bevat "installeren: het portaal uit PORTAAL_IMAGE" "--set images.portaal=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$(grep 'install fbs-demo' <<<"$LOG")"
+draai installeren-portaal-zonder-digest "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e; installeren"
+gelijk "een portaal zonder digest: exit 2" 2 "$CODE"
+bevat "een portaal zonder digest: zegt het" "staat niet op digest" "$UIT"
+bevat_niet "een portaal zonder digest: niets geïnstalleerd" "upgrade --install" "$LOG"
+
+draai installeren-kapot-portaal "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=kapot; installeren"
+gelijk "een onbruikbare PORTAAL_IMAGE: exit 2" 2 "$CODE"
+bevat "een onbruikbare PORTAAL_IMAGE: zegt het" "portaal-image.sh faalde" "$UIT"
+bevat_niet "een onbruikbare PORTAAL_IMAGE: niets geïnstalleerd" "upgrade --install" "$LOG"
+
+draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
 gelijk "magazijn B faalt: exit 1" 1 "$CODE"
 bevat "magazijn B faalt: noemt hem" "installeren van berichtenmagazijn-b faalde" "$UIT"
 bevat_niet "magazijn B faalt: geen herstart" "rollout restart" "$LOG"
@@ -292,7 +304,9 @@ bevat "routes: de simulator met een gesimuleerd magazijn, en een 400 van de simu
   "CODE 400 simulator 400 simulator: berichten lezen bereikt de simulator https://simulator.fbs.x.nl:443/magazijn/00000009000000000001/api/v1/berichten" "$LOG"
 bevat "routes: aanleveren bij de simulator dicht" "/magazijn/00000009000000000001/api/v1/aanleveringen" "$(grep 'CODE 404' <<<"$LOG")"
 bevat "routes: het stelseldocument" "CODE 200 stelselregister 200 stelselregister: het stelseldocument https://stelselregister.fbs.x.nl:443/api/v1/stelseldocument" "$LOG"
-bevat "routes: de aanmeld-webhook dicht" "CODE 404 demo 404 aanmeld-webhook niet via de berichtenbox -X POST" "$LOG"
+bevat "routes: de aanmeld-webhook dicht" "CODE 404 demo 404 aanmeld-webhook niet via de Berichtenbox -X POST" "$LOG"
+bevat "routes: de aanmeld-webhook niet via het portaal" "CODE 404 demo 404 aanmeld-webhook niet via de ketenroute van het portaal -X POST https://demo.fbs.x.nl:443/api/keten/aanmeldingen" "$LOG"
+bevat "routes: de Berichtenbox stuurt zonder persona naar de keuze" "CODE 307 demo 307 Berichtenbox van het portaal https://demo.fbs.x.nl:443/berichtenbox" "$LOG"
 bevat "routes: paneel met het wachtwoord" "CODE 200 demo 200 paneel met het wachtwoord" "$LOG"
 bevat_niet "routes: het wachtwoord niet als argument" "pw" "$(grep 'paneel met het wachtwoord' <<<"$LOG")"
 bevat "routes: paneel als gebruiker demo" "Authorization: Basic ZGVtbzpwdw==" "$LOG"
@@ -322,19 +336,23 @@ sse "$A" OK 3 >"$WERKMAP/keten-b-fout.sse"
 sse "$B" FOUT 0 >>"$WERKMAP/keten-b-fout.sse"
 : >"$WERKMAP/keten-leeg.sse"
 
-# Een gw_curl die sessie, ophaalrondes en beëindigen nadoet. $1 = antwoord op POST /sessies (body,
-# regelovergang, code), $2 = de rondes als "<code>:<sse-bestand>" na elkaar (de laatste herhaalt;
-# bestand - schrijft niets, zoals curl zonder antwoord),
+# Een gw_curl die sessie, ophaalrondes en beëindigen nadoet. $1 = antwoord op POST /sessies als
+# "<code>|<Set-Cookie-waarde>" (leeg: geen cookie), $2 = de rondes als "<code>:<sse-bestand>" na
+# elkaar (de laatste herhaalt; bestand - schrijft niets, zoals curl zonder antwoord),
 # $3 = code van DELETE, $4 = exitcode van curl bij _ophalen (standaard 0).
 stub_keten() {
   cat <<EOF
 echo 0 >"\$WERK/ronde"
 gw_curl() {
   echo "curl \$*" >>"\$LOG"
-  local uit="" a vorige=""
-  for a in "\$@"; do [ "\$vorige" = -o ] && uit=\$a; vorige=\$a; done
+  local uit="" kop="" a vorige=""
+  for a in "\$@"; do [ "\$vorige" = -o ] && uit=\$a; [ "\$vorige" = -D ] && kop=\$a; vorige=\$a; done
   case "\$*" in
-    *"-X POST"*sessies*) printf '%b' '$1' ;;
+    *"-X POST"*sessies*)
+      local antwoord='$1'
+      printf 'HTTP/1.1 %s\\r\\n' "\${antwoord%%|*}" >"\$kop"
+      [ -z "\${antwoord#*|}" ] || printf 'set-cookie: %s; Path=/api; HttpOnly\\r\\n' "\${antwoord#*|}" >>"\$kop"
+      printf '%s' "\${antwoord%%|*}" ;;
     *_ophalen*)
       local rondes=($2) n
       n=\$(cat "\$WERK/ronde"); echo \$((n + 1)) >"\$WERK/ronde"
@@ -346,15 +364,19 @@ gw_curl() {
 EOF
 }
 
-sessie_ok='{"sessieId":"s-1"}\n201'
+sessie_ok='201|keten-sessie=s-1'
 
 draai keten-ok "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
 gelijk "A en B leverden: in orde" 0 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 gelijk "één ophaalronde" 1 "$(grep -c '_ophalen' <<<"$LOG")"
 bevat "sessie beëindigd" "-X DELETE" "$LOG"
-bevat "sessie-id via een header-bestand" "-H @" "$(grep '_ophalen' <<<"$LOG")"
-gelijk "header-bestand met de sessie" "X-Sessie: s-1" "$(cat "$WERKMAP/keten-ok/sessie.hdr")"
+bevat "sessie-cookie via een header-bestand" "-H @" "$(grep '_ophalen' <<<"$LOG")"
+gelijk "header-bestand met persona en sessie" "Cookie: personaId=proeftuin-garage; keten-sessie=s-1" "$(cat "$WERKMAP/keten-ok/sessie.hdr")"
 bevat_niet "sessie-id niet als argument" "s-1" "$LOG"
+bevat "sessie starten via het portaal, als de persona" "-H Cookie: personaId=proeftuin-garage https://demo.fbs.x.nl:443/api/keten/sessies" "$LOG"
+bevat "ophalen via het portaal" "https://demo.fbs.x.nl:443/api/keten/berichten/_ophalen" "$LOG"
+bevat "beëindigen via het portaal" "https://demo.fbs.x.nl:443/api/keten/sessies/huidige" "$LOG"
+bevat_niet "geen X-Ontvanger: die zet het portaal" "X-Ontvanger" "$LOG"
 
 # Eerst een fout, dan in orde: dezelfde sessie, een tweede ronde.
 draai keten-tweede-ronde "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-b-fout.sse 200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
@@ -399,11 +421,16 @@ draai keten-delete-401 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_kete
 bevat "DELETE gaf 401: zegt het" "niet beëindigd: DELETE gaf 401" "$UIT"
 gelijk "DELETE gaf 401: telt als fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 
-draai keten-429 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten '{"detail":"te veel sessies"}\n429' "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
+draai keten-429 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten '429|' "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
 gelijk "geen sessie: een fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
-bevat "geen sessie: met de statuscode" "POST /api/v1/sessies gaf 429" "$UIT"
-bevat "geen sessie: met de reden" "te veel sessies" "$UIT"
+bevat "geen sessie: met de statuscode" "POST /api/keten/sessies gaf 429" "$UIT"
 bevat_niet "geen sessie: geen ophaalronde" "_ophalen" "$LOG"
+
+# 201 zonder cookie: het portaal startte niets bruikbaars, en zonder cookie valt er niets op te halen.
+draai keten-geen-cookie "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten '201|' "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
+gelijk "201 zonder cookie: een fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
+bevat "201 zonder cookie: zegt het" "gaf 201 zonder sessie-cookie" "$UIT"
+bevat_niet "201 zonder cookie: geen ophaalronde" "_ophalen" "$LOG"
 
 echo "== aanmelden =="
 
@@ -545,7 +572,7 @@ bevat "op, eerste installatie: geen aanmeldingen" "ARGS=[]" "$UIT"
 draai behouden-fout "$(stub_aanmelden); hm() { echo 'Error: Kubernetes cluster unreachable' >&2; return 1; }; aanmeldingen_behouden"
 gelijk "op, values niet te lezen: exit 1" 1 "$CODE"
 bevat "op, values niet te lezen: zegt waarom" "cluster unreachable" "$UIT"
-draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
+draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
 demo=$(grep '^hm upgrade --install fbs-demo ' <<<"$LOG" || true)
 bevat "op: aanmeldingen vóór EXTRA_VALUES" "-f $WERKMAP/installeren-behoudt/aanmeldingen.json -f $WERKMAP/extra/fbs-demo.yaml" "$demo"
 rm -f "$WERKMAP/extra/fbs-demo.yaml"

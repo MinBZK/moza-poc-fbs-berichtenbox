@@ -500,7 +500,7 @@ for naam, *_ in klaar_legs:
     #
     # Eén tussenstap mag: een stap in dezelfde job die de lijst uit `meta` leest en er alleen
     # images in vervangt (de berichtenbox-override per preview). Welke componenten erin staan,
-    # verandert daar niet; de stap bewaakt zelf dat hij er precies één proeftuin in vindt.
+    # verandert daar niet; de stap bewaakt zelf dat hij er precies één portaal in vindt.
     bron = f"${{{{ needs.meta.outputs.componenten-{naam} }}}}"
     tussenstap = re.fullmatch(r"\$\{\{ steps\.([a-z-]+)\.outputs\.componenten \}\}", components or "")
     if tussenstap:

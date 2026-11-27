@@ -217,10 +217,10 @@ KOTLIN=(
 # allebei met een connect die het serverproces zelf accepteert. De regel legt de keuze vast; het
 # gerenderde manifest verandert er niet van.
 #
-# `proeftuin` staat hier om een andere reden: zijn /health proxyt in het proeftuin-image naar een
-# chat-backend die in dit project niet bestaat, dus een httpGet daarop faalt gegarandeerd.
+# `portaal` staat hier om een andere reden: het heeft geen health-endpoint, en elke pagina leunt op
+# het persona-cookie en op de uitvraag. Een httpGet zou dus de keten meten in plaats van het proces.
 TCP=(
-    "mpfm-w3h|test|proeftuin|tcp|8080||"
+    "mpfm-w3h|test|portaal|tcp|3000||"
     "mpfb-8wh|test|redis|tcp|6379||"
     "mpfb-8wh|fsc-logius|logius-fscpg|tcp|5432||"
     "mpfm-w3h|fsc-magazijna|magazijna-fscpg|tcp|5432||"

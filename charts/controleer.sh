@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=481
+VERWACHTE_CONTROLES=487
 MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
@@ -653,9 +653,9 @@ toets_blok() {
 }
 
 TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo" "${demo[@]}"
-# De berichtenbox op de versie uit compose.yaml, zoals de installatie hem leest.
-TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-proeftuin-uit-compose" "${demo[@]}" \
-  --set "images.proeftuin=$("$CHARTS/../.github/scripts/proeftuin-image.sh")"
+# De Berichtenbox op de versie uit compose.yaml, zoals de installatie hem leest.
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-portaal-uit-compose" "${demo[@]}" \
+  --set "images.portaal=$("$CHARTS/../.github/scripts/portaal-image.sh")"
 
 soorten=$(sed -n 's/^kind: //p' "$WERK/demo.yaml" | sort -u | paste -sd, -)
 
@@ -688,11 +688,9 @@ for map in gereedschap_van_andere_site andere_origin; do
   toets_blok "demo" "/api/demo/ weigert met \$$map" 'location /api/demo/ {' "if (\$$map) {"
 done
 toets_aantal "demo" "elke weigering is een 403" 'return 403;' 4
-toets_blok "demo" "aanmeld-webhook niet via de demo-proxy" 'location ^~ /api/v1/aanmeldingen {' 'return 404;'
-toets_bevat "demo" "HSTS van de uitvraag niet dubbel" 'proxy_hide_header Strict-Transport-Security;'
+toets_bevat "demo" "HSTS van een bestemming niet dubbel" 'proxy_hide_header Strict-Transport-Security;'
 toets_bevat "demo" "personalijst zonder wachtwoord, exact" 'location = /api/demo/personas {'
 toets_bevat "demo" "alleen over https" 'add_header Strict-Transport-Security "max-age=31536000" always;'
-toets_aantal "demo" "geen Origin naar de uitvraag" 'proxy_set_header Origin "";' 2
 toets_aantal "demo" "beheer-API van Toxiproxy alleen voor het paneel" 'client.fbs.minbzk.nl/fbs-demo-toxiproxy-beheer: "true"' 2
 toets_bevat "demo" "simulator alleen met zijn magazijnen naar buiten" 'value: "/magazijn/"'
 toets_bevat_niet "demo" "beheer van de simulator niet naar buiten" '/beheer'
@@ -700,16 +698,55 @@ toets_aantal "demo" "simulator: lezen, status en verwijderen" 'method: ' 3
 toets_bevat_niet "demo" "simulator: geen aanleveren van buiten" 'method: POST'
 toets_env "demo" "storingsknop magazijn A verborgen" TOXIPROXY_MAGAZIJN_A_URL ''
 toets_env "demo" "storingsknop magazijn B verborgen" TOXIPROXY_MAGAZIJN_B_URL ''
-for pad in /api/v1/berichten/_ophalen /api/v1/berichten/_volgen; do
+for pad in /api/keten/berichten/_ophalen /api/keten/berichten/_volgen; do
   toets_bevat "demo" "stream $pad zonder request-timeout" "value: \"$pad\""
 done
 toets_aantal "demo" "één regel zonder request-timeout" 'request: 0s' 1
 toets_bevat "demo" "uitzondering op /q alleen met reden" 'fbs.minbzk.nl/backend-zonder-q: "de demo-proxy'
-# De standaarden in het proeftuin-image wijzen naar de testomgeving op ZAD.
-toets_env "demo" "proeftuin naar de eigen uitvraag" BACKEND_KETEN 'http://berichtenuitvraag.fbs.svc.cluster.local:80'
-toets_env "demo" "proeftuin met de host van de eigen uitvraag" BACKEND_KETEN_HOST 'berichtenuitvraag.fbs.svc.cluster.local'
-toets_env "demo" "proeftuin naar de eigen personadienst" BACKEND_PERSONAS 'http://fbs-demo-personas.fbs.svc.cluster.local:8098'
-toets_env "demo" "proeftuin met de host van de eigen personadienst" BACKEND_PERSONAS_HOST 'fbs-demo-personas.fbs.svc.cluster.local'
+# Zonder deze adressen praat het portaal met de testomgeving op ZAD.
+toets_env "demo" "portaal naar de eigen uitvraag" KETEN_BACKEND_URL 'http://berichtenuitvraag.fbs.svc.cluster.local:80'
+toets_env "demo" "portaal naar de eigen personadienst" KETEN_PERSONAS_URL 'http://fbs-demo-personas.fbs.svc.cluster.local:8098'
+toets_env "demo" "portaal luistert niet op de podnaam" HOSTNAME '0.0.0.0'
+toets_env "demo" "paneel opent de Berichtenbox van het portaal" BERICHTENBOX_URL "https://demo.$DEMO_DOMEIN/berichtenbox"
+toets_bevat "demo" "portaal tekent cookies met een eigen geheim" 'name: fbs-demo-portaal'
+toets_blok "demo" "Server Actions: portaal krijgt de host van de browser" 'location / {' 'proxy_set_header X-Forwarded-Host $http_host;'
+toets_blok "demo" "ketenstream zonder buffering" 'location /api/keten/ {' 'proxy_buffering off;'
+toets_blok "demo" "ketenstream met X-Forwarded-Host" 'location /api/keten/ {' 'proxy_set_header X-Forwarded-Host $http_host;'
+toets_blok "demo" "wachtwoord van het paneel niet naar het portaal" 'location / {' 'proxy_set_header Authorization "";'
+# Geen route naar de uitvraag, in welke vorm ook: toets de bestemming in plaats van de location.
+# Elke *_pass, ook midden op een regel, gaat naar een van de drie variabelen, en die drie wijzen naar
+# portaal, console en personadienst. Commentaar eerst eraf: dat zegt niets over de route.
+vreemd=$(sed 's/#.*//' "$WERK/demo.yaml" | grep -oE '[a-z_]+_pass[[:space:]]+[^;]*;' |
+  grep -vxE 'proxy_pass \$(portaal|console|personas);' || true)
+bestemmingen=$(sed 's/#.*//' "$WERK/demo.yaml" | grep -oE 'set \$(portaal|console|personas)[[:space:]][^;]*;' | sort | tr '\n' '|')
+verwacht='set $console http://fbs-demo-console.fbs.svc.cluster.local:8095;|set $personas http://fbs-demo-personas.fbs.svc.cluster.local:8098;|set $portaal http://fbs-demo-portaal.fbs.svc.cluster.local:3000;|'
+
+if [ -z "$vreemd" ] && [ "$bestemmingen" = "$verwacht" ]; then
+  ok "demo: de proxy gaat alleen naar portaal, console en personadienst"
+else
+  fout "demo: de proxy gaat ook ergens anders heen (pass: '$vreemd'; bestemmingen: '$bestemmingen')"
+fi
+
+# Het wachtwoord van het paneel gaat nergens door. Op serverniveau precies één keer, en elk
+# location-blok met een eigen proxy_set_header herhaalt hem: zo'n regel heft de erfenis op. Een
+# location die deze awk niet kan lezen (op één regel, genest, niet gesloten) is zelf een fout: anders
+# valt juist het afwijkende blok stil buiten de controle.
+if awk '
+  { sub(/[[:space:]]*#.*/, "") }
+  /^ {8}proxy_set_header Authorization "";$/ { server++ }
+  /(^|[[:space:]])location[[:space:]]/ && !/^ {8}location [^{}]*\{$/ { print "vorm: " $0; fout = 1; next }
+  /^ {8}location / { if (in_blok) { print "niet gesloten: " naam; fout = 1 } in_blok = 1; eigen = 0; wist = 0; naam = $0; next }
+  in_blok && /^ {8}}$/ { if (eigen && !wist) { print naam; fout = 1 } in_blok = 0; next }
+  in_blok && /^ +proxy_set_header Authorization "";$/ { wist = 1 }
+  in_blok && /^ +proxy_set_header / { eigen = 1 }
+  END { if (in_blok) fout = 1; exit !(server == 1 && !fout) }' "$WERK/demo.yaml" >"$WERK/authorization.txt"; then
+  ok "demo: wachtwoord van het paneel op serverniveau en per eigen proxy_set_header gewist"
+else
+  fout "demo: wachtwoord van het paneel gaat door ($(tr '\n' ' ' <"$WERK/authorization.txt"))"
+fi
+# Op serverniveau voor console en personalijst, plus de twee locations naar het portaal die hem
+# zelf herhalen: een proxy_set_header in een location heft de erfenis op.
+toets_blok "demo" "wachtwoord van het paneel niet naar de ketenstream" 'location /api/keten/ {' 'proxy_set_header Authorization "";'
 
 TOETS_RELEASE=berichtenuitvraag toets_render "demo-uitvraag" -f "$CHART/diensten/berichtenuitvraag.yaml" \
   -f "$DEMO/stelsel/berichtenuitvraag.yaml" "${stelsel_demo[@]}"
@@ -768,8 +805,8 @@ demo_weigering "demo-zonder-tag" "images.tag is verplicht" --set images.tag=
 for t in latest main main-0123ab main-0123ABC main-0123abcd pr--0123abc pr-12-0123abc-x1; do
   demo_weigering "demo-tag-$t" "images.tag \"$t\" is geen main-<sha7>" --set "images.tag=$t"
 done
-demo_weigering "demo-proeftuin-zonder-digest" 'images.proeftuin "ghcr.io/minbzk/moza-poc:latest" staat niet op digest' \
-  --set images.proeftuin=ghcr.io/minbzk/moza-poc:latest
+demo_weigering "demo-portaal-zonder-digest" 'images.portaal "ghcr.io/minbzk/moza-portaal:main" staat niet op digest' \
+  --set images.portaal=ghcr.io/minbzk/moza-portaal:main
 demo_weigering "demo-nginx-op-tag" 'images.nginx "nginx:1.31" staat niet op digest' --set images.nginx=nginx:1.31
 demo_weigering "demo-toxiproxy-op-tag" 'images.toxiproxy "ghcr.io/shopify/toxiproxy:2.13.0" staat niet op digest' \
   --set images.toxiproxy=ghcr.io/shopify/toxiproxy:2.13.0

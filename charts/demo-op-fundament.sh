@@ -23,7 +23,7 @@
 #   BASISDOMEIN     standaard fbs.<adres-met-streepjes>.sslip.io uit het adres van de Gateway
 #   ISSUER          een Issuer in de namespace; dan maakt het script het Certificate GATEWAY_SECRET
 #   GATEWAY_SECRET  het Secret van het certificaat op de listener (web-tls)
-#   PROEFTUIN       de berichtenbox; standaard de pin uit compose.yaml
+#   PORTAAL_IMAGE   de Berichtenbox; standaard de pin uit compose.yaml
 #   GATEWAY_ADRES, HTTPS_POORT, CA_BESTAND
 #                   voor de controle als het basisdomein niet naar de Gateway wijst (de sandbox)
 #   EXTRA_VALUES    een map met <release>.yaml, als laatste values-bestand per release
@@ -39,7 +39,9 @@ source "$CHARTS/demo-op-fundament/lib.sh"
 GATEWAY=${GATEWAY:-web}
 GATEWAY_SECRET=${GATEWAY_SECRET:-web-tls}
 HTTPS_POORT=${HTTPS_POORT:-443}
-# Een persona met berichten in magazijn A én B (Garage Van Dijk B.V.).
+# Een persona met berichten in magazijn A én B (Garage Van Dijk B.V.): de id in het portaal, en
+# zijn nummer bij de keten.
+KETEN_PERSONA=${KETEN_PERSONA:-proeftuin-garage}
 KETEN_ONTVANGER=${KETEN_ONTVANGER:-KVK:90000014}
 # Hoe lang de ketencontrole het probeert: het paneel vult de magazijnen kort na het starten.
 KETEN_SECONDEN=${KETEN_SECONDEN:-300}
@@ -262,6 +264,11 @@ geheimen() {
   secret_eenmalig fbs-demo-geheimen --from-file=REDIS_PASSWORD="$WERK/redis-wachtwoord" \
     --from-file=BEHEER_TOKEN="$WERK/beheer-token"
 
+  # Eigen Secret, zodat een installatie van vóór het portaal hem er alsnog bij krijgt: een key
+  # toevoegen aan fbs-demo-geheimen doet secret_eenmalig niet.
+  (umask 077 && openssl rand -base64 32 | tr -d '\n' >"$WERK/auth-geheim")
+  secret_eenmalig fbs-demo-portaal --from-file=AUTH_SECRET="$WERK/auth-geheim"
+
   # Het wachtwoord van het paneel staat naast het htpasswd in het Secret, zodat het team het terug
   # kan lezen. Op het fieldlab kan iedereen in de organisatie dat ook; het is een demo-wachtwoord.
   if ! secret_bestaat fbs-demo-bediening; then
@@ -332,8 +339,12 @@ aanmeldingen_behouden() {
 }
 
 installeren() {
-  local proeftuin args
-  proeftuin=${PROEFTUIN:-$("$REPO/.github/scripts/proeftuin-image.sh")} || stop 2 "proeftuin-image.sh faalde"
+  local portaal args
+  # portaal-image.sh leest PORTAAL_IMAGE zelf, met dezelfde vormcontrole als voor de pin.
+  portaal=$("$REPO/.github/scripts/portaal-image.sh") || stop 2 "portaal-image.sh faalde"
+  # De chart eist een digest; zonder viel dit pas bij helm om, met een melding over de installatie.
+  [[ $portaal =~ @sha256:[0-9a-f]{64}$ ]] ||
+    stop 2 "het portaal-image '$portaal' staat niet op digest; Fundament eist dat (zet PORTAAL_IMAGE met @sha256:…)"
 
   register
   aanmeldingen_behouden
@@ -344,7 +355,7 @@ installeren() {
   mapfile -t -O "${#args[@]}" args < <(extra fbs-demo)
   hm upgrade --install fbs-demo "$CHARTS/fbs-demo" --wait --timeout 10m \
     --set "basisdomein=$BASISDOMEIN" --set "cluster.gateway.name=$GATEWAY" \
-    --set "images.tag=$TAG" --set "images.proeftuin=$proeftuin" \
+    --set "images.tag=$TAG" --set "images.portaal=$portaal" \
     --set-file "magazijnenregister=$REGISTER" --set-file "simulatorSet=$SIMULATOR_SET" "${args[@]}" >/dev/null ||
     stop 1 "installeren van fbs-demo faalde; zie: kubectl --context $KUBE_CONTEXT -n $NS get pods -l app.kubernetes.io/instance=fbs-demo"
   echo "OK: fbs-demo"
@@ -433,13 +444,18 @@ controleer_rollouts() {
 
 controleer_routes() {
   stap "via de Gateway"
-  code demo 200 "berichtenbox" "$(url demo /moza/berichtenbox/)"
+  # Zonder persona-cookie stuurt het portaal naar de persona-keuze.
+  code demo 307 "Berichtenbox van het portaal" "$(url demo /berichtenbox)"
   code demo 200 "personalijst zonder wachtwoord" "$(url demo /api/demo/personas)"
   code demo 401 "paneel vraagt een wachtwoord" "$(url demo /bediening/)"
   code demo 401 "legen vraagt een wachtwoord" -X POST "$(url demo /api/demo/legen)"
   code demo 403 "paneel weigert een andere site" -H 'Sec-Fetch-Site: cross-site' "$(url demo /bediening/)"
   code demo 403 "gereedschap weigert een andere origin" -X POST -H 'Origin: https://elders.example' "$(url demo /api/demo/legen)"
-  code demo 404 "aanmeld-webhook niet via de berichtenbox" -X POST "$(url demo /api/v1/aanmeldingen)"
+  # De demo-proxy heeft geen route naar de uitvraag; het portaal kent dit pad niet.
+  code demo 404 "aanmeld-webhook niet via de Berichtenbox" -X POST "$(url demo /api/v1/aanmeldingen)"
+  # De doorgifte van het portaal laat alleen de paden van de Berichtenbox door; een nieuwe versie die
+  # ruimer doorgeeft, zou de webhook (zonder sessie) alsnog bereikbaar maken.
+  code demo 404 "aanmeld-webhook niet via de ketenroute van het portaal" -X POST "$(url demo /api/keten/aanmeldingen)"
 
   # Met het wachtwoord uit het Secret, als header-bestand: een argument van curl is via ps zichtbaar.
   local wachtwoord
@@ -465,24 +481,25 @@ controleer_routes() {
   code stelselregister 200 "stelselregister: het stelseldocument" "$(url stelselregister /api/v1/stelseldocument)"
 }
 
-# De keten zoals een bezoeker hem ziet: een sessie, en ophaalrondes tot magazijn A en B berichten
-# leveren. Eén sessie voor alle pogingen, en die wordt beëindigd: de uitvraag staat maar vijf
-# sessies per ontvanger toe, en een achtergebleven sessie houdt een bezoeker met deze persona buiten.
+# De keten zoals een bezoeker hem ziet, via het portaal: een sessie, en ophaalrondes tot magazijn A
+# en B berichten leveren. Eén sessie voor alle pogingen, en die wordt beëindigd: de uitvraag staat
+# maar vijf sessies per ontvanger toe, en een achtergebleven sessie houdt een bezoeker met deze
+# persona buiten.
 controleer_keten() {
-  stap "keten: ophaalronde voor $KETEN_ONTVANGER"
-  local antwoord sessie code_sessie status curl_code reden="" einde=$((SECONDS + KETEN_SECONDEN))
+  stap "keten: ophaalronde voor $KETEN_PERSONA via het portaal"
+  local sessie code_sessie status curl_code reden="" einde=$((SECONDS + KETEN_SECONDEN))
 
-  antwoord=$(gw_curl demo -X POST -w '\n%{http_code}' -H "X-Ontvanger: $KETEN_ONTVANGER" \
-    "$(url demo /api/v1/sessies)" 2>"$WERK/curl.err" || true)
-  code_sessie=${antwoord##*$'\n'}
+  : >"$WERK/sessie.kop"
+  code_sessie=$(gw_curl demo -X POST -o /dev/null -D "$WERK/sessie.kop" -w '%{http_code}' \
+    -H "Cookie: personaId=$KETEN_PERSONA" "$(url demo /api/keten/sessies)" 2>"$WERK/curl.err" || true)
 
-  if ! sessie=$(sessie_uit_antwoord "${antwoord%$'\n'*}"); then
-    fout "geen sessie: POST /api/v1/sessies gaf $code_sessie; $(jq -r '.detail? // empty' <<<"${antwoord%$'\n'*}" 2>/dev/null) $(tail -1 "$WERK/curl.err")"
+  if [ "$code_sessie" != 201 ] || ! sessie=$(sessie_cookie_uit_kop "$WERK/sessie.kop"); then
+    fout "geen sessie: POST /api/keten/sessies gaf $code_sessie$([ "$code_sessie" != 201 ] || echo ' zonder sessie-cookie'); $(tail -1 "$WERK/curl.err")"
     return
   fi
 
-  # Het sessie-id via een header-bestand: een argument van curl is via ps zichtbaar.
-  printf 'X-Sessie: %s\n' "$sessie" >"$WERK/sessie.hdr"
+  # Het sessie-cookie via een header-bestand: een argument van curl is via ps zichtbaar.
+  printf 'Cookie: personaId=%s; %s\n' "$KETEN_PERSONA" "$sessie" >"$WERK/sessie.hdr"
   SESSIE_OPEN=1
 
   while :; do
@@ -490,8 +507,8 @@ controleer_keten() {
     # anders nog de body van de vorige ronde.
     : >"$WERK/ophalen.sse"
     curl_code=0
-    status=$(gw_curl demo --max-time 120 -o "$WERK/ophalen.sse" -w '%{http_code}' -H "X-Ontvanger: $KETEN_ONTVANGER" \
-      -H @"$WERK/sessie.hdr" -H 'Accept: text/event-stream' "$(url demo /api/v1/berichten/_ophalen)" \
+    status=$(gw_curl demo --max-time 120 -o "$WERK/ophalen.sse" -w '%{http_code}' \
+      -H @"$WERK/sessie.hdr" -H 'Accept: text/event-stream' "$(url demo /api/keten/berichten/_ophalen)" \
       2>"$WERK/curl.err") || curl_code=$?
 
     if [ "$status" = 200 ] && reden=$(keten_oordeel "$(cat "$WERK/ophalen.sse")"); then
@@ -521,8 +538,8 @@ controleer_keten() {
 # $1 = stil: bij het opruimen, kort en zonder fout te tellen.
 sessie_beeindigen() {
   local status
-  status=$(gw_curl demo -o /dev/null -w '%{http_code}' ${1:+--max-time 10} -X DELETE -H "X-Ontvanger: $KETEN_ONTVANGER" \
-    -H @"$WERK/sessie.hdr" "$(url demo /api/v1/sessies/huidige)" 2>"$WERK/curl.err" || true)
+  status=$(gw_curl demo -o /dev/null -w '%{http_code}' ${1:+--max-time 10} -X DELETE \
+    -H @"$WERK/sessie.hdr" "$(url demo /api/keten/sessies/huidige)" 2>"$WERK/curl.err" || true)
   [ -z "${1:-}" ] || return 0
   [ "$status" = 204 ] || fout "de sessie van de controle is niet beëindigd: DELETE gaf $status; $(tail -1 "$WERK/curl.err")"
 }
@@ -535,7 +552,7 @@ controleer() {
   stap "uitkomst"
 
   if [ "$fouten" -eq 0 ]; then
-    echo "OK: de demo draait op $(url demo /moza/berichtenbox/)"
+    echo "OK: de demo draait op $(url demo /berichtenbox)"
     echo "    paneel: $(url demo /bediening/) (gebruiker demo; wachtwoord:"
     echo "    kubectl --context $KUBE_CONTEXT -n $NS get secret fbs-demo-bediening -o jsonpath='{.data.wachtwoord}' | base64 -d)"
     return 0

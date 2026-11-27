@@ -1,8 +1,8 @@
 # De demo op Fundament
 
 `fbs-demo` installeert de demo van het Federatief Berichtenstelsel op een cluster met Gateway API,
-zoals Fundament: de berichtenbox van de proeftuin, het bedieningspaneel, de demo-identiteiten, de
-magazijn-simulator, de stubs, Toxiproxy en Redis. Samen met vier releases van
+zoals Fundament: de Berichtenbox van het MOZa-portaal, het bedieningspaneel, de demo-identiteiten,
+de magazijn-simulator, de stubs, Toxiproxy en Redis. Samen met vier releases van
 [`fbs-dienst`](../README.md) (uitvraag, magazijn A en B, stelselregister) is dat dezelfde demo als
 op de testomgeving. **Alleen voor demo's, met demo-gegevens. Het draait nooit in productie.**
 
@@ -23,11 +23,17 @@ onder één origin, zoals lokaal in `compose.yaml`:
 
 | Pad op `demo.<basisdomein>` | Naar | Wachtwoord |
 |---|---|---|
-| `/moza/berichtenbox/` en de rest van `/` | de berichtenbox van de proeftuin | nee |
+| `/berichtenbox` en de rest van `/` | het portaal (Next.js) met de Berichtenbox | nee |
+| `/api/keten/` | het portaal, dat de keten server-side aanroept; ophalen en volgen als SSE-stream | nee |
 | `/bediening/` | het bedieningspaneel | ja |
-| `/api/demo/personas` | de demo-identiteiten (de berichtenbox kiest er een testaccount mee) | nee |
+| `/api/demo/personas` | de demo-identiteiten, als leeslijst | nee |
 | de rest van `/api/demo/` | het gereedschap van het paneel: storingen, vullen, legen | ja |
-| `/api/v1/`, behalve `/api/v1/aanmeldingen` | de uitvraag | nee |
+
+De demo-proxy heeft geen route naar de uitvraag. Het portaal spreekt haar binnen het cluster aan
+(`KETEN_BACKEND_URL`), net als de personadienst (`KETEN_PERSONAS_URL`), en zet zelf `X-Ontvanger`
+uit het persona-cookie. Het stuurt daarbij geen `Origin`, dus de uitvraag heeft geen CORS nodig.
+Next.js toetst bij een Server Action de `Origin` van de browser aan `X-Forwarded-Host`; de
+demo-proxy zet die header daarom op `/` en `/api/keten/`.
 
 De andere routes zijn er omdat de diensten elkaar over https aanroepen. Buiten het profiel `dev`
 eisen ze dat. Het magazijn eist daarnaast een publiek adres:
@@ -129,6 +135,11 @@ voor dit cluster bestaan, en zet er alleen demo-gegevens achter.
    kubectl -n $NS create secret generic fbs-demo-geheimen \
      --from-file=REDIS_PASSWORD="$D/redis-wachtwoord" --from-file=BEHEER_TOKEN="$D/beheer-token"
 
+   # next-auth ondertekent er de cookies van het portaal mee. Eén keer aanmaken: een nieuw geheim
+   # logt iedereen met een open Berichtenbox uit.
+   openssl rand -base64 32 | tr -d '\n' >"$D/auth-geheim"
+   kubectl -n $NS create secret generic fbs-demo-portaal --from-file=AUTH_SECRET="$D/auth-geheim"
+
    # Het bedieningspaneel staat op een publiek adres: een lang, willekeurig wachtwoord.
    openssl rand -base64 24 | tr -d '\n' >"$D/paneel-wachtwoord"
    printf 'demo:%s\n' "$(openssl passwd -6 -stdin <"$D/paneel-wachtwoord")" >"$D/htpasswd"
@@ -178,15 +189,17 @@ halverwege stuurt niets naar een ander cluster.
 `controleer` eist:
 - **elke Deployment** van de demo aanwezig en gereed, bij naam;
 - **via de Gateway:**
-  - berichtenbox, personalijst, OpenAPI-documenten en het stelseldocument bereikbaar;
+  - de Berichtenbox (zonder persona een 307 naar de persona-keuze), personalijst,
+    OpenAPI-documenten en het stelseldocument bereikbaar;
   - paneel en gereedschap met wachtwoord, en het paneel mét het wachtwoord uit het Secret. Een
     Secret dat je met de hand maakte (stap 4) heeft dat wachtwoord niet; `controleer` meldt dat als
     fout;
   - een verzoek van een andere site of origin geweigerd;
   - de simulator bereikbaar;
   - aanleveren, de aanmeld-webhook, `/q` en het beheer van de simulator niet van buiten;
-- **de keten:**
-  - een sessie voor Garage Van Dijk B.V. (`KETEN_ONTVANGER`);
+- **de keten, via het portaal zoals de Berichtenbox hem gebruikt:**
+  - een sessie voor Garage Van Dijk B.V. (persona `KETEN_PERSONA`, standaard `proeftuin-garage`),
+    met het sessie-cookie dat het portaal zet;
   - ophaalrondes tot magazijn A én B tijdens de ronde melden dat ze klaar zijn en berichten
     leverden;
   - het paneel vult de magazijnen kort na het starten, dus de controle probeert het tot vijf
@@ -252,14 +265,14 @@ een ConfigMap van `fbs-demo`. Installeer de demo onder de releasenaam `fbs-demo`
 NS=tnt-fbs--demo                     # de namespace uit de console
 BASIS=fbs.1-2-3-4.sslip.io           # het basisdomein uit stap 2
 TAG=main-<sha7>                      # zie hieronder
-PROEFTUIN=$(.github/scripts/proeftuin-image.sh)
+PORTAAL=$(.github/scripts/portaal-image.sh)   # zie "De Berichtenbox" hieronder
 
 # Het register en de set van de simulator. Het aantal (98) past bij de profiel-stubs in het image.
 SIMULATOR_URL='${MAGAZIJN_SIMULATOR_URL}' python3 demo/genereer-magazijnen.py
 
 helm upgrade --install fbs-demo charts/fbs-demo --namespace $NS \
   --set basisdomein=$BASIS --set cluster.gateway.name=web \
-  --set images.tag=$TAG --set images.proeftuin=$PROEFTUIN \
+  --set images.tag=$TAG --set images.portaal=$PORTAAL \
   --set-file magazijnenregister=demo/generated/magazijnen-register.properties \
   --set-file simulatorSet=demo/generated/magazijn-simulator.properties
 
@@ -302,12 +315,15 @@ for i in berichtenuitvraag berichtenmagazijn stelselregister demo-console demo-p
 done
 ```
 
-**De berichtenbox** draait de versie die in `compose.yaml` is gepind, dezelfde als de rest van de
-demo. `.github/scripts/proeftuin-image.sh` leest die regel. De chart weigert een referentie zonder
-digest.
+**De Berichtenbox** draait de versie van het portaal die in `compose.yaml` is gepind (de regel van
+de dienst `portaal`), dezelfde als de lokale demo en ZAD. `.github/scripts/portaal-image.sh` leest
+die regel; `PORTAAL_IMAGE` overschrijft hem voor één aanroep, ook in `charts/demo-op-fundament.sh`.
+De chart weigert een referentie zonder digest. Het portaal heeft daarnaast het Secret
+`fbs-demo-portaal` uit stap 4 nodig.
 
 Na de installatie:
-- de berichtenbox op `https://demo.<basisdomein>/moza/berichtenbox/`;
+- de Berichtenbox op `https://demo.<basisdomein>/berichtenbox`. Zonder persona-cookie stuurt het
+  portaal eerst naar de persona-keuze;
 - het paneel op `https://demo.<basisdomein>/bediening/`, met gebruiker `demo` en het wachtwoord uit
   stap 4.
 
@@ -344,12 +360,15 @@ De Redis-knop kondigt zich niet aan in Mattermost: dat hoort bij de bewaakte tes
 
 De Gateway krijgt op het fieldlab een publiek adres. Daarachter staat:
 - **zonder wachtwoord:**
-  - de berichtenbox, de personalijst, de uitvraag, de stubs en het stelseldocument;
+  - het portaal met de Berichtenbox en zijn `/api/keten/`, de personalijst, de stubs en het
+    stelseldocument;
   - bij de magazijnen en de simulator: berichten lezen, de status wijzigen en verwijderen.
 
-  Zoals op ZAD: de API's authenticeren hun aanroepers niet. Wie de uitvraag bereikt, leest en
-  wijzigt met elk demo-nummer in `X-Ontvanger` de berichten van die persona. Zet er daarom alleen
-  demo-gegevens achter. Aanleveren kan alleen binnen het cluster, via het paneel;
+  Zoals op ZAD: de API's authenticeren hun aanroepers niet. De uitvraag heeft hier, op de
+  aanmelding na, geen route van buiten, maar het portaal kiest de ontvanger uit een persona-cookie
+  dat niet ondertekend is. Wie de demo bereikt, kiest dus elke persona en kan met haar berichten
+  alles wat de Berichtenbox kan. Zet er daarom alleen demo-gegevens achter. Aanleveren kan alleen
+  binnen het cluster, via het paneel;
 - **de aanmelding** (`aanmelding.<basisdomein>`): de webhook waarmee een magazijn een nieuw
   bericht meldt. Hij moet publiek bereikbaar zijn, want het magazijn eist een publiek adres. Wie
   hem kent, zet een bericht in de sessiecache van een persona die net heeft opgehaald, met een

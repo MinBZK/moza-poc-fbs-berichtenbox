@@ -14,7 +14,7 @@ STELSEL_RELEASES=(berichtenuitvraag berichtenmagazijn-a berichtenmagazijn-b stel
 # release. De rollout-controle eist ze allemaal, zodat een ontbrekende niet als "niets te meten"
 # leest.
 # shellcheck disable=SC2034 # idem
-DEMO_DEPLOYMENTS=(fbs-demo-console fbs-demo-demo-proxy fbs-demo-notificatie fbs-demo-personas fbs-demo-proeftuin
+DEMO_DEPLOYMENTS=(fbs-demo-console fbs-demo-demo-proxy fbs-demo-notificatie fbs-demo-personas fbs-demo-portaal
   fbs-demo-profiel fbs-demo-redis fbs-demo-simulator fbs-demo-toxiproxy)
 
 # De images die de keten per commit publiceert; de demo draait ze allemaal op dezelfde tag.
@@ -102,12 +102,20 @@ EOF
   fi
 }
 
-# De sessie uit het antwoord op POST /api/v1/sessies.
-sessie_uit_antwoord() {
-  jq -er '.sessieId | select(type == "string" and length > 0)' <<<"$1" 2>/dev/null || return 1
+# Het sessie-cookie (`keten-sessie=<waarde>`) uit de headers van POST /api/keten/sessies van het
+# portaal. Een leeg cookie wist de sessie juist, en telt dus niet. Staat hij er twee keer, dan wint
+# de laatste, zoals in een browser.
+sessie_cookie_uit_kop() {
+  local cookie
+
+  cookie=$(tr -d '\r' <"$1" 2>/dev/null | sed -n 's/^[Ss]et-[Cc]ookie: *\(keten-sessie=[^;]*\).*/\1/p' | tail -1)
+  case "$cookie" in
+    "" | "keten-sessie=" | 'keten-sessie=""') return 1 ;;
+  esac
+  printf '%s' "$cookie"
 }
 
-# Het oordeel over een ophaalronde, uit de SSE-stream van GET /api/v1/berichten/_ophalen: magazijn
+# Het oordeel over een ophaalronde, uit de SSE-stream van GET /api/keten/berichten/_ophalen: magazijn
 # A én B melden `magazijn-bevraging-voltooid` met status OK en berichten. Een lijst van berichten
 # zegt dat niet: daarin staan ook de gesimuleerde magazijnen, en een organisatie die niet leverde
 # staat er ook in (nietGeleverd). Zonder oordeel "in orde" print het de reden.

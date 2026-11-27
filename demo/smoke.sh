@@ -12,10 +12,12 @@
 # is meegegenereerd of een uitvraag die nog met het oude register draait, geeft gewoon een kleinere
 # lijst.
 #
-# Stap 6 haalt de bijlage van het bericht bij magazijn A op zoals de berichtenbox dat doet: via de
-# demo-proxy, met het adres uit `_links.self` en de ontvanger alleen in het cookie. Een <a href>
-# stuurt geen header mee, dus de proxy moet hem uit dat cookie maken. Rechtstreeks bij de uitvraag
-# is dat niet te zien.
+# Stap 6 haalt de bijlage van het bericht bij magazijn A rechtstreeks bij de uitvraag op, via het
+# adres uit `_links.self`, met `X-Ontvanger` en `X-Sessie`.
+#
+# Stap 7 vraagt de Berichtenbox van het portaal op via de demo-proxy, zoals een browser dat doet:
+# alleen met het persona-cookie. Het portaal zet de ontvanger er zelf bij. Zo blijkt of de route van
+# proxy via portaal naar de uitvraag loopt, en of het portaal de persona in de personadienst vindt.
 #
 # Vereist een draaiende stack:  docker compose --profile demo up -d
 set -euo pipefail
@@ -24,6 +26,8 @@ MAGAZIJN_A="${MAGAZIJN_A:-http://localhost:8090}"
 MAGAZIJN_B="${MAGAZIJN_B:-http://localhost:8091}"
 UITVRAAG="${UITVRAAG:-http://localhost:8086}"
 DEMO_PROXY="${DEMO_PROXY:-http://localhost:8097}"
+# Een persona die het portaal en de personadienst allebei als aangesloten op de keten kennen.
+PORTAAL_PERSONA="${PORTAAL_PERSONA:-proeftuin-een}"
 BSN="${BSN:-999993653}"
 ONTVANGER="BSN:$BSN"
 
@@ -34,7 +38,7 @@ ONTVANGER="BSN:$BSN"
 AFZENDER_OIN_A="${AFZENDER_OIN_A:-00000000000000100000}"
 AFZENDER_OIN_B="${AFZENDER_OIN_B:-00000001823288444000}"
 
-echo "1/6 health"
+echo "1/7 health"
 for url in "$MAGAZIJN_A" "$MAGAZIJN_B" "$UITVRAAG"; do
     curl -sf "$url/q/health/ready" > /dev/null \
         || { echo "FOUT: $url niet gezond"; exit 1; }
@@ -103,11 +107,11 @@ pdf_met_tekst() {
 bijlage_tekst="Rookproef-bijlage $stempel"
 bijlage_a="[{\"naam\": \"rookproef.pdf\", \"mimeType\": \"application/pdf\", \"inhoud\": \"$(pdf_met_tekst "$bijlage_tekst" | base64 | tr -d '\n')\"}]"
 
-echo "2/6 bericht aanleveren bij magazijn A, met een bijlage"
+echo "2/7 bericht aanleveren bij magazijn A, met een bijlage"
 lever_aan A "$MAGAZIJN_A" "$AFZENDER_OIN_A" "$onderwerp_a" "$bijlage_a"
 bericht_a="$toegekend"
 
-echo "3/6 bericht aanleveren bij magazijn B"
+echo "3/7 bericht aanleveren bij magazijn B"
 lever_aan B "$MAGAZIJN_B" "$AFZENDER_OIN_B" "$onderwerp_b"
 
 # Elke /berichten-aanroep eist een sessie (X-Sessie). Het id gaat nooit in een URL of in de uitvoer.
@@ -124,7 +128,7 @@ beeindig_sessie() {
         || { echo "FOUT: sessie beëindigen voor $1 mislukte"; exit 1; }
 }
 
-echo "4/6 ophalen via uitvraag"
+echo "4/7 ophalen via uitvraag"
 SESSIE=$(start_sessie "$ONTVANGER") || exit 1
 [ -n "$SESSIE" ] || { echo "FOUT: de uitvraag gaf geen sessieId terug"; exit 1; }
 # De sessiecache vult zich pas na een ophaal-ronde; GET /berichten leest alleen de cache.
@@ -160,8 +164,8 @@ done
 # Een berichtenbox leest deze velden rechtstreeks uit de stroom. De spec beschrijft ze, maar dat
 # is een belofte op papier: deze controle bewijst dat een draaiende keten ze ook werkelijk stuurt.
 # Zonder haar valt een hernoeming pas op in de browser, waar de voortgang stilletjes stopt in
-# plaats van een fout te tonen. De hele lijst van de spec en niet alleen wat de proeftuin nu
-# leest: het portaal dat hem opvolgt, kan elk van deze velden gaan gebruiken.
+# plaats van een fout te tonen. De hele lijst van de spec en niet alleen wat het portaal nu leest:
+# het kan elk van deze velden gaan gebruiken.
 for veld in '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-gestart"' \
     '"event"[[:space:]]*:[[:space:]]*"magazijn-bevraging-voltooid"' \
     '"event"[[:space:]]*:[[:space:]]*"ophalen-gereed"' \
@@ -180,7 +184,7 @@ for onderwerp in "$onderwerp_a" "$onderwerp_b"; do
 done
 
 # De sessie van $ONTVANGER blijft lopen tot na stap 6: die leest het bericht van stap 2 opnieuw.
-echo "5/6 fan-out van de ondernemers"
+echo "5/7 fan-out van de ondernemers"
 
 # De ondernemers halen op bij 3, 15, 45 en 100 organisaties; de kleinere zitten volledig in de
 # grotere. Dat is de hele reden dat de simulator bestaat, en het is precies het soort ding dat stil
@@ -218,22 +222,23 @@ fanout "KVK:90000001"  45  "grootbedrijf"
 fanout "KVK:90000003"  100 "landelijk concern"
 fanout "KVK:90000015"  100 "mappen-demo"
 
-echo "6/6 bijlage via de demo-proxy, met de ontvanger en de sessie alleen in cookies"
+echo "6/7 bijlage via het adres uit het detail"
 # Elke curl en grep hier met `|| true`: onder `set -e` stopt een verbindingsfout of een lege grep
 # het script anders zonder melding, en dan komt de FOUT-regel met de oorzaak nooit op het scherm.
-# Een onbereikbare proxy meldt zich zo als HTTP 000.
+# Een onbereikbare dienst meldt zich zo als HTTP 000.
 detail=/tmp/smoke-detail-a.json
 rm -f "$detail"
 status=$(curl -s --max-time 10 -o "$detail" -w '%{http_code}' \
-    "$DEMO_PROXY/api/v1/berichten/$bericht_a?magazijnId=$AFZENDER_OIN_A" \
+    "$UITVRAAG/api/v1/berichten/$bericht_a?magazijnId=$AFZENDER_OIN_A" \
     -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" || true)
 
 if [[ "$status" != "200" ]]; then
-    echo "FOUT: het detail van het bericht bij magazijn A via de demo-proxy gaf HTTP $status (verwacht 200):"
+    echo "FOUT: het detail van het bericht bij magazijn A gaf HTTP $status (verwacht 200):"
     cat "$detail" 2>/dev/null || true
     exit 1
 fi
 
+# Het adres is relatief aan de origin van de uitvraag en begint met /api/v1/.
 bijlage_adres=$(grep -o '"href"[[:space:]]*:[[:space:]]*"[^"]*/bijlagen/[^"]*"' "$detail" \
     | head -1 | sed 's/.*"\([^"]*\)"$/\1/' || true)
 
@@ -245,15 +250,114 @@ fi
 
 bijlage=/tmp/smoke-bijlage-a.pdf
 rm -f "$bijlage"
-status=$(curl -s --max-time 10 -o "$bijlage" -w '%{http_code}' "$DEMO_PROXY$bijlage_adres" \
-    -H "Cookie: ontvanger=$ONTVANGER; sessie=$SESSIE" || true)
+status=$(curl -s --max-time 10 -o "$bijlage" -w '%{http_code}' "$UITVRAAG$bijlage_adres" \
+    -H "X-Ontvanger: $ONTVANGER" -H "X-Sessie: $SESSIE" || true)
 
 if [[ "$status" != "200" ]] || ! grep -qF "$bijlage_tekst" "$bijlage" 2>/dev/null; then
-    echo "FOUT: de bijlage via de demo-proxy gaf HTTP $status (verwacht 200 met de aangeleverde tekst):"
+    echo "FOUT: de bijlage gaf HTTP $status (verwacht 200 met de aangeleverde tekst):"
     cat "$bijlage" 2>/dev/null || true
     exit 1
 fi
 
 beeindig_sessie "$ONTVANGER" "$SESSIE"
 
-echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, en een bijlage komt via de demo-proxy binnen"
+echo "7/7 de Berichtenbox van het portaal via de demo-proxy (persona $PORTAAL_PERSONA)"
+pagina=/tmp/smoke-portaal-berichtenbox.html
+rm -f "$pagina"
+status=$(curl -s --max-time 30 -o "$pagina" -w '%{http_code}' \
+    "$DEMO_PROXY/berichtenbox" -H "Cookie: personaId=$PORTAAL_PERSONA" || true)
+
+if [[ "$status" != "200" ]]; then
+    echo "FOUT: de Berichtenbox van het portaal via de demo-proxy gaf HTTP $status (verwacht 200)"
+    exit 1
+fi
+
+# Ook een 200 als het portaal de personadienst niet bereikt of de persona daar niet vindt: dan
+# toont de pagina een melding in plaats van een lijst. De zinnen komen uit het portaal
+# (berichtenbox/_lijstPagina.tsx in moza-portaal).
+if grep -qF 'Dat stelsel is nu niet bereikbaar' "$pagina" 2>/dev/null; then
+    echo "FOUT: het portaal bereikt de personadienst niet (KETEN_PERSONAS_URL)"
+    exit 1
+fi
+
+if grep -qF 'niet bekend bij het Federatief Berichtenstelsel' "$pagina" 2>/dev/null; then
+    echo "FOUT: de personadienst kent persona $PORTAAL_PERSONA niet als aangesloten op de keten"
+    exit 1
+fi
+
+# De twee zinnen hierboven geven een duidelijke melding, maar vallen stil weg als het portaal ze
+# herschrijft. Deze controle faalt dicht: alleen voor een persona met een lijst uit de keten geeft
+# de server de ontvanger mee aan de pagina, en die staat dan in de payload.
+if ! grep -qF '\"ontvanger\":\"KVK:' "$pagina" 2>/dev/null; then
+    echo "FOUT: de Berichtenbox toont geen lijst uit de keten voor persona $PORTAAL_PERSONA"
+    exit 1
+fi
+
+# Daarna de keten zoals de Berichtenbox hem gebruikt: een sessie starten via het portaal, de lijst
+# lezen met het sessie-cookie dat het portaal zet, en de sessie weer beëindigen. Het cookie uit de
+# headers en niet uit een cookie-jar: het portaal zet het met `Secure`, en dan stuurt curl het over
+# gewone HTTP niet terug. Het gaat via een header-bestand mee, niet als argument: dat is via ps te
+# lezen.
+werk=$(mktemp -d)
+keten=$werk/keten.json
+kop=$werk/kop.txt
+hdr=$werk/sessie.hdr
+
+# Ook bij een fout halverwege de sessie beëindigen: de uitvraag staat er vijf per ontvanger toe, en
+# een achtergebleven sessie houdt de cache van deze persona in leven.
+ruim_sessie_op() {
+    if [[ -s "$hdr" ]]; then
+        curl -s --max-time 10 -o /dev/null -X DELETE "$DEMO_PROXY/api/keten/sessies/huidige" -H @"$hdr" || true
+    fi
+
+    rm -rf "$werk"
+}
+trap ruim_sessie_op EXIT
+
+status=$(curl -s --max-time 30 -o "$keten" -D "$kop" -w '%{http_code}' -X POST \
+    "$DEMO_PROXY/api/keten/sessies" -H "Cookie: personaId=$PORTAAL_PERSONA" || true)
+
+if [[ "$status" != "201" ]]; then
+    echo "FOUT: een sessie starten via het portaal gaf HTTP $status (verwacht 201):"
+    cat "$keten" 2>/dev/null || true
+    exit 1
+fi
+
+# Dezelfde vorm als sessie_cookie_uit_kop in charts/demo-op-fundament/lib.sh: de laatste telt, en
+# een lege waarde wist de sessie juist.
+sessie_cookie=$(tr -d '\r' < "$kop" | sed -n 's/^[Ss]et-[Cc]ookie: *\(keten-sessie=[^;]*\).*/\1/p' | tail -1)
+
+case "$sessie_cookie" in
+    "" | "keten-sessie=" | 'keten-sessie=""')
+        echo "FOUT: het portaal startte een sessie maar zette geen sessie-cookie"
+        exit 1
+        ;;
+esac
+
+(umask 077 && printf 'Cookie: personaId=%s; %s\n' "$PORTAAL_PERSONA" "$sessie_cookie" > "$hdr")
+
+status=$(curl -s --max-time 10 -o "$keten" -w '%{http_code}' \
+    "$DEMO_PROXY/api/keten/berichten" -H @"$hdr" || true)
+
+# 200 is een lijst, 409 zegt dat er nog geen ophaalronde was: allebei antwoorden van de uitvraag.
+case "$status" in
+    200|409) ;;
+    *)
+        echo "FOUT: de keten via het portaal gaf HTTP $status (verwacht 200 of 409):"
+        cat "$keten" 2>/dev/null || true
+        exit 1
+        ;;
+esac
+
+status=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -X DELETE \
+    "$DEMO_PROXY/api/keten/sessies/huidige" -H @"$hdr" || true)
+
+if [[ "$status" != "204" ]]; then
+    echo "FOUT: de sessie beëindigen via het portaal gaf HTTP $status (verwacht 204)"
+    exit 1
+fi
+
+# Beëindigd: niet nog eens bij het afsluiten.
+: > "$hdr"
+
+echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, een bijlage komt binnen via zijn eigen adres, en het portaal bereikt de keten via de demo-proxy"

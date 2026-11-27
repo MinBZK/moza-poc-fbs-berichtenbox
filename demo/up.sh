@@ -20,9 +20,9 @@
 # De modus van de laatste start staat in demo/generated/.modus; `down`, `ps` en `compose` lezen
 # hem terug, zodat geen vervolgcommando met minder compose-bestanden de stack half omzet.
 #
-# DEMO_HOST is het adres waarop je de demo benadert (voor de CORS-allowlist van de uitvraag);
-# default localhost. De poorten zelf blijven op loopback — zie DEMO_BIND in compose.yaml, en de
-# toelichting bij de laatste controle onderaan dit script.
+# DEMO_HOST is het adres waaronder het stelseldocument de magazijnen noemt; default localhost. Het
+# verandert geen bind: op dat adres zijn ze pas bereikbaar met DEMO_BIND=0.0.0.0 (zie compose.yaml
+# en de toelichting bij de laatste controle onderaan dit script).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -100,15 +100,15 @@ else
     modus_teruglezen "$MODUS_BESTAND" demo/up.sh docker bridge hostnet
 fi
 
-# De proeftuin-versie bepaalt de set compose-bestanden net zo goed als de modus. Zonder vastleggen
-# zou een vervolgcommando in een nieuwe shell de berichtenbox stil terugzetten op de gepinde versie.
+# De portaalversie bepaalt de set compose-bestanden net zo goed als de modus. Zonder vastleggen
+# zou een vervolgcommando in een nieuwe shell de Berichtenbox stil terugzetten op de gepinde versie.
 # Een expliciet gezette variabele wint en wordt het nieuwe vastgelegde punt; `down` wist hem.
-PROEFTUIN_IMAGE="${PROEFTUIN_IMAGE:-$(modus_instelling "$MODUS_BESTAND" PROEFTUIN_IMAGE)}"
+PORTAAL_IMAGE="${PORTAAL_IMAGE:-$(modus_instelling "$MODUS_BESTAND" PORTAAL_IMAGE)}"
 INSTELLINGEN=()
 
-if [ -n "$PROEFTUIN_IMAGE" ]; then
-    export PROEFTUIN_IMAGE
-    INSTELLINGEN+=("PROEFTUIN_IMAGE=$PROEFTUIN_IMAGE")
+if [ -n "$PORTAAL_IMAGE" ]; then
+    export PORTAAL_IMAGE
+    INSTELLINGEN+=("PORTAAL_IMAGE=$PORTAAL_IMAGE")
 fi
 
 if [ "$COMMANDO" != "up" ] && [ "$COMMANDO" != "down" ] && [ -s "$MODUS_BESTAND" ]; then
@@ -122,14 +122,13 @@ case "$MODUS" in
     hostnet) C+=(-f compose.podman.yaml -f compose.podman-hostnet.yaml) ;;
 esac
 
-# Dezelfde variabele als de deploy leest, zodat lokaal en ZAD op één naam te sturen zijn. De
-# overlay alleen meegeven wanneer hij gezet is: hij draagt `:?` en zou een gewone start anders
-# afbreken met de vraag om een waarde.
-if [ -n "$PROEFTUIN_IMAGE" ]; then
-    C+=(-f compose.proeftuin-versie.yaml)
+# De overlay alleen meegeven wanneer de variabele gezet is: hij draagt `:?` en zou een gewone start
+# anders afbreken met de vraag om een waarde.
+if [ -n "$PORTAAL_IMAGE" ]; then
+    C+=(-f compose.portaal-versie.yaml)
 
     if [ "$COMMANDO" = "up" ]; then
-        echo "[1/4] berichtenbox: $PROEFTUIN_IMAGE (PROEFTUIN_IMAGE overschrijft de pin)"
+        echo "[1/4] berichtenbox: $PORTAAL_IMAGE (PORTAAL_IMAGE overschrijft de pin)"
     fi
 fi
 
@@ -266,7 +265,7 @@ wacht_op() {
 INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
-          demo-personas stelselregister proeftuin demo-proxy)
+          demo-personas stelselregister portaal demo-proxy)
 
 # Vóór de eerste container: ook een start die halverwege faalt, moet met `down` op te ruimen zijn.
 mkdir -p "$(dirname "$MODUS_BESTAND")"
@@ -346,11 +345,11 @@ vereis_draaiend "${INFRA[@]}"
 
 echo "[4/4] services starten en afwachten"
 "${C[@]}" up -d "${SERVICES[@]}"
-# De proeftuin en de demo-proxy zijn nginx, en nginx zoekt de adressen van zijn bestemmingen één
-# keer op, bij het starten. Draaiden ze al terwijl `up` de diensten erachter opnieuw startte, dan
-# kregen die in bridge een nieuw IP en stuurt nginx nog naar het oude: elke aanroep loopt dan in
-# een timeout. Een herstart laat ze opnieuw opzoeken.
-"${C[@]}" restart proeftuin demo-proxy
+# De demo-proxy is nginx, en nginx zoekt de adressen van zijn bestemmingen één keer op, bij het
+# starten. Draaide hij al terwijl `up` de diensten erachter opnieuw startte, dan kregen die in bridge
+# een nieuw IP en stuurt nginx nog naar het oude: elke aanroep loopt dan in een timeout. Een herstart
+# laat hem opnieuw opzoeken.
+"${C[@]}" restart demo-proxy
 vereis_draaiend "${SERVICES[@]}"
 
 wacht_op "berichtenmagazijn-a" berichtenmagazijn-a curl -sSf --max-time 3 http://127.0.0.1:8090/q/health/ready
@@ -359,13 +358,9 @@ wacht_op "magazijn-simulator"  magazijn-simulator  curl -sSf --max-time 3 http:/
 wacht_op "uitvraag"            berichtenuitvraag   curl -sSf --max-time 3 http://127.0.0.1:8086/q/health/ready
 wacht_op "stelselregister"     stelselregister     curl -sSf --max-time 3 http://127.0.0.1:8094/q/health/ready
 wacht_op "console"             demo-console        curl -sSf --max-time 3 http://127.0.0.1:8095/
-# In bridge via de gepubliceerde 8096; in hostnet rechtstreeks op 8080, want de proeftuin-container
-# kan zijn luisterpoort niet verzetten (zie de toelichting in compose.podman-hostnet.yaml).
-PROEFTUIN_POORT=8096
-[ "$MODUS" = "hostnet" ] && PROEFTUIN_POORT=8080
-wacht_op "proeftuin"           proeftuin           curl -sSf --max-time 3 "http://127.0.0.1:$PROEFTUIN_POORT/moza/berichtenbox/"
+wacht_op "portaal"             portaal             curl -sSf --max-time 3 -o /dev/null http://127.0.0.1:8096/
 # Via de proxy, want dat is het adres waarop de demo gegeven wordt; een probe op de container zelf
-# zou een kapotte route naar de console of de uitvraag niet opmerken.
+# zou een kapotte route naar de personadienst niet opmerken.
 wacht_op "demo-proxy"          demo-proxy          curl -sSf --max-time 3 http://127.0.0.1:8097/api/demo/personas
 
 # Opnieuw, nu de console draait: die maakt de proxies zelf aan en overschrijft daarmee wat er uit
@@ -377,15 +372,17 @@ wacht_op "toxiproxy (na de console)" demo-console python3 -c "$PROXY_CHECK" "$PR
 # (migraties, vier tegelijk verbindende clients) en is sinds de vorige controle niet meer bekeken.
 vereis_draaiend "${INFRA[@]}" "${SERVICES[@]}"
 
-# Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt altijd op loopback (geen
+# Bewust GEEN probe op $DEMO_HOST: het bedieningspaneel bindt standaard op loopback (geen
 # authenticatie, en POST /api/demo/legen doet een TRUNCATE op beide magazijn-databases). Een probe
 # op een ander adres zou dus per definitie aflopen op een timeout en de start laten falen terwijl
-# de stack gezond draait. DEMO_HOST stuurt alleen de CORS-allowlist en de URL's hieronder; om er
-# van een andere machine bij te kunnen heb je een tunnel naar de demo-proxy nodig, bijvoorbeeld
-# `ssh -L 8097:127.0.0.1:8097 <host>`, of DEMO_BEDIENING_BIND (zie docs/demo-runbook.md §5b).
+# de stack gezond draait. DEMO_HOST stuurt alleen de magazijnadressen in het stelseldocument. Van
+# een andere machine kom je bij de demo via een tunnel naar de demo-proxy,
+# bijvoorbeeld `ssh -L 8097:127.0.0.1:8097 <host>`: het portaal zet zijn persona-cookie met
+# `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback.
 if [ "$DEMO_HOST" != "localhost" ]; then
-    echo "Let op: DEMO_HOST zet alleen de CORS-allowlist; de demo zelf (poort 8097) luistert op"
-    echo "       ${DEMO_BEDIENING_BIND:-127.0.0.1}. Tunnel 8097, of zie DEMO_BEDIENING_BIND in docs/demo-runbook.md §5b."
+    echo "Let op: DEMO_HOST zet alleen de magazijnadressen in het stelseldocument; de demo zelf (poort"
+    echo "       8097) luistert op ${DEMO_BEDIENING_BIND:-127.0.0.1}. Open hem via een tunnel naar 127.0.0.1:8097"
+    echo "       (zie docs/demo-runbook.md §5b): op een ander adres onthoudt het portaal geen persona."
 fi
 
 echo

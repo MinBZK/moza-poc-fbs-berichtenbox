@@ -37,7 +37,7 @@ demo/up.sh
 Op Docker en op podman hetzelfde commando: het script kiest zelf de modus (`docker`, `bridge` of
 `hostnet`), genereert de stub-artefacten en de sleutelketen van het stelselregister, en wacht tot
 elke service gezond is. Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> —
-de berichtenbox uit de proeftuin met het bedieningspaneel ernaast.
+de Berichtenbox van het MOZa-portaal met het bedieningspaneel ernaast.
 
 ## 3. Rijd de keten door
 
@@ -50,21 +50,26 @@ magazijn A én B en controleert dat beide via de uitvraag terugkomen — dat is 
 is by design degradatie-tolerant, dus met alleen A's bericht is de proef ook groen terwijl B
 onbereikbaar is.
 
-De laatste stap haalt de bijlage van A's bericht op via de demo-proxy (`:8097`), met de ontvanger
-alleen in een cookie, zoals de browser dat doet bij een klik op een bijlage.
+De laatste stap vraagt de Berichtenbox van het portaal op via de demo-proxy (`:8097`), met alleen
+het persona-cookie, zoals een browser dat doet. Daarna start hij via het portaal een sessie, leest
+de lijst met het sessie-cookie dat het portaal zet (200 of 409), en beëindigt de sessie weer.
 
 ## De valkuilen die niet in de scripts staan
 
-- **In `hostnet` binden de containers op loopback, en dat is niet te overrulen.** `DEMO_BIND` geldt
-  alleen in `docker` en `bridge`; in een gedeelde netns is een wildcard-bind de hele machine. Wil je de
-  demo van buiten laten zien, dan is `docker` of `bridge` met `DEMO_BIND=0.0.0.0 DEMO_HOST=<adres>` de
-  route, of een forwarder op de externe interface.
-- **Een kale HTTP 400 zonder body is Host-validatie, geen netwerkfout.** Benader je de demo op een
-  ander adres dan de allowlist kent, dan weigert Quarkus het verzoek voordat er iets van de
+- **In `hostnet` binden de containers op loopback, en `DEMO_BIND` verandert daar niets aan.**
+  `DEMO_BIND` geldt alleen in `docker` en `bridge`; in een gedeelde netns is een wildcard-bind de
+  hele machine. Alleen de demo-proxy volgt `DEMO_BEDIENING_BIND`. Wil je de demo van buiten laten
+  zien, gebruik dan een tunnel naar `127.0.0.1:8097`. Het portaal zet zijn persona-cookie met
+  `Secure`, en dat bewaart een browser over gewone HTTP alleen voor loopback; via
+  `DEMO_BEDIENING_BIND=0.0.0.0` op een ander adres onthoudt de Berichtenbox geen persona.
+- **Een kale HTTP 400 zonder body is Host-validatie, geen netwerkfout.** Roep je een magazijn
+  rechtstreeks op zijn poort aan via een ander adres dan localhost, bijvoorbeeld het adres uit het
+  stelseldocument, dan weigert Quarkus het verzoek voordat er iets van de
   applicatie aan te pas komt. Zet dan `QUARKUS_HTTP_HOST_VALIDATION_ALLOWED_HOSTS` — en ga niet op
   zoek naar een proxy- of DNS-probleem.
-- **Het bedieningspaneel blijft altijd op loopback** (poort 8095). Het heeft geen authenticatie en
-  zijn `POST /api/demo/legen` doet een TRUNCATE op beide magazijn-databases.
+- **Het bedieningspaneel blijft standaard op loopback** (poort 8095), ook met `DEMO_BIND`; alleen
+  `DEMO_BEDIENING_BIND` zet het open. Het heeft geen authenticatie en zijn `POST /api/demo/legen`
+  doet een TRUNCATE op beide magazijn-databases.
 - **Een storing uitlokken doe je hier, niet op ZAD.** De storingsknoppen van het magazijn bestaan
   daar niet, en een profiel-storing raakt de aanlevering er niet: die gaat direct, niet via
   toxiproxy.

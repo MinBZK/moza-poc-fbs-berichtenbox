@@ -23,10 +23,10 @@ een knop niets doet.
 {{- else if not (regexMatch "^(main|pr-[0-9]+)-[0-9a-f]{7}(-[rk][0-9]+)*$" (toString $v.images.tag)) }}
 {{- $fouten = append $fouten (printf "images.tag %q is geen main-<sha7> of pr-<n>-<sha7> (eventueel met -r<n>/-k<n>): een meebewegende tag laat een herinstallatie stil een ander image draaien" (toString $v.images.tag)) }}
 {{- end }}
-{{- range $naam := list "proeftuin" "nginx" "toxiproxy" "redis" }}
+{{- range $naam := list "portaal" "nginx" "toxiproxy" "redis" }}
 {{- $ref := toString (get $v.images $naam) }}
 {{- if not (regexMatch "@sha256:[0-9a-f]{64}$" $ref) }}
-{{- $fouten = append $fouten (printf "images.%s %q staat niet op digest; neem voor de proeftuin de regel uit compose.yaml" $naam $ref) }}
+{{- $fouten = append $fouten (printf "images.%s %q staat niet op digest; neem voor het portaal de regel uit compose.yaml" $naam $ref) }}
 {{- end }}
 {{- end }}
 {{- if not (regexMatch "(?m)^magazijnen\\." (toString $v.magazijnenregister)) }}

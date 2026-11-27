@@ -30,7 +30,14 @@ deployment `test` staat erop; previews (`pr-<n>`) zijn tijdelijk en blijven buit
 | `fbs demo-personas` | `demopersonas` (`mpfm-w3h`) | `/q/health/ready` | 200 en `status` = `UP` |
 | `fbs stelselregister` | `stelselregister` (`mpfs-rab`) | `/q/health/ready` | 200 en `status` = `UP` |
 | `fbs profiel-stub`, `fbs notificatie-stub` | `profiel`, `notificatie` (`mpfpsm-lcl`) | `/gezondheid` | 200 en `status` = `healthy` |
-| `fbs berichtenbox` | `proeftuin` (`mpfm-w3h`) | `/` | 200 en de titel `MijnOverheid Zakelijk` |
+| `fbs berichtenbox` | `portaal` (`mpfm-w3h`) | `/` | 200 en de titel `MijnOverheid Zakelijk` |
+
+**De Berichtenbox moet in `MinBZK/moza-gatus` nog om.** Dat endpoint is ingericht op het oude
+component `proeftuin`, dat na de overstap naar het portaal verdwijnt. Zet de host om naar `portaal`
+vóór je dat component verwijdert (hoofdstuk 7 van `demo/environment/zad-demo/README.md`), anders
+meldt Gatus een storing die er geen is. Pad en conditie blijven gelijk: ook het portaal geeft op `/`
+een 200 met die titel (lokaal nagegaan). `/berichtenbox` is geen kandidaat: zonder persona-cookie
+geeft dat een 307 naar de persona-keuze.
 
 Readiness en niet een willekeurig pad: readiness telt de opslag van een dienst mee (Redis,
 PostgreSQL), dus een dienst die draait maar zijn werk niet kan doen, telt als storing. Een `UP`-antwoord

@@ -543,8 +543,9 @@ jobs:
           # in deploy.yml; een vergeten package laat weesversies achter, en
           # test-images-gepubliceerd.sh faalt zodra de twee uit elkaar lopen.
           #
-          # Alleen onze eigen images: `proeftuin` draait op een image uit MinBZK/moza-poc, dat een
-          # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen.
+          # Alleen onze eigen images: `portaal` draait op een image uit MinBZK/moza-portaal, dat een
+          # ander project bouwt en opruimt. Dat hier meenemen zou hun tags wissen, en hun previews
+          # dragen dezelfde `pr-<n>-`-prefix.
           for pkg in fbs-berichtenuitvraag fbs-berichtenmagazijn fbs-stelselregister fbs-externe-stubs fbs-demo-profiel fbs-fsc-contract-bootstrap fbs-demo-console fbs-demo-personas fbs-magazijn-simulator; do
             if ! versions=$(gh api --paginate "orgs/$ORG/packages/container/$pkg/versions?per_page=100" 2>"$RUNNER_TEMP/fout"); then
               # Een package dat nog nooit gepusht is (een nieuw image waarvan de eerste build nog

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Fixture-tests voor proeftuin-pin.sh. Dat script eindigt altijd groen en draagt zijn hele oordeel in
-# vier GITHUB_OUTPUT-sleutels; de aanroeper (pin-consistency.yml en proeftuin-pin-pr.sh) handelt daar
+# Fixture-tests voor portaal-pin.sh. Dat script eindigt altijd groen en draagt zijn hele oordeel in
+# vier GITHUB_OUTPUT-sleutels; de aanroeper (pin-consistency.yml en portaal-pin-pr.sh) handelt daar
 # blind naar. De dure faalwijze is daarom niet "rood", maar een status die om de verkeerde reden is
 # gekozen: een onbereikbaar ghcr dat als "ontbreekt" langskomt, meldt een oorzaak die nooit is
 # vastgesteld, en een verouderd-melding zonder bruikbare regel levert een PR die niemand kan duiden.
@@ -10,11 +10,11 @@
 # twee velden worden verderop ongelezen doorgegeven.
 #
 # De buitenwereld staat in drie stubs: `curl` (het ghcr-token, de manifest-HEAD en de GitHub-API),
-# en `proeftuin-image.sh` via REPO_ROOT, zodat de gepinde referentie per geval te dicteren is.
+# en `portaal-image.sh` via REPO_ROOT, zodat de gepinde referentie per geval te dicteren is.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-SCRIPT="$HERE/proeftuin-pin.sh"
+SCRIPT="$HERE/portaal-pin.sh"
 
 fails=0
 geslaagd=0
@@ -91,7 +91,7 @@ case "$url" in
 
     printf '%s' "$code"
     ;;
-  https://api.github.com/repos/*/commits/*)
+  https://api.github.com/repos/*/commits\?*)
     [ -n "${COMMIT_JSON:-}" ] || exit 22
 
     printf '%s\n' "$COMMIT_JSON"
@@ -139,8 +139,12 @@ DIGEST_ANDERS=$(digest_blok 81920a3b)
 DIGEST_PREVIEW=$(digest_blok c5d6e7f8)
 
 KOP=6e0751e9a8b4c2d0f1e3a5b7c9d1e3f5a7b9c1d3
-VERWACHTE_TAG=sha-6e0751e
-PAD=minbzk/moza-poc
+# De commit vóór de kop: hun main-images worden met de hand gebouwd, dus vaak heeft alleen die er
+# een.
+OUDER=2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e
+OUDERE_TAG=main-2b3c4d5
+VERWACHTE_TAG=main-6e0751e
+PAD=minbzk/moza-portaal
 
 # --- de opzet per geval -------------------------------------------------------------------------
 
@@ -153,7 +157,7 @@ PAD=minbzk/moza-poc
 nieuw_geval() {
   GEVAL="$WERKMAP/$1"
   REPO_STUB="$GEVAL/repo"
-  IMAGE_STUB="$REPO_STUB/.github/scripts/proeftuin-image.sh"
+  IMAGE_STUB="$REPO_STUB/.github/scripts/portaal-image.sh"
 
   mkdir -p "$REPO_STUB/.github/scripts"
 
@@ -164,12 +168,12 @@ nieuw_geval() {
   : > "$GEVAL/output"
 
   export REPO_HTTP=200
-  export REPO_JSON='{"default_branch":"main","name":"moza-poc"}'
-  export COMMIT_JSON="{\"sha\":\"$KOP\"}"
+  export REPO_JSON='{"default_branch":"main","name":"moza-portaal"}'
+  export COMMIT_JSON="[{\"sha\":\"$KOP\"},{\"sha\":\"$OUDER\"}]"
   export GHCR_TOKEN_JSON='{"token":"stub-pull-token"}'
 }
 
-# De referentie die compose.yaml zou dragen. Het gemeten script roept proeftuin-image.sh aan en leest
+# De referentie die compose.yaml zou dragen. Het gemeten script roept portaal-image.sh aan en leest
 # alleen stdout; wat dáár uit komt is de enige invoer die het over de pin heeft.
 pin() {
   cat > "$IMAGE_STUB" <<EOF
@@ -178,6 +182,22 @@ printf '%s\n' "$1"
 EOF
 
   chmod +x "$IMAGE_STUB"
+
+  # Een digest-pin bestaat in het register, tenzij het geval dat met `verdwenen_pin` anders zegt.
+  case "$1" in
+    *@sha256:*)
+      local zonder=${1#ghcr.io/}
+      local pad=${zonder%%@*}
+      pad=${pad%:*}
+      manifest "$pad" "${1##*@}" 200 "${1##*@}"
+      ;;
+  esac
+}
+
+# Haalt de digest van de pin weer uit de tabel: het image is uit het register verdwenen.
+verdwenen_pin() {
+  grep -vF "${1}" "$MANIFESTEN" > "$MANIFESTEN.nieuw" || true
+  mv "$MANIFESTEN.nieuw" "$MANIFESTEN"
 }
 
 geen_pin() {
@@ -242,6 +262,24 @@ niet_aangeroepen() {
   fi
 }
 
+# Exact op de hele URL, waar een deel niet onderscheidt: `/manifests/main` is ook het begin van de
+# commit-tag `main-<sha>`.
+aangeroepen_exact() {
+  if grep -qFx "$2" "$CURL_LOG"; then
+    ok "$1"
+  else
+    fout "$1 (aanroepen: $(tr '\n' '|' < "$CURL_LOG"))"
+  fi
+}
+
+niet_aangeroepen_exact() {
+  if grep -qFx "$2" "$CURL_LOG"; then
+    fout "$1 (aanroepen: $(tr '\n' '|' < "$CURL_LOG"))"
+  else
+    ok "$1"
+  fi
+}
+
 meldt() {
   if grep -qF "$2" <<<"$UITVOER"; then
     ok "$1"
@@ -253,111 +291,243 @@ meldt() {
 # --- de pin staat goed --------------------------------------------------------------------------
 
 nieuw_geval pin-is-bij
-pin "ghcr.io/$PAD:latest@$DIGEST_MAIN"
+pin "ghcr.io/$PAD:main@$DIGEST_MAIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
 uitvoeren
 verwacht "een pin op de digest van de main-commit" \
-  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:latest@$DIGEST_MAIN"
-niet_aangeroepen "een pin die bij is zoekt latest niet meer op" "/manifests/latest"
+  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_MAIN"
+niet_aangeroepen_exact "een pin die bij is zoekt main niet meer op" "https://ghcr.io/v2/$PAD/manifests/main"
 
 # Een tag draagt zijn digest niet bij zich. Wordt die niet eerst opgezocht, dan vergelijkt het script
 # een tag met een digest — die zijn nooit gelijk, en dan meldt deze guard elke dag opnieuw
 # "verouderd" voor een pin die gewoon bij is.
 nieuw_geval tag-pin-zonder-digest
-pin "ghcr.io/$PAD:latest"
-manifest "$PAD" latest 200 "$DIGEST_MAIN"
+pin "ghcr.io/$PAD:main"
+manifest "$PAD" main 200 "$DIGEST_MAIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
 uitvoeren
 verwacht "een tag-pin waarvan de digest bij de main-commit hoort" \
-  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:latest"
-aangeroepen "de gepinde tag wordt eerst naar een digest opgezocht" "/manifests/latest"
+  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main"
+aangeroepen_exact "de gepinde tag wordt eerst naar een digest opgezocht" "https://ghcr.io/v2/$PAD/manifests/main"
 
-# De sha-tag komt uit de standaardtak die GitHub noemt, niet uit een vastgelegde "main": hernoemt de
-# proeftuin zijn standaardtak, dan hoort deze controle mee te bewegen in plaats van stil op een
+# De commit-tag komt uit de standaardtak die GitHub noemt, niet uit een vastgelegde "main": hernoemt de
+# het portaal zijn standaardtak, dan hoort deze controle mee te bewegen in plaats van stil op een
 # onbestaande tak te blijven vragen.
 nieuw_geval andere-standaardtak
-pin "ghcr.io/$PAD:latest@$DIGEST_MAIN"
+pin "ghcr.io/$PAD:main@$DIGEST_MAIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
 REPO_JSON='{"default_branch":"ontwikkel"}'
 uitvoeren
 verwacht "een andere standaardtak levert dezelfde uitkomst" \
-  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:latest@$DIGEST_MAIN"
-aangeroepen "de commit wordt op de gemelde standaardtak opgevraagd" "/commits/ontwikkel"
+  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_MAIN"
+aangeroepen_exact "honderd commits terug, op de gemelde standaardtak" "https://api.github.com/repos/MinBZK/moza-portaal/commits?sha=ontwikkel&per_page=100"
 
 # --- de pin loopt achter ------------------------------------------------------------------------
 
-nieuw_geval verouderd-latest-vorm
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+nieuw_geval verouderd-main-vorm
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
-manifest "$PAD" latest 200 "$DIGEST_MAIN"
+manifest "$PAD" main 200 "$DIGEST_MAIN"
 uitvoeren
-verwacht "een achterlopende pin terwijl latest dezelfde digest draagt" \
-  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:latest@$DIGEST_MAIN" \
-  "ghcr.io/$PAD:latest@$DIGEST_PIN"
-REGEL_LATEST_VORM=$(sleutel verwachte_regel)
+verwacht "een achterlopende pin terwijl main dezelfde digest draagt" \
+  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:main@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
+REGEL_MAIN_VORM=$(sleutel verwachte_regel)
 
-# `latest` is alleen een leesbare aanduiding bij de digest die er nú op staat. Wijst hij ergens
-# anders heen, dan zou de latest-vorm een andere image aanbieden dan de main-commit waarover deze
+# `main` is alleen een leesbare aanduiding bij de digest die er nú op staat. Wijst hij ergens
+# anders heen, dan zou de main-vorm een andere image aanbieden dan de main-commit waarover deze
 # melding gaat.
-nieuw_geval verouderd-latest-wijkt-af
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+nieuw_geval verouderd-main-wijkt-af
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
-manifest "$PAD" latest 200 "$DIGEST_ANDERS"
+manifest "$PAD" main 200 "$DIGEST_ANDERS"
 uitvoeren
-verwacht "een latest die naar een andere digest wijst" \
+verwacht "een main-tag die naar een andere digest wijst" \
   verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
-  "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
 
-# De latest-lookup mag de melding niet meeslepen: de bevinding is al vastgesteld op de sha-tag, en
-# `latest` bepaalt alleen nog de vorm van de aangeboden regel.
-nieuw_geval verouderd-latest-onbereikbaar
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+# De main-lookup mag de melding niet meeslepen: de bevinding is al vastgesteld op de commit-tag, en
+# `main` bepaalt alleen nog de vorm van de aangeboden regel.
+nieuw_geval verouderd-main-onbereikbaar
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
-manifest "$PAD" latest 500
+manifest "$PAD" main 500
 uitvoeren
-verwacht "een onbereikbare latest-lookup levert de sha-vorm" \
+verwacht "een onbereikbare main-lookup levert de commit-vorm" \
   verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
-  "ghcr.io/$PAD:latest@$DIGEST_PIN"
-REGEL_SHA_VORM=$(sleutel verwachte_regel)
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
+REGEL_COMMIT_VORM=$(sleutel verwachte_regel)
 
-nieuw_geval verouderd-latest-weg
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+nieuw_geval verouderd-main-weg
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
-manifest "$PAD" latest 404
+manifest "$PAD" main 404
 uitvoeren
-verwacht "een verdwenen latest-tag levert de sha-vorm" \
+verwacht "een verdwenen main-tag levert de commit-vorm" \
   verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
-  "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 # --- de main-commit heeft nog geen image --------------------------------------------------------
 
 nieuw_geval ontbreekt
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 manifest "$PAD" "$VERWACHTE_TAG" 404
 uitvoeren
 verwacht "een main-commit zonder image" \
-  ontbreekt "$VERWACHTE_TAG" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  ontbreekt "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 # --- de pin staat op nog niet gemergd werk ------------------------------------------------------
 
-# Hun preview-images liggen in een ánder repository. Vergelijken met hun main heeft daar geen
-# betekenis: die tag hóórt af te wijken en verdwijnt zodra hun PR sluit.
-nieuw_geval preview
-pin "ghcr.io/$PAD/preview:pr-1-abc"
-manifest "$PAD/preview" pr-1-abc 200 "$DIGEST_PREVIEW"
+# Hun previews dragen een `pr-*`-tag in hetzelfde repository als main. Vergelijken met hun main heeft
+# daar geen betekenis: die tag hóórt af te wijken en verdwijnt zodra hun PR sluit. Alleen de tag
+# onderscheidt ze, dus zonder die toets meldt deze guard elke preview-pin als "verouderd".
+nieuw_geval preview-tag
+pin "ghcr.io/$PAD:pr-1-abc1234"
+manifest "$PAD" pr-1-abc1234 200 "$DIGEST_PREVIEW"
 uitvoeren
-verwacht "een pin op hun preview-repository" \
-  preview "" "" "ghcr.io/$PAD/preview:pr-1-abc"
+verwacht "een pin op een pr-tag van hun repository" \
+  preview "" "" "ghcr.io/$PAD:pr-1-abc1234"
 niet_aangeroepen "een preview-pin wordt niet met hun main vergeleken" "api.github.com"
+
+# De vorm die compose.yaml draagt: tag én digest. De digest zegt niets over de herkomst, de tag wel.
+nieuw_geval preview-tag-met-digest
+pin "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
+uitvoeren
+verwacht "een pin op een pr-tag met digest" \
+  preview "" "" "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
+niet_aangeroepen "een preview-pin met digest wordt niet met hun main vergeleken" "api.github.com"
+
+# Hun PR sloot en ghcr wist het image, terwijl de pin er nog op staat. Zonder de opzoeking van de
+# digest bleef dat `preview` (een waarschuwing), en trok pas de eerstvolgende herstart niets meer.
+nieuw_geval preview-verdwenen
+pin "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
+verdwenen_pin "$DIGEST_PREVIEW"
+uitvoeren
+verwacht "een preview-pin waarvan het image verdwenen is" \
+  pin-onvindbaar "" "" "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
+
+nieuw_geval main-digest-verdwenen
+pin "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+verdwenen_pin "$DIGEST_PIN"
+uitvoeren
+verwacht "een main-pin waarvan het image verdwenen is" \
+  pin-onvindbaar "" "" "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+niet_aangeroepen "een verdwenen pin leidt niet tot een main-vergelijking" "api.github.com"
+
+nieuw_geval digest-opzoeking-onbereikbaar
+pin "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+verdwenen_pin "$DIGEST_PIN"
+manifest "$PAD" "$DIGEST_PIN" 500
+uitvoeren
+verwacht "een onbereikbare opzoeking van de digest-pin" \
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+
+# --- hun main-images worden met de hand gebouwd ---------------------------------------------------
+
+# De kop heeft nog geen image, de commit ervoor wel. Dan telt die: zonder terugkijken bleef dit
+# `ontbreekt` tot hun bouw toevallig precies de kop raakt.
+nieuw_geval kop-zonder-image-oudere-wel
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+manifest "$PAD" "$OUDERE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "de kop zonder image, de commit ervoor met" \
+  verouderd "$OUDERE_TAG" "    image: ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+nieuw_geval kop-zonder-image-pin-bij
+pin "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN"
+manifest "$PAD" "$OUDERE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "de pin op de nieuwste commit met image" \
+  ok "$OUDERE_TAG" "" "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN"
+
+# Kop én oudere commit hebben een image: de kop telt, en verder terugkijken hoeft niet. Zonder dit
+# geval bleef onopgemerkt dat de oudste treffer won, of dat de lijst achterstevoren werd gelezen.
+nieuw_geval kop-en-oudere-met-image
+pin "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_ANDERS"
+manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
+manifest "$PAD" "$OUDERE_TAG" 200 "$DIGEST_ANDERS"
+uitvoeren
+verwacht "kop en oudere commit allebei met image: de kop telt" \
+  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_ANDERS"
+niet_aangeroepen_exact "na de eerste treffer niet verder terug" "https://ghcr.io/v2/$PAD/manifests/$OUDERE_TAG"
+
+# Een lege sha halverwege zou de tag `main-` opleveren, een 404, en dan `ontbreekt`: een oorzaak die
+# niemand heeft vastgesteld.
+nieuw_geval lege-sha-halverwege
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+COMMIT_JSON="[{\"sha\":\"$KOP\"},{\"sha\":\"\"},{\"sha\":\"$OUDER\"}]"
+uitvoeren
+verwacht "een lege sha halverwege de lijst" \
+  oncontroleerbaar "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+# Eén commit, en de lijst is verder leeg: dat is wat de API bij een vers repository geeft.
+nieuw_geval een-commit
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+COMMIT_JSON="[{\"sha\":\"$KOP\"}]"
+manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "één commit in de lijst" \
+  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+nieuw_geval geen-commits
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+COMMIT_JSON='[]'
+uitvoeren
+verwacht "een lege commitlijst" \
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+# Een onbereikbaar register halverwege het terugkijken is niet hetzelfde als "geen image".
+nieuw_geval terugkijken-onbereikbaar
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+manifest "$PAD" "$OUDERE_TAG" 500
+uitvoeren
+verwacht "ghcr onbereikbaar bij een oudere commit" \
+  oncontroleerbaar "$OUDERE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+# Een ander repository (een fork, een verhuisd image) is evenmin hun main.
+nieuw_geval preview-ander-repository
+pin "ghcr.io/$PAD-fork:main-1234567"
+manifest "$PAD-fork" main-1234567 200 "$DIGEST_PREVIEW"
+uitvoeren
+verwacht "een pin buiten hun main-repository" \
+  preview "" "" "ghcr.io/$PAD-fork:main-1234567"
+
+# Een digest-pin buiten hun main-repository wordt in zijn eigen repository opgezocht, niet onder het
+# main-pad; anders heette elke fork-pin `pin-onvindbaar`.
+nieuw_geval fork-met-digest
+pin "ghcr.io/$PAD-fork:main-1234567@$DIGEST_PREVIEW"
+uitvoeren
+verwacht "een digest-pin buiten hun main-repository" \
+  preview "" "" "ghcr.io/$PAD-fork:main-1234567@$DIGEST_PREVIEW"
+
+# `pr` als begin van een tag zonder streepje is geen preview: alleen het patroon `pr-*` is dat.
+nieuw_geval geen-preview-zonder-streep
+pin "ghcr.io/$PAD:prod@$DIGEST_MAIN"
+manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "een tag die alleen met pr begint" \
+  ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:prod@$DIGEST_MAIN"
+
+# Een digest zonder tag noemt geen herkomst; die wordt met hun main vergeleken.
+nieuw_geval digest-zonder-tag
+pin "ghcr.io/$PAD@$DIGEST_PIN"
+manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "een pin op alleen een digest" \
+  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD@$DIGEST_PIN"
 
 # --- de pin zelf deugt niet ---------------------------------------------------------------------
 
 nieuw_geval pin-onvindbaar
-pin "ghcr.io/$PAD:sha-2f3a4b5"
-manifest "$PAD" sha-2f3a4b5 404
+pin "ghcr.io/$PAD:main-2f3a4b5"
+manifest "$PAD" main-2f3a4b5 404
 uitvoeren
 verwacht "een gepinde tag die niet meer bestaat" \
-  pin-onvindbaar "" "" "ghcr.io/$PAD:sha-2f3a4b5"
+  pin-onvindbaar "" "" "ghcr.io/$PAD:main-2f3a4b5"
 niet_aangeroepen "een onvindbare pin leidt niet tot een main-vergelijking" "api.github.com"
 
 nieuw_geval geen-pin
@@ -369,28 +539,28 @@ niet_aangeroepen "zonder pin wordt het register niet bevraagd" "ghcr.io"
 # Een referentie buiten ghcr.io is niet "fout", maar wel buiten wat deze controle kan nagaan — en dat
 # is iets anders dan een tag die niet bestaat.
 nieuw_geval ander-register
-pin "docker.io/$PAD:latest"
+pin "docker.io/$PAD:main"
 uitvoeren
 verwacht "een referentie buiten ghcr.io" \
-  oncontroleerbaar "" "" "docker.io/$PAD:latest"
+  oncontroleerbaar "" "" "docker.io/$PAD:main"
 meldt "een referentie buiten ghcr.io noemt de oorzaak" "kent alleen dat register"
 niet_aangeroepen "een referentie buiten ghcr.io bevraagt ghcr niet" "ghcr.io"
 
 # --- het bron-repository ------------------------------------------------------------------------
 
 nieuw_geval bron-hernoemd
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 REPO_HTTP=301
 uitvoeren
 verwacht "een hernoemd bron-repository (301)" \
-  bron-weg "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  bron-weg "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 nieuw_geval bron-verdwenen
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 REPO_HTTP=404
 uitvoeren
 verwacht "een verdwenen bron-repository (404)" \
-  bron-weg "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  bron-weg "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 # --- er is niets vastgesteld --------------------------------------------------------------------
 
@@ -399,94 +569,94 @@ verwacht "een verdwenen bron-repository (404)" \
 # handelt daarnaar: bij `ontbreekt` blijft een openstaande pin-PR staan alsof hun bouw nog loopt.
 for ghcr_code in 401 429 500; do
   nieuw_geval "ghcr-$ghcr_code"
-  pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  pin "ghcr.io/$PAD:main@$DIGEST_PIN"
   manifest "$PAD" "$VERWACHTE_TAG" "$ghcr_code"
   uitvoeren
   verwacht "ghcr antwoordt $ghcr_code op de verwachte tag" \
-    oncontroleerbaar "$VERWACHTE_TAG" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+    oncontroleerbaar "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
   meldt "ghcr $ghcr_code komt met code en al in de log" "ghcr antwoordde '$ghcr_code'"
 done
 
 # De tag bestaat, maar we weten niet waarnaar hij wijst. Zonder deze tak zou een lege digest als
 # vergelijkingswaarde doorlopen en elke pin eeuwig "verouderd" heten.
 nieuw_geval verwachte-tag-zonder-digest
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 manifest "$PAD" "$VERWACHTE_TAG" 200
 uitvoeren
 verwacht "een 200 zonder Docker-Content-Digest op de verwachte tag" \
-  oncontroleerbaar "$VERWACHTE_TAG" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  oncontroleerbaar "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 nieuw_geval gepinde-tag-onbereikbaar
-pin "ghcr.io/$PAD:latest"
-manifest "$PAD" latest 500
+pin "ghcr.io/$PAD:main"
+manifest "$PAD" main 500
 uitvoeren
 verwacht "een onbereikbare lookup van de gepinde tag" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main"
 
 nieuw_geval gepinde-tag-zonder-digest
-pin "ghcr.io/$PAD:latest"
-manifest "$PAD" latest 200
+pin "ghcr.io/$PAD:main"
+manifest "$PAD" main 200
 uitvoeren
 verwacht "een 200 zonder Docker-Content-Digest op de gepinde tag" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main"
 
 nieuw_geval token-aanroep-stuk
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 GHCR_TOKEN_JSON=""
 uitvoeren
 verwacht "een mislukte tokenaanroep" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 # Een antwoord zonder token is geen token: zonder de `-e` op jq zou de string "null" als bearer
 # meegaan en elke lookup daarna stranden op een fout die met de tag niets te maken heeft.
 nieuw_geval token-antwoord-zonder-token
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 GHCR_TOKEN_JSON='{"foutmelding":"denied"}'
 uitvoeren
 verwacht "een tokenantwoord zonder token" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 nieuw_geval github-502
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 REPO_HTTP=502
 uitvoeren
 verwacht "GitHub antwoordt 502 op het repo-endpoint" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 meldt "een 502 komt met code en al in de log" "GitHub antwoordde '502'"
 
 nieuw_geval geen-standaardtak
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
-REPO_JSON='{"name":"moza-poc"}'
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+REPO_JSON='{"name":"moza-portaal"}'
 uitvoeren
 verwacht "een repo-antwoord zonder standaardtak" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 nieuw_geval geen-commit-sha
-pin "ghcr.io/$PAD:latest@$DIGEST_PIN"
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
 COMMIT_JSON='{"message":"Not Found"}'
 uitvoeren
 verwacht "een commit-antwoord zonder sha" \
-  oncontroleerbaar "" "" "ghcr.io/$PAD:latest@$DIGEST_PIN"
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
-# --- contracttest met proeftuin-pin-pr.sh -------------------------------------------------------
+# --- contracttest met portaal-pin-pr.sh -------------------------------------------------------
 
-# De aangeboden regel gaat ongelezen door naar proeftuin-pin-pr.sh, dat hem tegen zijn eigen
+# De aangeboden regel gaat ongelezen door naar portaal-pin-pr.sh, dat hem tegen zijn eigen
 # vormcontrole houdt en bij afkeuring niets aanbiedt. Die koppeling staat in geen van beide scripts
 # vastgelegd: een extra spatie of een andere volgorde in de ene laat de andere stil stoppen met
 # aanbieden, terwijl beide suites groen blijven. Sourcen voert de main van dat script niet uit.
 regel_geaccepteerd() {
   local wat=$1 regel=$2
 
-  # shellcheck source=.github/scripts/proeftuin-pin-pr.sh
-  if ( source "$HERE/proeftuin-pin-pr.sh"; regel_is_welgevormd "$regel" ); then
+  # shellcheck source=.github/scripts/portaal-pin-pr.sh
+  if ( source "$HERE/portaal-pin-pr.sh"; regel_is_welgevormd "$regel" ); then
     ok "$wat"
   else
     fout "$wat (regel: '$regel')"
   fi
 }
 
-regel_geaccepteerd "proeftuin-pin-pr.sh accepteert de latest-vorm" "$REGEL_LATEST_VORM"
-regel_geaccepteerd "proeftuin-pin-pr.sh accepteert de sha-vorm" "$REGEL_SHA_VORM"
+regel_geaccepteerd "portaal-pin-pr.sh accepteert de main-vorm" "$REGEL_MAIN_VORM"
+regel_geaccepteerd "portaal-pin-pr.sh accepteert de commit-vorm" "$REGEL_COMMIT_VORM"
 
 if [ "$fails" -eq 0 ]; then
   echo "Alle tests geslaagd."

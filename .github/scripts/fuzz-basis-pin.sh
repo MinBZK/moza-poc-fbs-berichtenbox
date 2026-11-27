@@ -19,7 +19,7 @@ set -euo pipefail
 DOCKERFILE=${DOCKERFILE:-.clusterfuzzlite/Dockerfile}
 BRANCH=${BRANCH:-chore/fuzz-basis-pin}
 
-# Het PR-onderhoud zelf is gedeeld met proeftuin-pin-pr.sh: token eisen, de eigen PR vinden, de
+# Het PR-onderhoud zelf is gedeeld met portaal-pin-pr.sh: token eisen, de eigen PR vinden, de
 # branch publiceren en de PR opruimen. Wat hieronder staat is het deel dat van dít pad is.
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=.github/scripts/pin-pr-lib.sh

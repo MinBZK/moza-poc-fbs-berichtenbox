@@ -5,7 +5,7 @@ volgende stap onbruikbaar maakt, dus stop bij de eerste die niet klopt.
 
 Het paneel staat achter de authorization-wall, dus doe dat deel in een browser waarin je bent
 ingelogd. Een `curl` zonder sessie krijgt daar HTTP 403 met de inlogpagina terug — dat is de muur,
-niet een kapot component. De proeftuin en de personadienst (stap 7) dragen bewust géén muur; daar is
+niet een kapot component. Het portaal en de personadienst (stap 7) dragen bewust géén muur; daar is
 403 juist wél een fout.
 
 ```
@@ -26,7 +26,7 @@ gh api repos/RijksICTGilde/rig-cluster-application-test/contents/odcn-production
 
 Verwacht `replicas: 1` en een tag van de vorm `main-<sha7>`. Faalt het `gh api`-commando zelf, dan
 is dat het antwoord — niet een lege uitvoer die je als "niets bijzonders" leest. Herhaal dit voor
-`magazijna`, `magazijnb`, `magazijnsimulator`, `demopersonas` en `proeftuin` zodra je die verderop
+`magazijna`, `magazijnb`, `magazijnsimulator`, `demopersonas` en `portaal` zodra je die verderop
 nodig hebt; in `mpfb-8wh` en `mpfpsm-lcl` gaat het pad langs die project-id in plaats van
 `mpfm-w3h`.
 
@@ -61,8 +61,8 @@ Verwacht:
 - `simulator` is `true` zodra `magazijn-simulator.md` §4 gedaan is. Staat hij op `false`, dan laat
   het paneel de hele groep "Gesimuleerde magazijnen" weg terwijl alles eronder werkt.
 - `personas` is een gevulde lijst. Is hij leeg, dan komt de personadienst niet door — dat is stap 7.
-- `berichtenboxUrl` wijst naar de proeftuin van dezelfde deployment, inclusief het pad
-  `/moza/berichtenbox/`. Leeg betekent dat het paneel het lokale pad probeert, dat hier niet
+- `berichtenboxUrl` wijst naar het portaal van dezelfde deployment, inclusief het pad
+  `/berichtenbox`. Leeg betekent dat het paneel het lokale pad probeert, dat hier niet
   bestaat: het frame blijft dan leeg.
 
 Staat er een proxy in `storingen` die er niet hoort, dan is de bijbehorende `TOXIPROXY_*_URL` niet
@@ -172,19 +172,32 @@ deployment van *deze* preview noemt (`pr-<n>-profiel`), niet `test-profiel`. Klo
 `$DEPLOYMENT_NAME` in. Levert het commando niets op, dan is dat geen bewijs dat het goed staat: de
 console logt alleen bij een daadwerkelijke aanmaak, dus doe eerst stap 8.
 
-## 7. De berichtenbox in het frame
+## 7. De Berichtenbox in het frame
 
-Open `$CONSOLE/`. Verwacht links de berichtenbox van de proeftuin, met de bediening ernaast; niet
+Open `$CONSOLE/`. Verwacht links de Berichtenbox van het portaal, met de bediening ernaast; niet
 het blok "Berichtenbox niet bereikbaar".
 
 Zie je dat blok wél, dan is `BERICHTENBOX_URL` niet gezet — het paneel toetst een geconfigureerd
 adres niet, dus een leeg frame komt hier nooit door een mislukte toets. Staat de variabele er wel,
-open het adres dan los in de browser: geeft het daar een pagina, dan is het frame het probleem;
-geeft het een fout, dan staat het proeftuin-component niet of wijst de alias mis.
+toets het adres dan los:
 
-Kies daarna in de berichtenbox een testaccount van het stelsel — `Aangesloten onderneming 4 (met bijlagen)` (Garage Van Dijk B.V.) is er een
-met een KVK-nummer. Verwacht berichten. Krijg je "Er gaat iets mis met het ophalen van uw berichten
-bij de bronnen", kijk dan eerst hier:
+```bash
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+  "https://portaal-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/berichtenbox"
+```
+
+| Code | Betekenis |
+|---|---|
+| `307` | Goed: zonder persona-cookie stuurt het portaal naar de persona-keuze. Staat het frame toch leeg, dan is het frame het probleem, niet het portaal. |
+| `403` | Er staat per ongeluk een `authorization-wall` op `portaal`; die hoort er niet op (hoofdstuk 7 van `README.md`). |
+| `404` | Het component staat er niet, of publiceert zijn poort niet. |
+| `502`, `503` | Er draait niets. Kijk **eerst** naar `replicas` in het gerenderde manifest (stap 0); pas als dat `1` is, is het image de volgende verdachte. |
+| `000` | Geen verbinding: DNS of TLS, niet het component. |
+
+Kies daarna in de Berichtenbox een testaccount van het stelsel — `Aangesloten onderneming 4 (met bijlagen)` (Garage Van Dijk B.V.) is er een
+met een KVK-nummer. Verwacht berichten. Toont de keuze geen testaccounts, of komen er geen
+berichten, kijk dan eerst naar de personadienst, die het portaal server-side leest via
+`KETEN_PERSONAS_URL`:
 
 ```bash
 curl -sS -o /dev/null -w '%{http_code}\n' \
@@ -194,32 +207,28 @@ curl -sS -o /dev/null -w '%{http_code}\n' \
 | Code | Betekenis |
 |---|---|
 | `200` | Goed. |
-| `403` | Er staat per ongeluk een `authorization-wall` op dit component — de berichtenbox haalt dit pad server-side op en heeft geen sessie. |
+| `403` | Er staat per ongeluk een `authorization-wall` op dit component — het portaal haalt dit pad server-side op en heeft geen sessie. |
 | `404` | Het component staat er niet, of publiceert zijn poort niet. |
 | `502`, `503` | Er draait niets. Kijk **eerst** naar `replicas` in het gerenderde manifest (stap 0); pas als dat `1` is, is het image de volgende verdachte — bijvoorbeeld een image dat op een andere poort luistert dan de 8098 die het component publiceert, of een tijdelijk image dat nog op de eerste uitrol wacht. |
 | `000` | Geen verbinding: DNS of TLS, niet het component. |
 
-Let op de tweede orde: wijst `BACKEND_PERSONAS` van de proeftuin naar een dienst die niet luistert,
-dan geeft óók `proeftuin-<deployment>-…/api/demo/personas` een 503. De fout zit dan niet in de
-proeftuin.
-
-Klopt dat adres wel, toets dan hetzelfde pad via de proeftuin — dat is de route die de berichtenbox
-zelf loopt, en die hangt aan `BACKEND_PERSONAS`:
+Geeft de dienst zelf `200` en blijft het portaal toch leeg, vergelijk dan de aliassen van het
+portaal met wat hoofdstuk 7 van `README.md` verwacht:
 
 ```bash
-curl -sS -o /dev/null -w '%{http_code}\n' \
-  "https://proeftuin-<deployment>-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/api/demo/personas"
+zadctl -p mpfm-w3h alias get KETEN_PERSONAS_URL -c portaal
+zadctl -p mpfm-w3h alias get KETEN_BACKEND_URL -c portaal
 ```
 
-Een `403` hier terwijl de dienst zelf `200` geeft, betekent dat `BACKEND_PERSONAS` ontbreekt en de
-proeftuin op `BACKEND_DEMO` terugvalt — dus op het bedieningspaneel, dat wél een muur draagt.
-`BACKEND_DEMO` hoort naar `democonsole` te blijven wijzen; verzet die niet.
+Ontbreekt er één of wijkt hij af, draai dan `portaal-component.sh apply` opnieuw: dat trekt de
+aliassen recht en laat een bestaand `AUTH_SECRET` staan. Die staat, net als `HOSTNAME`, op de env-laag
+van het portaal (`zadctl -p mpfm-w3h env list -c portaal`), niet bij de aliassen.
 
 Kies daarna `Aangesloten onderneming, landelijk concern` (honderd organisaties) en laat de ronde
-helemaal uitlopen, ook als er tussen twee organisaties lang niets komt. Breekt de stream na ongeveer een minuut stilte af, dan loopt het
-keten-verkeer nog door de catch-all `/api/` van de proeftuin, met zijn leestijdslimiet van zestig
-seconden: die deployment draait dan op een image van vóór de splitsing van `/api/v1/`, of
-`BACKEND_KETEN` staat er niet — zie stap 7 van `README.md`.
+helemaal uitlopen, ook als er tussen twee organisaties lang niets komt. De browser volgt de ronde
+als SSE-stream via `/api/keten/` van het portaal, dat hem op zijn beurt bij de uitvraag ophaalt.
+Breekt de stream af terwijl de ronde nog loopt, kijk dan in de logs van `portaal` en `uitvraag` op
+het moment van afbreken welke kant de verbinding sloot.
 
 ## 8. Herstart-bestendigheid
 
@@ -385,7 +394,7 @@ Staat er nog een `tcpSocket` waar een `httpGet` hoort, dan is de instelling niet
 eerst of er een uitrol liep (`gh run list --workflow "Deploy ZAD"`) en draai
 `gezondheidscontrole.sh apply` opnieuw.
 
-Zes componenten kun je zo niet controleren: de vier `tcp`-regels (`redis`, `proeftuin` en de twee
+Zes componenten kun je zo niet controleren: de vier `tcp`-regels (`redis`, `portaal` en de twee
 `fscpg`) renderen hetzelfde manifest als de standaard, en de twee `none`-regels renderen nog steeds
 niets. Wat daar in OM staat lees je met `zadctl -p <project> service config get health-check` — dat
 commando toont de dienst over alle lagen en kent geen componentvlag, dus je zoekt het component in

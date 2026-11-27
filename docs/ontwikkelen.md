@@ -222,10 +222,10 @@ container start. Alleen de infra, zonder services, om die zelf in dev-mode te dr
 compose up -d` (zie [Tests draaien](#tests-draaien) en
 [een tweede magazijn draaien](#een-tweede-magazijn-draaien)).
 
-## De demo draaien met de proeftuin als berichtenbox
+## De demo draaien met de Berichtenbox van het portaal
 
-De berichtenbox die de ondernemer ziet komt uit de proeftuin (`MinBZK/moza-poc`) en draait als
-container mee in de demo-stack. Node, npm of Eleventy zijn daarvoor niet nodig.
+De Berichtenbox die de ondernemer ziet, komt uit het MOZa-portaal (`MinBZK/moza-portaal`) en draait
+als container mee in de demo-stack. Node of npm zijn daarvoor niet nodig.
 
 De eigen services wél: die draaien als image en worden niet gepulld. Bouw ze eerst met jib en
 genereer de stub-artefacten — [`demo-runbook.md`](demo-runbook.md), §2 en §3. Sla je dat over, dan
@@ -236,59 +236,52 @@ melding wijst niet naar de overgeslagen bouwstap.
 demo/up.sh
 ```
 
-Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de berichtenbox met het
-bedieningspaneel ernaast. Welke versie van de proeftuin meedraait staat in `compose.yaml`, gepind op
-digest: `latest` alleen zou stil onder een lopende demo door verschuiven. Die ene regel is ook wat
-`deploy.yml` en `proeftuin-component.sh` lezen (via `.github/scripts/proeftuin-image.sh`), dus een
-demo op de eigen machine en een demo op ZAD tonen dezelfde berichtenbox. Bijwerken doet de workflow
-`proeftuin-pin.yml`: die vergelijkt de pin op werkdagen met hun main en zet een achterlopende pin
-als PR klaar, die zichzelf weer sluit zodra de pin bij is. Mergen blijft een oordeel — hun main draagt
-ook werk dat halfaf kan zijn. `pin-consistency.yml` blokkeert daarnaast een PR zodra de gepinde
-digest niet meer te trekken is. Een andere versie draaien zonder de pin aan te raken kan met de
-overlay; die neemt een hele referentie, want hun nog niet gemergde werk staat in een ander
-ghcr-repository:
+Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de Berichtenbox met het
+bedieningspaneel ernaast. Het portaal kiest de ondernemer uit zijn eigen persona's; de persona's die
+op de keten zijn aangesloten (`proeftuin-een` tot en met `proeftuin-vier`, `proeftuin-veel`,
+`proeftuin-concern` en `proeftuin-garage`) zoekt het op KVK-nummer op in de personadienst. Het
+portaal start zelf een sessie bij de uitvraag en bewaart het sessie-id in een httpOnly-cookie.
+
+Welke versie van het portaal meedraait, staat in `compose.yaml`, gepind op digest. Dezelfde regel is
+de pin voor ZAD en Fundament; een achterlopende pin biedt de workflow Portaal-pin als PR aan. Een
+andere versie draaien zonder de pin aan te raken kan met de overlay `compose.portaal-versie.yaml`;
+die neemt een hele referentie. Elke PR op moza-portaal heeft een eigen image:
 
 ```bash
-PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc:gebruikersonderzoeken-2026-08 demo/up.sh compose up -d proeftuin
+PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh
+```
+
+Werk aan het portaal zelf beproef je met `compose.portaal-lokaal.yaml`: compose bouwt dan het image
+uit een lokale checkout.
+
+```bash
+PORTAAL_PAD=~/projects/moza-portaal \
+  demo/up.sh compose -f compose.portaal-lokaal.yaml up -d --build portaal
+demo/up.sh compose restart demo-proxy
 ```
 
 De rondleiding langs de knoppen staat in [`demo-runbook.md`](demo-runbook.md), sectie 5b.
 
-### De berichtenbox op een andere keten-omgeving richten
+### De Berichtenbox op een andere keten-omgeving richten
 
-De bestemming is een instelling en geen aparte versie van de proeftuin. Hun nginx splitst het
-API-verkeer per pad: `/api/v1/` naar de uitvraag (`BACKEND_KETEN`), `/api/demo/personas` naar de
-personadienst (`BACKEND_PERSONAS`) en de rest van `/api/demo/` naar het bedieningspaneel
-(`BACKEND_DEMO`). Waar je die zet, hangt af van de opstelling:
-
-| Opstelling | Waar de bestemming vandaan komt |
-|---|---|
-| Alles lokaal | Niets te doen. `compose.yaml` zet de drie variabelen op containernamen, en vóór de container onderschept `demo-proxy` dezelfde paden al met zijn eigen `UITVRAAG_UPSTREAM`, `PERSONAS_UPSTREAM` en `CONSOLE_UPSTREAM` |
-| Lokale berichtenbox, keten elders | Overschrijf `BACKEND_KETEN` en `BACKEND_PERSONAS` in de shell en open de container zelf op `:8096` (zie het voorbeeld hieronder). Via `:8097` heeft dat geen effect: daar beslist de proxy waar `/api/` heen gaat, niet de container |
-| Proeftuin op een gedeelde omgeving | Zes aliassen op het component: de drie variabelen plus hun `*_HOST`-tegenhangers, want de ingress ervóór routeert op de Host-header. `demo/environment/zad-demo/proeftuin-component.sh` zet ze — zie [de ZAD-handleiding](../demo/environment/zad-demo/README.md) |
-
-Een lokale berichtenbox tegen de keten op ZAD ziet er dan zo uit. De `*_HOST`-variabelen horen
-erbij zodra de bestemming achter een ingress staat die op de Host-header routeert: zonder die
-variabelen stuurt de proeftuin de host van de browser mee, en dan komt het verzoek bij de verkeerde
-vhost uit.
+De bestemming is een instelling en geen aparte versie van het portaal. Het portaal praat server-side
+met de uitvraag (`KETEN_BACKEND_URL`) en vraagt de personadienst welke persona's op de keten zijn
+aangesloten (`KETEN_PERSONAS_URL`). `compose.yaml` zet beide op de containers in de stack; overschrijf
+ze in de shell om de lokale Berichtenbox tegen een keten elders te laten praten:
 
 ```bash
 Z=rig.prd1.gn2.quattro.rijksapps.nl
-BACKEND_KETEN=https://uitvraag-test-mpfb-8wh.$Z \
-BACKEND_KETEN_HOST=uitvraag-test-mpfb-8wh.$Z \
-BACKEND_PERSONAS=https://demopersonas-test-mpfm-w3h.$Z \
-BACKEND_PERSONAS_HOST=demopersonas-test-mpfm-w3h.$Z \
-  demo/up.sh compose up -d proeftuin
+KETEN_BACKEND_URL=https://uitvraag-test-mpfb-8wh.$Z \
+KETEN_PERSONAS_URL=https://demopersonas-test-mpfm-w3h.$Z \
+  demo/up.sh compose up -d portaal
+demo/up.sh compose restart demo-proxy
 ```
 
-Zet `BACKEND_KETEN` altijd expliciet, en let op het verschil tussen leeg zetten en weglaten.
-Leeggemaakt (`BACKEND_KETEN=`) antwoordt de proeftuin met een 502 die de variabelenaam noemt in
-plaats van het verkeer stil bij een andere dienst af te leveren — een onvolledig ingerichte omgeving
-is daardoor te onderscheiden van een storing. Weggelaten pakt hij de bestemming die sinds de
-padsplitsing in hun image gebakken zit: een `uitvraag-<deployment>-mpfb-8wh`-adres van ons. Wijst
-dat naar een omgeving die niet meer bestaat, dan leest dat als een storing en niet als een
-configuratiefout, want de variabele *is* gezet. `compose.yaml` en `proeftuin-component.sh` zetten
-hem daarom allebei.
+In docker en bridge is de herstart nodig: daar zoekt de demo-proxy de containernaam van het portaal
+één keer op, bij zijn start. In `hostnet` kan hij geen kwaad.
+
+Dat werkt ook via de demo-proxy (`:8097`): die stuurt alles naar het portaal, en het portaal bepaalt
+waar de keten staat.
 
 ### Een beperking die tijdens een demonstratie opvalt
 

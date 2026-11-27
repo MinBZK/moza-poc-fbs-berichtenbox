@@ -39,7 +39,7 @@ NIET_CODE='^docs/|\.md$|^\.claude/|^\.github/ISSUE_TEMPLATE/|^\.github/dependabo
 # geldt hetzelfde: die draait op een rooster of handmatig, en dus vanaf main. deploy.yml hoort er
 # juist NIET bij — dat bestand bepaalt de uitrol zelf, dus daar is de preview het enige bewijs dat
 # de wijziging klopt (een pin-bump van de zad-actions is een wijziging aan dát bestand).
-GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image|proeftuin-pin|ci-scripts|cleanup-preview|preview-resten'
+GEEN_PREVIEW_WORKFLOWS='test|detekt|codeql|scorecard|architecture|pin-consistency|cflite_pr|cflite_batch|cflite_cron|fsc-harness-overlays|fuzz-base-image|portaal-pin|ci-scripts|cleanup-preview|preview-resten'
 
 # shellcheck disable=SC2034  # alleen door de kruiscontrole in test-wijzigingsfilter.sh gelezen
 UITROL_RELEVANT='deploy'
@@ -73,8 +73,13 @@ UITROL_RELEVANT='deploy'
 # demo/lib/ bevat de modus-keuze van de lokale opstellingen (gesourcet door demo/up.sh en de
 # FSC-peer-harnessen); geen image leest hem.
 #
+# De compose-overlays voor podman en het portaal leest alleen de lokale stack; de deploy leest
+# compose.yaml zelf (de pin van de berichtenbox op ZAD) en dat bestand valt hier dus níet onder.
+# Ze tellen ook voor de testscope als demo (BUITEN_DEMO hieronder).
+LOKALE_OVERLAYS='^compose\.(podman|portaal)[^/]*\.yaml$'
+#
 # demo/generated/ staat er niet bij: die map is gitignored en haalt dus nooit een bestandenlijst.
-DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/lib/|^demo/[^/]*\.sh$'
+DEMO_BUITEN_UITROLPOORT="^demo/environment/|^demo/lib/|^demo/[^/]*\\.sh\$|$LOKALE_OVERLAYS"
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.
@@ -88,11 +93,11 @@ DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/lib/|^demo/[^/]*\.sh$'
 # stubs en drie previews) openzetten voor een wijziging die daar niets mee te maken heeft.
 NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
 
-# Raakt de PR niets buiten demo/, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
+# Raakt de PR niets buiten demo/ en de lokale compose-overlays, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
 # niet mee gebouwd en getest te worden. `-am` trekt bovendien op wat een demo-module wél uit het
 # stelsel gebruikt, dus die kant blijft gedekt. Dat een demo-module níets uit de reactor gebruikt is
 # geen gegarandeerde eigenschap; die richting bewaakt vandaag niets.
-BUITEN_DEMO="$NIET_CODE|^demo/"
+BUITEN_DEMO="$NIET_CODE|^demo/|$LOKALE_OVERLAYS"
 
 # Allowlist in plaats van een uitsluiting: alleen bronnen die de fuzz-doelen of hun build raken.
 # Wordt gecombineerd met de code-uitkomst, anders koopt een README onder services/ een volledige
