@@ -7,6 +7,14 @@
 #
 #   NS=<namespace> TAG=main-<sha7> charts/demo-op-fundament.sh op
 #   NS=<namespace> charts/demo-op-fundament.sh controleer
+#   NS=<namespace> charts/demo-op-fundament.sh aanmelden <regels> [<ontvanger>...]
+#   NS=<namespace> charts/demo-op-fundament.sh afmelden <OIN>
+#
+# aanmelden toetst eerst of een magazijn dat er later bij komt (de plug-in berichtenmagazijn)
+# antwoordt, zet het dan in het register van uitvraag en stelselregister, en geeft ontvangers
+# (KVK:<nummer>, BSN:<nummer>) een opt-in ervoor in de profielstub. <regels> is een bestand met de twee regels uit het statusbericht van de
+# plug-in, of - voor stdin. afmelden haalt het weer weg. Beide werken via de values van fbs-demo,
+# met de chart uit deze checkout; `op` neemt ze daarna over. Zie charts/fbs-demo/README.md.
 #
 # Instelbaar:
 #   KUBE_CONTEXT    de context; zonder de huidige van kubectl. Het script zet hem bij de start vast,
@@ -309,14 +317,34 @@ extra() {
   fi
 }
 
+# De aangemelde magazijnen uit de release, als values-bestand: een upgrade zonder gooit weg wat
+# `aanmelden` zette. Zet AANMELD_ARGS op `-f <bestand>`, of leeg bij een eerste installatie.
+aanmeldingen_behouden() {
+  local values
+  AANMELD_ARGS=()
+
+  if ! values=$(hm get values fbs-demo -o json 2>"$WERK/values.err"); then
+    grep -q 'not found' "$WERK/values.err" && return 0
+    stop 1 "de values van fbs-demo zijn niet te lezen: $(tail -1 "$WERK/values.err")"
+  fi
+
+  jq -e '.aanmeldingen.register // "" | length > 0' <<<"$values" >/dev/null || return 0
+  jq '{aanmeldingen}' <<<"$values" >"$WERK/aanmeldingen.json"
+  echo "INFO: aangemelde magazijnen blijven staan: $(jq -r '.aanmeldingen.register | [scan("magazijnen\\.\"([0-9]{20})\"\\.url")[0]] | join(", ")' "$WERK/aanmeldingen.json")"
+  AANMELD_ARGS=(-f "$WERK/aanmeldingen.json")
+}
+
 installeren() {
   local proeftuin args
   proeftuin=${PROEFTUIN:-$("$REPO/.github/scripts/proeftuin-image.sh")} || stop 2 "proeftuin-image.sh faalde"
 
   register
+  aanmeldingen_behouden
 
   stap "fbs-demo"
-  mapfile -t args < <(extra fbs-demo)
+  # Na de aanmeldingen: EXTRA_VALUES gaat voor.
+  args=("${AANMELD_ARGS[@]}")
+  mapfile -t -O "${#args[@]}" args < <(extra fbs-demo)
   hm upgrade --install fbs-demo "$CHARTS/fbs-demo" --wait --timeout 10m \
     --set "basisdomein=$BASISDOMEIN" --set "httpsPoort=$HTTPS_POORT" --set "cluster.gateway.name=$GATEWAY" \
     --set "images.tag=$TAG" --set "images.proeftuin=$proeftuin" \
@@ -520,6 +548,179 @@ controleer() {
   return 1
 }
 
+# --- Aanmelden ----------------------------------------------------------------------------------
+
+huidige_aanmeldingen() {
+  local values
+
+  values=$(hm get values fbs-demo -o json 2>"$WERK/values.err") ||
+    stop 2 "fbs-demo is niet te lezen ($(tail -1 "$WERK/values.err")); installeer de demo eerst met: $0 op"
+  jq -c '.aanmeldingen // {} | {register: (.register // ""), optIns: (.optIns // [])}' <<<"$values"
+}
+
+# Het antwoord van de profielstub voor een ontvanger, zoals een magazijn het krijgt.
+profiel_antwoord() {
+  local ontvanger=$1 antwoord status
+
+  antwoord=$(gw_curl profiel -X POST -w '\n%{http_code}' -H 'Content-Type: application/json' \
+    --data "$(jq -nc --arg s "${ontvanger%%:*}" --arg n "${ontvanger#*:}" '{identificatieType: $s, identificatieNummer: $n}')" \
+    "$(url profiel /api/profielservice/v1/partij)" 2>"$WERK/curl.err" || true)
+  status=${antwoord##*$'\n'}
+
+  if [ "$status" != 200 ]; then
+    echo "de profielstub gaf $status voor $ontvanger $(tail -1 "$WERK/curl.err")" >&2
+    return 1
+  fi
+
+  echo "${antwoord%$'\n'*}"
+}
+
+# Zet de aanmeldingen in fbs-demo en start uitvraag en stelselregister opnieuw als het register
+# veranderde: ze lezen het alleen bij het starten. De profielstub start Helm zelf opnieuw (checksum).
+aanmeldingen_zetten() {
+  local huidig=$1 nieuw=$2
+
+  stap "fbs-demo bijwerken"
+  jq '{aanmeldingen: .}' <<<"$nieuw" >"$WERK/aanmeldingen.json"
+  # --reset-then-reuse-values: de values van de release, met de standaarden van deze chart eronder
+  # (een sleutel die er sinds `op` bij kwam, is anders leeg).
+  hm upgrade fbs-demo "$CHARTS/fbs-demo" --reset-then-reuse-values -f "$WERK/aanmeldingen.json" \
+    --wait --timeout 10m >/dev/null || stop 1 "bijwerken van fbs-demo faalde"
+  echo "OK: fbs-demo"
+
+  if [ "$(jq -r .register <<<"$huidig")" != "$(jq -r .register <<<"$nieuw")" ]; then
+    stap "uitvraag en stelselregister opnieuw starten"
+    kc rollout restart deployment/berichtenuitvraag deployment/stelselregister >/dev/null
+    kc rollout status deployment/berichtenuitvraag --timeout=10m >/dev/null || stop 1 "de uitvraag start niet opnieuw"
+    kc rollout status deployment/stelselregister --timeout=10m >/dev/null || stop 1 "het stelselregister start niet opnieuw"
+    echo "OK: uitvraag en stelselregister lezen het nieuwe register"
+  fi
+}
+
+# Een verzoek aan een magazijn, los van gw_curl: het magazijn staat meestal niet onder het
+# basisdomein van de demo. Apart, zodat test-script.sh het kan vervangen.
+magazijn_curl() {
+  curl -q -sS --max-time 30 "$@"
+}
+
+# Of het magazijn antwoordt zoals de uitvraag het straks aanroept: zijn OpenAPI-document op de url
+# uit het register. Een host onder het basisdomein gaat, net als gw_curl, naar GATEWAY_ADRES met de
+# CA van de demo; een andere host via DNS, met de publieke CA's.
+magazijn_bereikbaar() {
+  local host poort pad doel args=() status
+
+  read -r host poort pad < <(url_delen "$1") || { echo "geen https-url zonder query: $1"; return 1; }
+  doel="https://$host:$poort$pad/api/v1/openapi.json"
+
+  if [[ $host == *".$BASISDOMEIN" ]]; then
+    args=(${CA_BESTAND:+--cacert "$CA_BESTAND"})
+
+    if [ -n "${GATEWAY_ADRES:-}" ]; then
+      args+=(--resolve "$host:$HTTPS_POORT:$GATEWAY_ADRES")
+      doel="https://$host:$HTTPS_POORT$pad/api/v1/openapi.json"
+    fi
+  fi
+
+  status=$(magazijn_curl "${args[@]}" -o "$WERK/openapi.json" -w '%{http_code}' "$doel" 2>"$WERK/curl.err") || true
+
+  if [ "$status" != 200 ]; then
+    local melding
+    melding=$(tail -1 "$WERK/curl.err" 2>/dev/null)
+    echo "$doel gaf ${status:-geen antwoord}${melding:+ ($melding)}"
+    return 1
+  fi
+
+  is_openapi "$(cat "$WERK/openapi.json")" || { echo "$doel gaf 200, maar geen OpenAPI-document"; return 1; }
+}
+
+# De url van een OIN in het stelseldocument zoals afnemers het ophalen, of niets.
+url_in_stelseldocument() {
+  local document payload
+
+  document=$(gw_curl stelselregister "$(url stelselregister /api/v1/stelseldocument)" 2>"$WERK/curl.err") ||
+    { fout "het stelseldocument is niet op te halen: $(tail -1 "$WERK/curl.err")"; return 1; }
+  payload=$(stelseldocument_payload "$document") || { fout "het stelseldocument is geen JWS met JSON"; return 1; }
+  stelseldocument_url "$payload" "$1"
+}
+
+aanmelden() {
+  local bron=$1 aanmelding oin huidig ontvanger basis basissen='{}' nieuw gevonden
+  shift
+
+  [ "$bron" = - ] || [ -f "$bron" ] || stop 2 "$bron bestaat niet; geef het bestand met de regels, of - voor stdin"
+  aanmelding=$(aanmelding_lezen "$bron") || stop 2 "geen aanmelding in $bron"
+  oin=$(jq -r .oin <<<"$aanmelding")
+
+  for ontvanger in "$@"; do
+    [[ $ontvanger =~ $ONTVANGER_REGEL ]] || stop 2 "ontvanger $ontvanger is geen KVK:<nummer> of BSN:<nummer>"
+  done
+
+  # Eerst bereikbaar, dan in het register: een magazijn dat niet antwoordt, sloeg de uitvraag
+  # anders bij elk ophalen over (use case 13, stap 7).
+  stap "bereikbaarheid: $(jq -r .url <<<"$aanmelding")"
+  local reden
+  reden=$(magazijn_bereikbaar "$(jq -r .url <<<"$aanmelding")") ||
+    stop 1 "het magazijn antwoordt niet: $reden; het komt pas in het register als het bereikbaar is"
+  echo "OK: het magazijn geeft zijn OpenAPI-document"
+
+  huidig=$(huidige_aanmeldingen)
+  stap "aanmelden: $oin"
+
+  # Voor een nieuwe ontvanger het antwoord van nu als basis. Een ontvanger met eerdere opt-ins
+  # houdt zijn basis: het antwoord van nu bevat die opt-ins al.
+  for ontvanger in "$@"; do
+    jq -e --arg o "$ontvanger" 'any(.optIns[]; .ontvanger == $o)' <<<"$huidig" >/dev/null && continue
+    basis=$(profiel_antwoord "$ontvanger") || stop 1 "geen antwoord van de profielstub voor $ontvanger"
+    antwoord_heeft_voorkeur "$basis" ||
+      stop 2 "$ontvanger heeft geen berichtenbox-voorkeur in de profielstub; kies een ontvanger uit de demo"
+    basissen=$(jq -c --arg o "$ontvanger" --argjson b "$basis" '.[$o] = $b' <<<"$basissen")
+  done
+
+  nieuw=$(aanmeldingen_met "$huidig" "$aanmelding" "$basissen" "$@")
+  aanmeldingen_zetten "$huidig" "$nieuw"
+
+  stap "controle"
+  gevonden=$(url_in_stelseldocument "$oin") || true
+
+  if [ "$gevonden" = "$(jq -r .url <<<"$aanmelding")" ]; then
+    echo "OK: het stelseldocument noemt $oin met $gevonden"
+  else
+    fout "het stelseldocument noemt $oin niet met $(jq -r .url <<<"$aanmelding")${gevonden:+ (wel met $gevonden)}"
+  fi
+
+  for ontvanger in "$@"; do
+    if antwoord_heeft_optin "$(profiel_antwoord "$ontvanger" || true)" "$oin"; then
+      echo "OK: $ontvanger heeft een opt-in voor $oin"
+    else
+      fout "de profielstub geeft $ontvanger geen opt-in voor $oin"
+    fi
+  done
+
+  [ "$fouten" -eq 0 ] || return 1
+  [ $# -gt 0 ] || echo "INFO: zonder ontvanger krijgt niemand berichten van $oin; geef er een mee, bijvoorbeeld $KETEN_ONTVANGER"
+}
+
+afmelden() {
+  local oin=$1 huidig gevonden
+
+  [[ $oin =~ ^[0-9]{20}$ ]] || stop 2 "$oin is geen OIN (20 cijfers)"
+  huidig=$(huidige_aanmeldingen)
+  aangemeld "$huidig" "$oin" || stop 2 "$oin is niet aangemeld met aanmelden"
+
+  stap "afmelden: $oin"
+  aanmeldingen_zetten "$huidig" "$(aanmeldingen_zonder "$huidig" "$oin")"
+
+  stap "controle"
+  gevonden=$(url_in_stelseldocument "$oin") || return 1
+
+  if [ -z "$gevonden" ]; then
+    echo "OK: het stelseldocument noemt $oin niet meer"
+  else
+    fout "het stelseldocument noemt $oin nog, met $gevonden"
+    return 1
+  fi
+}
+
 main() {
   case "${1:-}" in
     op)
@@ -541,8 +742,22 @@ main() {
       voorwaarden
       controleer
       ;;
+    aanmelden)
+      [ $# -ge 2 ] || stop 2 "gebruik: NS=<namespace> $0 aanmelden <regels> [<ontvanger>...]"
+      vereis_tools kubectl helm curl jq base64
+      werkmap
+      voorwaarden
+      aanmelden "${@:2}"
+      ;;
+    afmelden)
+      [ $# -eq 2 ] || stop 2 "gebruik: NS=<namespace> $0 afmelden <OIN>"
+      vereis_tools kubectl helm curl jq base64
+      werkmap
+      voorwaarden
+      afmelden "$2"
+      ;;
     *)
-      echo "gebruik: NS=<namespace> [TAG=main-<sha7>] $0 op | controleer" >&2
+      echo "gebruik: NS=<namespace> [TAG=main-<sha7>] $0 op | controleer | aanmelden <regels> [<ontvanger>...] | afmelden <OIN>" >&2
       exit 2
       ;;
   esac

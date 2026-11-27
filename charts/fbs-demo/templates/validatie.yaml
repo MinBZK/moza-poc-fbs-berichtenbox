@@ -46,6 +46,60 @@ een knop niets doet.
 {{- $fouten = append $fouten (printf "stelsel.%s is geen poortnummer" $sleutel) }}
 {{- end }}
 {{- end }}
+{{- /* Aangemelde magazijnen: alleen de twee regels per OIN, zodat er via het register geen andere
+     instelling van uitvraag of stelselregister mee kan. Een naam die op een backslash eindigt, laat
+     de volgende regel aansluiten (properties-formaat), en Java leest ook CR als regeleinde: geen
+     stuurtekens. Een OIN uit het gegenereerde register zou twee keer voorkomen. */}}
+{{- $aanmeldingen := $v.aanmeldingen | default dict }}
+{{- $aangemeld := dict }}
+{{- range $regel := splitList "\n" (toString $aanmeldingen.register) }}
+{{- $regel = trim $regel }}
+{{- if and $regel (not (hasPrefix "#" $regel)) }}
+{{- if not (regexMatch "^magazijnen\\.\"[0-9]{20}\"\\.(url=https://[^\\s\\x00-\\x1f\\x7f\\\\]+|naam=[^\\s\\x00-\\x1f\\x7f]([^\\x00-\\x1f\\x7f\\\\]|\\\\[^\\x00-\\x1f\\x7f])*)$" $regel) }}
+{{- $fouten = append $fouten (printf "aanmeldingen.register: %q is geen regel magazijnen.\"<OIN>\".url=https://... of magazijnen.\"<OIN>\".naam=..." $regel) }}
+{{- else }}
+{{- $oin := regexFind "[0-9]{20}" $regel }}
+{{- $soort := ternary "url" "naam" (contains "\".url=" $regel) }}
+{{- $velden := get $aangemeld $oin | default list }}
+{{- if has $soort $velden }}
+{{- $fouten = append $fouten (printf "aanmeldingen.register: %s.%s staat er twee keer in" $oin $soort) }}
+{{- end }}
+{{- $_ := set $aangemeld $oin (append $velden $soort) }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- range $oin := keys $aangemeld | sortAlpha }}
+{{- if ne (len (get $aangemeld $oin)) 2 }}
+{{- $fouten = append $fouten (printf "aanmeldingen.register: %s heeft niet zowel url als naam" $oin) }}
+{{- end }}
+{{- if contains (printf "magazijnen.\"%s\"." $oin) (toString $v.magazijnenregister) }}
+{{- $fouten = append $fouten (printf "aanmeldingen.register: %s staat al in het gegenereerde magazijnenregister" $oin) }}
+{{- end }}
+{{- end }}
+{{- $ontvangers := list }}
+{{- range $i, $o := $aanmeldingen.optIns | default list }}
+{{- if not (regexMatch "^(KVK|BSN):[0-9]{8,9}$" (toString $o.ontvanger)) }}
+{{- $fouten = append $fouten (printf "aanmeldingen.optIns[%d].ontvanger %q is geen KVK:<nummer> of BSN:<nummer>" $i (toString $o.ontvanger)) }}
+{{- else if has $o.ontvanger $ontvangers }}
+{{- $fouten = append $fouten (printf "aanmeldingen.optIns: %s staat er twee keer in" $o.ontvanger) }}
+{{- end }}
+{{- $ontvangers = append $ontvangers $o.ontvanger }}
+{{- if not $o.oins }}
+{{- $fouten = append $fouten (printf "aanmeldingen.optIns[%d] heeft geen oins" $i) }}
+{{- end }}
+{{- range $oin := $o.oins | default list }}
+{{- if not (hasKey $aangemeld (toString $oin)) }}
+{{- $fouten = append $fouten (printf "aanmeldingen.optIns[%d]: %v is geen aangemeld magazijn" $i $oin) }}
+{{- end }}
+{{- end }}
+{{- $voorkeur := false }}
+{{- if kindIs "map" $o.basis }}
+{{- range $o.basis.voorkeuren | default list }}{{ if eq .voorkeurType "OntvangViaBerichtenbox" }}{{ $voorkeur = true }}{{ end }}{{ end }}
+{{- end }}
+{{- if not $voorkeur }}
+{{- $fouten = append $fouten (printf "aanmeldingen.optIns[%d].basis heeft geen voorkeur OntvangViaBerichtenbox" $i) }}
+{{- end }}
+{{- end }}
 {{- if $fouten }}
 {{- fail (printf "\nVALUES ONGELDIG:\n- %s" (join "\n- " $fouten)) }}
 {{- end }}

@@ -10,6 +10,6 @@
     "lint:stelselregister": "don-checker validate --standard adr --input ../../services/stelselregister/src/main/resources/openapi/stelselregister-api.yaml"
   },
   "devDependencies": {
-    "@developer-overheid-nl/don-checker": "1.4.0"
+    "@developer-overheid-nl/don-checker": "1.5.0"
   }
 }

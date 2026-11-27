@@ -6,6 +6,13 @@ NetworkPolicy. De standaarden zijn die van fbs-dienst: vaste non-root UID, read-
 root-filesystem, geen capabilities, seccomp RuntimeDefault, geen service-account-token.
 */}}
 {{- $onderdelen := include "fbs-demo.componenten" . | fromYaml }}
+{{- /* De data per ConfigMap, voor de checksum van alleen wat een pod mount: een opt-in erbij start
+     de profielstub opnieuw, maar niet de simulator, die zijn gedrag in het geheugen houdt. */}}
+{{- $configData := dict }}
+{{- range splitList "\n---\n" (include "fbs-demo.configmaps" .) }}
+{{- $cm := fromYaml . }}
+{{- with $cm.metadata }}{{ $_ := set $configData .name $cm.data }}{{ end }}
+{{- end }}
 {{- range $onderdeel := keys $onderdelen | sortAlpha }}
 {{- $o := get $onderdelen $onderdeel }}
 {{- $ctx := dict "context" $ "onderdeel" $onderdeel }}
@@ -42,9 +49,11 @@ spec:
       {{- $configMaps := list }}
       {{- range $o.mounts }}{{ if .configMap }}{{ $configMaps = append $configMaps .configMap }}{{ end }}{{ end }}
       {{- if $configMaps }}
+      {{- $data := list }}
+      {{- range $configMaps }}{{ $data = append $data (get $configData .) }}{{ end }}
       annotations:
         # Een nieuwe config start de pod opnieuw: hij wordt alleen bij het starten gelezen.
-        checksum/config: {{ include "fbs-demo.configmaps" $ | sha256sum }}
+        checksum/config: {{ toJson $data | sha256sum }}
       {{- end }}
     spec:
       serviceAccountName: {{ $naam }}

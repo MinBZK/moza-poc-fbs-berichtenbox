@@ -163,6 +163,9 @@ profiel:
   # Een stub-mapping, niet de admin-API: die staat achter een wachtwoord dat bij elke start wisselt.
   probe: {http: /gezondheid}
   schrijfbaar: [/tmp]
+  # De opt-ins van `aanmelden`; WireMock leest ook de submappen van mappings/.
+  mounts:
+    - {naam: aanmeldingen, pad: /home/wiremock/mappings/aanmeldingen, configMap: {{ $r }}-profiel-aanmeldingen, key: aanmeldingen.json, bestand: aanmeldingen.json}
   inkomend:
     - {label: {{ $profiel }}, poorten: [8080]}
     # De magazijnen roepen de stub rechtstreeks aan via de route `profiel`, niet via Toxiproxy:
