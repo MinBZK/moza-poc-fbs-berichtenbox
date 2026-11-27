@@ -135,7 +135,18 @@ geval lijst-lang
 printf 'HOSTNAME=0.0.0.0\nAUTH_SECRET=oud\n' >"$STATE/env"
 export PORTAAL_JSON=$PORTAAL ENV_LIST_LANG=1
 draai apply
+gelijk "lange lijst: apply slaagt" "$CODE" 0
 gelijk "lange lijst: het geheim blijft" "$(waarde AUTH_SECRET)" "oud"
+gelijk "lange lijst: geen env add op een bestaande naam" "$(grep -c ' env add ' "$STATE/log")" 0
+
+# Een falende openssl mag geen leeg geheim zetten.
+geval openssl-faalt
+printf '#!/usr/bin/env bash\nexit 1\n' >"$WERKMAP/bin/openssl"
+chmod +x "$WERKMAP/bin/openssl"
+draai apply
+rm -f "$WERKMAP/bin/openssl"
+gelijk "openssl faalt: het script stopt" "$([ "$CODE" -ne 0 ] && echo gestopt)" "gestopt"
+gelijk "openssl faalt: geen AUTH_SECRET naar zadctl" "$(grep -c 'AUTH_SECRET' "$STATE/log")" 0
 
 # Een naam die alleen als deel van een andere naam voorkomt, is er niet.
 geval deelnaam
@@ -153,6 +164,7 @@ draai plan
 gelijk "plan: slaagt" "$CODE" 0
 gelijk "plan: elke env-mutatie draagt --dry-run" \
   "$(grep -E ' env (set|add) ' "$STATE/log" | grep -vc -- '--dry-run' || true)" 0
+gelijk "plan: HOSTNAME als dry-run" "$(grep -c ' env set -c portaal HOSTNAME=0.0.0.0 --dry-run' "$STATE/log")" 1
 gelijk "plan: geen AUTH_SECRET naar zadctl" "$(grep -c 'AUTH_SECRET' "$STATE/log")" 0
 gelijk "plan: niets gewijzigd" "$(namen)" "HOSTNAME "
 

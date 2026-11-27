@@ -181,7 +181,7 @@ jobs:
             [.github/scripts/test-maven-cache.sh]=45
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74
-            [.github/scripts/test-portaal-image.sh]=49
+            [.github/scripts/test-portaal-image.sh]=53
             [.github/scripts/test-portaal-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-portaal-pin.sh]=217

@@ -94,10 +94,27 @@ for tag in main latest ux-fork pr-303 edge Main pr- main-123456 main-1234567x pr
     "kan verschuiven"
 done
 
+# Een geldige digest redt geen kapotte referentie ervoor.
+GOED="sha256:$(printf 'c%.0s' {1..64})"
+for voor in "ghcr.io/minbzk/moza-portaal:" "ghcr.io/minbzk/moza-portaal:pr-302-5830f5e@$GOED"; do
+  verwacht_fout "referentie '$voor' vóór een geldige digest" \
+    "$(compose_met "    image: \"$voor@$GOED\"")" \
+    "geen geldige"
+done
+
+# Een spatie kan alleen via de override binnenkomen: de compose-regel eindigt bij witruimte.
+draai_met_override "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:main@$GOED")" "ghcr.io/minbzk/moza-portaal:ma in@$GOED"
+
+if [ "$STATUS" -ne 0 ] && [[ "$UITVOER" == *"geen geldige image-referentie"* ]]; then
+  ok "een spatie in de tag via PORTAAL_IMAGE wordt geweigerd"
+else
+  fout "een spatie in de tag via PORTAAL_IMAGE wordt geweigerd — exit $STATUS, uitvoer: $UITVOER"
+fi
+
 # Een digest moet er als digest uitzien: een afgekapte, getypte of anders gehashte waarde hangt het
 # component in ImagePullBackOff.
 for digest in "sha256:$(printf 'a%.0s' {1..63})" "sha256:$(printf 'A%.0s' {1..64})" "sha256:$(printf 'g%.0s' {1..64})" \
-  "sha512:$(printf 'a%.0s' {1..64})" "sha256:"; do
+  "sha512:$(printf 'a%.0s' {1..64})" "sha256:" "sha256:$(printf 'a%.0s' {1..65})"; do
   verwacht_fout "digest '${digest:0:12}…' (${#digest} tekens)" \
     "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:main@$digest")" \
     "geen geldige digest"

@@ -35,6 +35,13 @@ toets() {
         exit 1
       fi
 
+      # Ook wat ervoor staat: een lege tag, een tweede digest of een spatie haalt de vorm van de
+      # digest niet onderuit, maar wel de pull.
+      if ! [[ ${1%@*} =~ ^[a-z0-9.-]+(:[0-9]+)?/[a-z0-9._/-]+(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?$ ]]; then
+        echo "'$1' is geen geldige image-referentie" >&2
+        exit 1
+      fi
+
       return 0
       ;;
     */*:?*) ;;

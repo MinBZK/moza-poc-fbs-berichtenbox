@@ -713,25 +713,33 @@ toets_blok "demo" "Server Actions: portaal krijgt de host van de browser" 'locat
 toets_blok "demo" "ketenstream zonder buffering" 'location /api/keten/ {' 'proxy_buffering off;'
 toets_blok "demo" "ketenstream met X-Forwarded-Host" 'location /api/keten/ {' 'proxy_set_header X-Forwarded-Host $http_host;'
 toets_blok "demo" "wachtwoord van het paneel niet naar het portaal" 'location / {' 'proxy_set_header Authorization "";'
-# Geen route naar de uitvraag, in welke location-vorm ook: toets de bestemming in plaats van de vorm.
-# Elke proxy_pass gaat naar het portaal, de console of de personadienst.
-vreemd=$(grep -E '^[[:space:]]*proxy_pass ' "$WERK/demo.yaml" | grep -vE 'proxy_pass \$(portaal|console|personas);' || true)
+# Geen route naar de uitvraag, in welke vorm ook: toets de bestemming in plaats van de location.
+# Elke *_pass, ook midden op een regel, gaat naar een van de drie variabelen, en die drie wijzen naar
+# portaal, console en personadienst. Commentaar eerst eraf: dat zegt niets over de route.
+vreemd=$(sed 's/#.*//' "$WERK/demo.yaml" | grep -oE '[a-z_]+_pass[[:space:]]+[^;]*;' |
+  grep -vxE 'proxy_pass \$(portaal|console|personas);' || true)
+bestemmingen=$(sed 's/#.*//' "$WERK/demo.yaml" | grep -oE 'set \$(portaal|console|personas)[[:space:]][^;]*;' | sort | tr '\n' '|')
+verwacht='set $console http://fbs-demo-console.fbs.svc.cluster.local:8095;|set $personas http://fbs-demo-personas.fbs.svc.cluster.local:8098;|set $portaal http://fbs-demo-portaal.fbs.svc.cluster.local:3000;|'
 
-if [ -z "$vreemd" ]; then
-  ok "demo: elke proxy_pass naar portaal, console of personadienst"
+if [ -z "$vreemd" ] && [ "$bestemmingen" = "$verwacht" ]; then
+  ok "demo: de proxy gaat alleen naar portaal, console en personadienst"
 else
-  fout "demo: proxy_pass naar een andere bestemming: $vreemd"
+  fout "demo: de proxy gaat ook ergens anders heen (pass: '$vreemd'; bestemmingen: '$bestemmingen')"
 fi
 
 # Het wachtwoord van het paneel gaat nergens door. Op serverniveau precies één keer, en elk
-# location-blok met een eigen proxy_set_header herhaalt hem: zo'n regel heft de erfenis op.
+# location-blok met een eigen proxy_set_header herhaalt hem: zo'n regel heft de erfenis op. Een
+# location die deze awk niet kan lezen (op één regel, genest, niet gesloten) is zelf een fout: anders
+# valt juist het afwijkende blok stil buiten de controle.
 if awk '
+  { sub(/[[:space:]]*#.*/, "") }
   /^ {8}proxy_set_header Authorization "";$/ { server++ }
-  /^ {8}location / { in_blok = 1; eigen = 0; wist = 0; naam = $0; next }
+  /(^|[[:space:]])location[[:space:]]/ && !/^ {8}location [^{}]*\{$/ { print "vorm: " $0; fout = 1; next }
+  /^ {8}location / { if (in_blok) { print "niet gesloten: " naam; fout = 1 } in_blok = 1; eigen = 0; wist = 0; naam = $0; next }
   in_blok && /^ {8}}$/ { if (eigen && !wist) { print naam; fout = 1 } in_blok = 0; next }
-  in_blok && /proxy_set_header Authorization "";/ { wist = 1 }
-  in_blok && /proxy_set_header / { eigen = 1 }
-  END { exit !(server == 1 && !fout) }' "$WERK/demo.yaml" >"$WERK/authorization.txt"; then
+  in_blok && /^ +proxy_set_header Authorization "";$/ { wist = 1 }
+  in_blok && /^ +proxy_set_header / { eigen = 1 }
+  END { if (in_blok) fout = 1; exit !(server == 1 && !fout) }' "$WERK/demo.yaml" >"$WERK/authorization.txt"; then
   ok "demo: wachtwoord van het paneel op serverniveau en per eigen proxy_set_header gewist"
 else
   fout "demo: wachtwoord van het paneel gaat door ($(tr '\n' ' ' <"$WERK/authorization.txt"))"
