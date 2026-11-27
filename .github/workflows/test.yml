@@ -134,7 +134,8 @@ jobs:
         # niet stil aan met een oude versie.
         #
         # Het stelselregister heeft daarom een eigen shard: het gebruikt fbs-common en
-        # fbs-magazijnregister, die het complement uitsluit.
+        # fbs-magazijnregister, die het complement uitsluit. De beheerconsole gebruikt fbs-common
+        # en draait om dezelfde reden in die shard mee.
         #
         # fbs-kern staat om dezelfde reden juist níét bij de uitsluitingen: de demo-modules in het
         # complement gebruiken hem.
@@ -149,7 +150,7 @@ jobs:
           ${{ fromJSON(
             (inputs.demo-only || needs.changes.outputs.demo-only) == 'true'
             && '[{"id":"demo","modules":"demo/*"}]'
-            || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"berichtenuitvraag","modules":"libraries/fbs-common,libraries/fbs-magazijnregister,libraries/fbs-berichtensessiecache,services/berichtenuitvraag"},{"id":"stelselregister","modules":"services/stelselregister"},{"id":"overig","modules":"!services/berichtenmagazijn,!libraries/fbs-common,!libraries/fbs-magazijnregister,!libraries/fbs-berichtensessiecache,!services/berichtenuitvraag,!services/stelselregister"}]'
+            || '[{"id":"berichtenmagazijn","modules":"services/berichtenmagazijn"},{"id":"berichtenuitvraag","modules":"libraries/fbs-common,libraries/fbs-magazijnregister,libraries/fbs-berichtensessiecache,services/berichtenuitvraag"},{"id":"stelselregister","modules":"services/stelselregister,services/beheerconsole"},{"id":"overig","modules":"!services/berichtenmagazijn,!libraries/fbs-common,!libraries/fbs-magazijnregister,!libraries/fbs-berichtensessiecache,!services/berichtenuitvraag,!services/stelselregister,!services/beheerconsole"}]'
           ) }}
     runs-on: ubuntu-latest
     # Vangnet tegen een hangende test: een request tegen een niet-bestaande route

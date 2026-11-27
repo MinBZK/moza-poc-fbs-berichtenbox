@@ -218,4 +218,51 @@ class SecurityHeadersTest {
             namen,
         )
     }
+
+    private val webapp =
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+            "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+    private val apiPaden = listOf("/api", "/openapi.json")
+
+    private fun webappCsp(pad: String) =
+        SecurityHeaders.voorWebapp(pad, "/q", apiPaden).getValue(SecurityHeaders.CONTENT_SECURITY_POLICY)
+
+    @ParameterizedTest
+    @ValueSource(strings = ["/", "/index.html", "/stelsel", "/stelsel/magazijnen", "/assets/index-abc.js", "/apis", "/qr"])
+    fun `een scherm van de webapp krijgt de webapp-policy`(pad: String) {
+        assertEquals(webapp, webappCsp(pad))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["/api", "/api/v1/stelsel", "/openapi.json"])
+    fun `een API-pad van een webapp-dienst houdt de strenge policy`(pad: String) {
+        assertEquals(strikt, webappCsp(pad))
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["/q", "/q/health/ready"])
+    fun `het beheerpad van een webapp-dienst houdt zijn eigen policy`(pad: String) {
+        assertEquals("frame-ancestors 'none'", webappCsp(pad))
+    }
+
+    @Test
+    fun `zonder API-paden is alles buiten het beheerpad webapp`() {
+        assertEquals(webapp, SecurityHeaders.voorWebapp("/api/v1/x", "/q", emptyList()).getValue("Content-Security-Policy"))
+    }
+
+    @Test
+    fun `de webapp-policy laat niets inline en niets van elders toe`() {
+        assertTrue("unsafe" !in webapp)
+        assertTrue("frame-ancestors 'none'" in webapp)
+        assertTrue("object-src 'none'" in webapp)
+    }
+
+    @Test
+    fun `de webapp-policy verandert de andere headers niet`() {
+        val webappHeaders = SecurityHeaders.voorWebapp("/", "/q", apiPaden)
+        val apiHeaders = SecurityHeaders.voorPad("/", "/q")
+
+        assertEquals(apiHeaders - "Content-Security-Policy", webappHeaders - "Content-Security-Policy")
+    }
 }

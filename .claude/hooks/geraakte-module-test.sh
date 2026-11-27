@@ -44,6 +44,7 @@ for kandidaat in \
     services/berichtenuitvraag \
     services/berichtenmagazijn \
     services/stelselregister \
+    services/beheerconsole \
     demo/demo-console \
     demo/demo-personas \
     demo/magazijn-simulator; do

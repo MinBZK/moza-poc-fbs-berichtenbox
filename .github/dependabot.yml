@@ -30,6 +30,10 @@ updates:
     directory: "/tools/adr-lint"
     schedule:
       interval: "weekly"
+  - package-ecosystem: "npm"
+    directory: "/services/beheerconsole/src/main/webui"
+    schedule:
+      interval: "weekly"
   # Dagelijks: Dependabot genereert geen alerts voor container-images, dus voor de
   # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
   # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.
