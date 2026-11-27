@@ -78,7 +78,7 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
         val ondertekening = keten.firstOrNull()?.let { eerste ->
             Ondertekening(
                 kid = header.path("kid").asText(),
-                onderwerp = eerste.subjectX500Principal.name,
+                onderwerp = eerste.subjectX500Principal.getName(X500Principal.RFC2253, mapOf(OID_SERIALNUMBER to SERIALNUMBER)),
                 certificaatGeldigTot = keten.minOf { it.notAfter }.toInstant(),
             )
         }

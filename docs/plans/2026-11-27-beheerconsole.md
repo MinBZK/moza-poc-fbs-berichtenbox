@@ -34,8 +34,10 @@ autorisatiebeslissing.
    verifieert volgens de zes stappen uit de spec van het stelselregister, met OpenAPI-spec en
    Bruno-collectie; een scherm met de magazijnen, de geldigheid en het verlopen van het
    ondertekencertificaat.
-3. **Later, na het uitzoekwerk:** het register van de uitvraag ernaast (#1483, tweede criterium),
-   beheren zonder uitrol (#1485), inzage (#1494), en een uitrol op ZAD.
+3. **Uitrol op ZAD** (volgende PR): de console als component, net als de andere stelseldiensten
+   (besluit van de opdrachtgever, 2026-11-27).
+4. **Later, na het uitzoekwerk:** het register van de uitvraag ernaast (#1483, tweede criterium),
+   beheren zonder uitrol (#1485) en inzage (#1494).
 
 ## Ontwerpkeuzes
 

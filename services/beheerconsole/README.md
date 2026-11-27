@@ -13,6 +13,19 @@ Beheerschermen voor het berichtenstelsel, gebouwd met het NLDD-designsysteem
 Quarkus start de Vite-devserver erachter (Quinoa); een wijziging in `src/main/webui` is direct
 zichtbaar. Quinoa installeert zelf Node `24.22.2` in `.quinoa/`, dus een eigen Node is niet nodig.
 
+Het stelseloverzicht (`/stelsel`) leest het stelseldocument bij een stelselregister. Lokaal:
+
+| Variabele | Standaard in dev | Betekenis |
+|---|---|---|
+| `STELSELREGISTER_URL` | `http://localhost:8094` | Het stelselregister; buiten dev en test alleen `https://` |
+| `STELSELDOCUMENT_ROOT_PEM` | leeg | De root van de stelselbeheerder (PEM). Leeg: het overzicht meldt `NIET_GETOETST` |
+| `STELSELDOCUMENT_UITGEVER_OIN` | `00000000000000001000` | De OIN van de stelselbeheerder |
+| `STELSELDOCUMENT_OMGEVING` | `lokaal` | De omgeving waarvoor de console het document accepteert |
+
+Een stelselregister in `quarkus:dev` ondertekent met een wegwerpketen die bij elke start verandert.
+Die root is niet vooraf vast te leggen: laat `STELSELDOCUMENT_ROOT_PEM` dan leeg (`NIET_GETOETST`),
+of start het stelselregister met een eigen keystore (`docs/operator-handleiding-stelselregister.md`).
+
 ## Opbouw
 
 | Pad | Wat |

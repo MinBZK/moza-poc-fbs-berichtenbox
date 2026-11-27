@@ -42,6 +42,7 @@ class StelseldocumentlezerTest {
         assertEquals(organisaties.map { it.first }, inhoud.organisaties.map { it.oin })
         assertEquals(nu.plusSeconds(3600), inhoud.geldigTot)
         assertEquals("test-kid", ondertekening.kid)
+        assertEquals("CN=Test-ondertekenaar,SERIALNUMBER=${Testketen.OIN}", ondertekening.onderwerp)
         assertEquals(Testketen.geldig.certificaat.notAfter.toInstant(), ondertekening.certificaatGeldigTot)
     }
 
