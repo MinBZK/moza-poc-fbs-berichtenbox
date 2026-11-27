@@ -50,10 +50,16 @@ class WebappQuarkusTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["/api/v1/bestaat-niet", "/openapi.json", "/.well-known/security.txt"])
+    @ValueSource(strings = ["/api/v1/bestaat-niet", "/.well-known/security.txt"])
     fun `een API-pad krijgt geen app maar de strenge policy`(pad: String) {
         given().`when`().get(pad).then().statusCode(404)
         assertEquals(listOf("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), csp(pad))
+    }
+
+    @Test
+    fun `de spec is JSON met de strenge policy`() {
+        given().`when`().get("/openapi.json").then().statusCode(200).contentType(containsString("json"))
+        assertEquals(listOf("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), csp("/openapi.json"))
     }
 
     @Test
