@@ -15,9 +15,9 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 
 /**
- * De vorm van dit antwoord is een afspraak met elke berichtenbox die de demo gebruikt: de proeftuin
- * zoekt een testaccount op `bron` en `ontvanger` (`p.bron === "keten" && p.ontvanger === "KVK:" +
- * nummer`). Verschuift een van die twee namen, dan vindt hij niets meer en meldt hij de bezoeker
+ * De vorm van dit antwoord is een afspraak met elke berichtenbox die de demo gebruikt: het portaal
+ * zoekt een testaccount op `bron` en `ontvanger` (`account.bron === "keten" && account.ontvanger ===
+ * "KVK:" + nummer`). Verschuift een van die twee namen, dan vindt hij niets meer en meldt hij de bezoeker
  * dat de keten hem niet kent — een fout die pas tijdens een demo opvalt.
  */
 @QuarkusTest

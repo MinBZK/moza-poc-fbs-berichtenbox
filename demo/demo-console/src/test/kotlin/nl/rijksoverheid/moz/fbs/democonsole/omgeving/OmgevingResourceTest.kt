@@ -158,7 +158,7 @@ class OmgevingResourceTest {
 
     @Test
     fun `een geconfigureerde berichtenbox komt ongewijzigd door`() {
-        val url = "https://proeftuin-demo-mpfm-w3h.example/moza/berichtenbox/"
+        val url = "https://portaal-demo-mpfm-w3h.example/berichtenbox"
 
         assertEquals(url, resource(berichtenbox = url).omgeving().berichtenboxUrl)
     }

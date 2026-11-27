@@ -238,17 +238,14 @@ demo/up.sh
 
 Daarna staat de hele demo op één adres: <http://127.0.0.1:8097/bediening/> — de Berichtenbox met het
 bedieningspaneel ernaast. Het portaal kiest de ondernemer uit zijn eigen persona's; de persona's die
-op de keten zijn aangesloten (`proeftuin-een` tot en met `proeftuin-drie`, `proeftuin-veel`,
-`proeftuin-concern` en `proeftuin-garage`) zoekt het op KVK-nummer op in de personadienst.
+op de keten zijn aangesloten (`proeftuin-een` tot en met `proeftuin-vier`, `proeftuin-veel`,
+`proeftuin-concern` en `proeftuin-garage`) zoekt het op KVK-nummer op in de personadienst. Het
+portaal start zelf een sessie bij de uitvraag en bewaart het sessie-id in een httpOnly-cookie.
 
-> **Nog geen berichten uit de keten.** Het portaal start nog geen sessie bij de uitvraag
-> ([#1453](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1453)), en de uitvraag geeft zonder
-> sessie geen berichten. Tot dat in het portaal zit, toont de Berichtenbox een foutmelding voor elke
-> aangesloten persona. `demo/smoke.sh` meldt dat met een `LET OP`-regel.
-
-Welke versie van het portaal meedraait, staat in `compose.yaml`, gepind op digest. Een andere versie
-draaien zonder de pin aan te raken kan met de overlay `compose.portaal-versie.yaml`; die neemt een
-hele referentie. Elke PR op moza-portaal heeft een eigen image:
+Welke versie van het portaal meedraait, staat in `compose.yaml`, gepind op digest. Dezelfde regel is
+de pin voor ZAD en Fundament; een achterlopende pin biedt de workflow Portaal-pin als PR aan. Een
+andere versie draaien zonder de pin aan te raken kan met de overlay `compose.portaal-versie.yaml`;
+die neemt een hele referentie. Elke PR op moza-portaal heeft een eigen image:
 
 ```bash
 PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e demo/up.sh

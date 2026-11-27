@@ -51,8 +51,8 @@ is by design degradatie-tolerant, dus met alleen A's bericht is de proef ook gro
 onbereikbaar is.
 
 De laatste stap vraagt de Berichtenbox van het portaal op via de demo-proxy (`:8097`), met alleen
-het persona-cookie, zoals een browser dat doet. Zolang het portaal geen sessie start
-(MinBZK/MijnOverheidZakelijk#1453), meldt die stap dat met `LET OP` en blijft de proef groen.
+het persona-cookie, zoals een browser dat doet. Daarna start hij via het portaal een sessie, leest
+de lijst met het sessie-cookie dat het portaal zet (200 of 409), en beëindigt de sessie weer.
 
 ## De valkuilen die niet in de scripts staan
 

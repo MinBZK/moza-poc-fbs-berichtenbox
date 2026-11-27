@@ -131,7 +131,7 @@ Een refresh laat je staan waar je was: het paneel bewaart het actieve tabblad, d
 stand en de invoervelden in `sessionStorage`. Sluit je het tabblad, dan is het weg — een volgende
 demo begint schoon.
 
-De opmaak staat los van de proeftuin: een eigen tokenlaag (`--bediening-*`) in `bediening.css`, met
+De opmaak staat los van het portaal: een eigen tokenlaag (`--bediening-*`) in `bediening.css`, met
 de opbouw van NL Design System maar eigen waarden en een donkere chrome. Wie tijdens een demo
 meekijkt, moet het paneel niet aanzien voor het product dat ernaast in het frame staat.
 

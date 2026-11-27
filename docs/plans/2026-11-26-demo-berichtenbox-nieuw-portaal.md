@@ -1,6 +1,6 @@
 # De demo toont de Berichtenbox van het nieuwe MOZa-portaal
 
-**Status:** Concept
+**Status:** Uitgevoerd
 
 Issue: [MinBZK/MijnOverheidZakelijk#1345](https://github.com/MinBZK/MijnOverheidZakelijk/issues/1345).
 
@@ -27,24 +27,20 @@ Twee dingen staan vast voordat er iets verandert:
 
 ## Snede
 
-Per stap in de keten, elk in één zitting te reviewen:
+Eerst gepland als vier PR's (lokale stack, pin, ZAD, documentatie). Op 2026-11-27 besloot de
+opdrachtgever anders: MinBZK/MijnOverheidZakelijk#1453 hoort bij #1345, en alles wat de
+Berichtenbox in moza-poc kon, moet na de overstap in het portaal werken. Niet opknippen in stappen
+die los niets werkends opleveren. Daarom twee PR's, één per repository:
 
-1. **Lokale demo-stack** (deze PR). Dienst `portaal` op digest gepind in `compose.yaml`, de demo-proxy
-   stuurt `/` en `/api/keten/` naar het portaal, overlays `compose.portaal-versie.yaml` en
-   `compose.portaal-lokaal.yaml`, `demo/up.sh`, de rookproef en het paneel. De proeftuin blijft als
-   pin voor ZAD in `compose.yaml` staan, in een eigen profiel dat lokaal niet start.
-2. **Pin volgt moza-portaal.** Scripts en workflows die nu de main-commit van moza-poc vergelijken,
-   vergelijken het `main-<sha>`-image van moza-portaal; dependabot-regel mee.
-3. **ZAD.** `deploy.yml` en het creatiescript rollen het portaal uit als berichtenbox-component, met
-   `KETEN_BACKEND_URL` en `KETEN_PERSONAS_URL` op de deployment. De proeftuin-pin en zijn scripts
-   gaan weg.
-4. **Documentatie en Fundament.** Runbook-scenario's per scenario nagelopen in het portaal, of met de
-   reden waarom het (nog) niet kan; de chart `charts/fbs-demo` en de overige verwijzingen.
+- **MinBZK/moza-portaal#303**: #1453 in het portaal (sessies, volledigheid, berichtsleutel,
+  bijlage via `_links`, events, mappen, persona `proeftuin-vier`).
+- **MinBZK/moza-poc-fbs-berichtenbox#492** (dit plan): de hele #1345 aan onze kant — lokale stack,
+  pin, ZAD, Fundament en documentatie.
 
-Stap 2–4 hangen van stap 1 af; stap 3 heeft pas zin als MinBZK/MijnOverheidZakelijk#1453 punt 1 in het portaal zit, anders
-staat er op ZAD een Berichtenbox zonder berichten.
+#492 pint op het image van #303 tot die gemerged is en het portaalteam een `main-<sha7>`-image
+heeft gebouwd; vóór de merge van #492 gaat de pin naar dat image.
 
-## Ontwerpkeuzes stap 1
+## Ontwerpkeuzes: lokale stack
 
 - **De proxy praat niet meer met de uitvraag.** Het portaal zet `X-Ontvanger` server-side uit het
   persona-cookie en stuurt geen `Origin` mee. De `/api/v1/`-route en de cookie-route voor bijlagen
@@ -57,11 +53,10 @@ staat er op ZAD een Berichtenbox zonder berichten.
 - **`AUTH_SECRET` met een vaste default.** next-auth meldt zonder geheim bij elk verzoek een fout. De
   lokale demo heeft geen inlogdienst; het geheim ondertekent alleen cookies van een stack op
   loopback. Te overschrijven met `PORTAAL_AUTH_SECRET`.
-- **De rookproef meldt het sessiegat in plaats van te falen.** Stap 7 vraagt `/api/keten/berichten`
-  via de proxy met alleen het persona-cookie. 200 of 409 is goed; een 401 met
-  `sessie-ongeldig` is het bekende gat (MinBZK/MijnOverheidZakelijk#1453) en geeft een `LET OP`-regel; al het andere faalt.
-  Zo bewijst de proef dat proxy, portaal en uitvraag aan elkaar hangen, zonder rood te staan op
-  iets wat deze repo niet kan oplossen. `TODO(MinBZK/MijnOverheidZakelijk#1453)` zet de eis terug op 200/409.
+- **De rookproef speelt de sessie van de Berichtenbox na.** Stap 7 start via de proxy een sessie
+  bij het portaal (201 met het cookie `keten-sessie`), leest `/api/keten/berichten` met dat cookie
+  (200 of 409) en beëindigt de sessie (204). Het cookie komt uit de headers: het portaal zet het
+  met `Secure`, en curl stuurt zo'n cookie over gewone HTTP niet terug.
 - **De bijlage-stap gaat rechtstreeks naar de uitvraag**, met `X-Ontvanger` en `X-Sessie`. Wat de
   proef daar toetst — het adres uit `_links.self` levert de bijlage — blijft gelden.
 - **De demo-proxy geeft het portaal `X-Forwarded-Host`.** Next.js weigert een Server Action als de
@@ -69,7 +64,27 @@ staat er op ZAD een Berichtenbox zonder berichten.
 - **In podman-hostnet luistert het portaal op `localhost`, vastgelegd op IPv4.** Met een letterlijk
   IP-adres als `HOSTNAME` stuurt Next.js elke pagina met persona-cookie naar zichzelf door.
 
-## Verificatie stap 1
+## Ontwerpkeuzes: pin, ZAD en Fundament
+
+- **Eén pin, de regel van `portaal` in `compose.yaml`.** De proeftuin en zijn profiel `zad-pin`
+  verdwijnen. `portaal-image.sh` leest de regel voor de deploy, het creatiescript en de
+  Fundament-installatie; `PORTAAL_IMAGE` overschrijft hem voor één draai.
+- **De pin-controle kent de tags van het portaal.** Main-images heten `main-<sha7>` (leesbaar:
+  `main`) en worden met de hand gebouwd, dus `ontbreekt` kan dagen duren. Previews staan in
+  hetzelfde repository als `pr-<n>-<sha7>`; alleen de tag onderscheidt ze, en ze verdwijnen bij het
+  sluiten van hun PR.
+- **Het component op ZAD heet `portaal`**, poort 3000, met `KETEN_BACKEND_URL` en
+  `KETEN_PERSONAS_URL` op de publieke adressen van uitvraag en personadienst (de NetworkPolicy laat
+  tussen projecten alleen de route toe). `AUTH_SECRET` krijgt een willekeurige waarde, alleen als
+  hij er nog niet is: een nieuw geheim zou elke open Berichtenbox uitloggen. Aanmaken gebeurt met de
+  hand vóór de merge; het oude component `proeftuin` gaat erna weg.
+- **Op Fundament een eigen Secret `fbs-demo-portaal`.** `secret_eenmalig` voegt geen key toe aan
+  een bestaand Secret, dus een installatie van vóór het portaal krijgt zo alsnog een geheim.
+  `HOSTNAME=0.0.0.0` expliciet, want Kubernetes zet de variabele op de podnaam.
+- **De persona-kruiscontrole vergelijkt op KVK-nummer.** Het portaal koppelt zo, en zijn id's
+  wijken af van de onze (`proeftuin-veel` is `grootbedrijf`).
+
+## Verificatie
 
 - `demo/up.sh` in podman-bridge, daarna `demo/smoke.sh`.
 - De Berichtenbox in de browser via `:8097/bediening/`, persona `proeftuin-een`.

@@ -44,7 +44,7 @@ REGISTER_VAN_DE_UITVRAAG = "services/berichtenuitvraag/src/main/resources/applic
 # bestaat om het gedrag van de keten in de breedte zichtbaar te maken, niet om realisme te tonen.
 #
 # De identificatienummers volgen de bestaande demo-persona's; alleen de grootste is nieuw. Lopen er
-# elders standaard-persona's (proeftuin), dan zijn die leidend en hoeft hier alleen de koppeling te
+# elders standaard-persona's (het portaal), dan zijn die leidend en hoeft hier alleen de koppeling te
 # verschuiven — de groottes zijn wat telt, niet de namen.
 # Hoeveel post elke ondernemer per magazijn krijgt wanneer de simulator zichzelf vult. Gelijk aan
 # wat de vul-knop van het bedieningspaneel zet (SimulatorService.STANDAARD_PER_MAGAZIJN), en bewust

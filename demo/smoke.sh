@@ -293,33 +293,49 @@ if ! grep -qF '\"ontvanger\":\"KVK:' "$pagina" 2>/dev/null; then
     exit 1
 fi
 
+# Daarna de keten zoals de Berichtenbox hem gebruikt: een sessie starten via het portaal, de lijst
+# lezen met het sessie-cookie dat het portaal zet, en de sessie weer beëindigen. Het sessie-cookie
+# uit de headers en niet uit een cookie-jar: het portaal zet het met `Secure`, en dan stuurt curl
+# het over gewone HTTP niet terug.
 keten=/tmp/smoke-portaal-keten.json
-rm -f "$keten"
+kop=/tmp/smoke-portaal-kop.txt
+rm -f "$keten" "$kop"
+status=$(curl -s --max-time 30 -o "$keten" -D "$kop" -w '%{http_code}' -X POST \
+    "$DEMO_PROXY/api/keten/sessies" -H "Cookie: personaId=$PORTAAL_PERSONA" || true)
+
+if [[ "$status" != "201" ]]; then
+    echo "FOUT: een sessie starten via het portaal gaf HTTP $status (verwacht 201):"
+    cat "$keten" 2>/dev/null || true
+    exit 1
+fi
+
+sessie_cookie=$(tr -d '\r' < "$kop" | sed -n 's/^[Ss]et-[Cc]ookie: \(keten-sessie=[^;]*\).*/\1/p' | head -1)
+
+if [[ -z "$sessie_cookie" || "$sessie_cookie" == "keten-sessie=" ]]; then
+    echo "FOUT: het portaal startte een sessie maar zette geen sessie-cookie"
+    exit 1
+fi
+
 status=$(curl -s --max-time 10 -o "$keten" -w '%{http_code}' \
-    "$DEMO_PROXY/api/keten/berichten" -H "Cookie: personaId=$PORTAAL_PERSONA" || true)
+    "$DEMO_PROXY/api/keten/berichten" -H "Cookie: personaId=$PORTAAL_PERSONA; $sessie_cookie" || true)
 
 # 200 is een lijst, 409 zegt dat er nog geen ophaalronde was: allebei antwoorden van de uitvraag.
-# Een 401 `sessie-ongeldig` komt ook van de uitvraag, maar betekent dat het portaal geen sessie
-# start; dan toont de Berichtenbox geen berichten uit de keten. Dat is een bekend gat aan de kant
-# van het portaal, geen storing in deze stack: de proef meldt het en gaat door.
-# TODO(MinBZK/MijnOverheidZakelijk#1453): eis 200 of 409 zodra het portaal sessies start.
 case "$status" in
     200|409) ;;
-    401)
-        if ! grep -qF 'urn:fbs:fout:sessie-ongeldig' "$keten" 2>/dev/null; then
-            echo "FOUT: de keten via het portaal gaf HTTP 401 zonder het fouttype sessie-ongeldig:"
-            cat "$keten" 2>/dev/null || true
-            exit 1
-        fi
-
-        echo "LET OP: het portaal start nog geen sessie bij de uitvraag (MinBZK/MijnOverheidZakelijk#1453)."
-        echo "        De route naar de keten werkt, maar de Berichtenbox toont nog geen berichten uit de keten."
-        ;;
     *)
-        echo "FOUT: de keten via het portaal gaf HTTP $status (verwacht 200, 409 of 401 sessie-ongeldig):"
+        echo "FOUT: de keten via het portaal gaf HTTP $status (verwacht 200 of 409):"
         cat "$keten" 2>/dev/null || true
         exit 1
         ;;
 esac
+
+# Opruimen, zodat de proef geen sessie achterlaat die de cache van deze persona in leven houdt.
+status=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -X DELETE \
+    "$DEMO_PROXY/api/keten/sessies/huidige" -H "Cookie: personaId=$PORTAAL_PERSONA; $sessie_cookie" || true)
+
+if [[ "$status" != "204" ]]; then
+    echo "FOUT: de sessie beëindigen via het portaal gaf HTTP $status (verwacht 204)"
+    exit 1
+fi
 
 echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, een bijlage komt binnen via zijn eigen adres, en het portaal bereikt de keten via de demo-proxy"

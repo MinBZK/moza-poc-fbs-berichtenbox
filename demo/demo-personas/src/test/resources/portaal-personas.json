@@ -1,0 +1,12 @@
+{
+  "_toelichting": "Kopie van de persona's met `stelsel: true` uit src/demo/personas.json in MinBZK/moza-portaal, beperkt tot wat het magazijn nodig heeft: de id in het portaal, en van de eerste organisatie de handelsnaam voor de aanhef en het KVK-nummer om aan af te leveren. Hun bestand is eigenaar; deze kopie bestaat alleen zodat een test een verschil opmerkt. Het portaal koppelt op KVK-nummer, niet op id. `ophaaltAlleen` staat niet in hun bestand; wij voegen het hier toe. Het markeert een persona die berichten ophaalt bij de gesimuleerde magazijnen en dus geen opt-in in demo.personas heeft. Wie deze kopie opnieuw overneemt, zet die markeringen terug.",
+  "personas": [
+    {"id": "proeftuin-een", "bedrijf": {"handelsnaam": "Demo-onderneming 1", "kvkNummer": "90000011"}},
+    {"id": "proeftuin-twee", "bedrijf": {"handelsnaam": "Demo-onderneming 2", "kvkNummer": "90000012"}},
+    {"id": "proeftuin-drie", "bedrijf": {"handelsnaam": "Demo-onderneming 3", "kvkNummer": "90000013"}},
+    {"id": "proeftuin-veel", "bedrijf": {"handelsnaam": "Grootbedrijf B.V.", "kvkNummer": "90000001"}, "ophaaltAlleen": true},
+    {"id": "proeftuin-concern", "bedrijf": {"handelsnaam": "Landelijk Concern N.V.", "kvkNummer": "90000003"}, "ophaaltAlleen": true},
+    {"id": "proeftuin-vier", "bedrijf": {"handelsnaam": "Demo-onderneming 4", "kvkNummer": "90000015"}, "ophaaltAlleen": true},
+    {"id": "proeftuin-garage", "bedrijf": {"handelsnaam": "Garage Van Dijk B.V.", "kvkNummer": "90000014"}}
+  ]
+}
