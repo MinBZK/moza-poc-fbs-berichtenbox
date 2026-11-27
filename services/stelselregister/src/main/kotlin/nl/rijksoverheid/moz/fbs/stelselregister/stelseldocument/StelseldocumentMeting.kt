@@ -13,8 +13,7 @@ import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
  * 0 betekent dat er geen geldend exemplaar is.
  *
  * Elke gauge leest bij de scrape de levende toestand, dus geen eigen bijgehouden kopie die kan
- * achterlopen. Alleen aantallen en tijdstippen: een label per magazijn hangt aan het besluit over
- * labels per organisatie.
+ * achterlopen. Alleen aantallen en tijdstippen, geen label per organisatie.
  */
 @ApplicationScoped
 class StelseldocumentMeting(
@@ -25,23 +24,44 @@ class StelseldocumentMeting(
 ) {
 
     fun registreer(@Observes start: StartupEvent) {
-        Gauge.builder("fbs.stelseldocument.geldig.tot", uitgegeven) { tijdstip(it.geldend()?.verlooptOp?.epochSecond) }
-            .description("Einde van de geldigheid van het geldende stelseldocument (seconden sinds 1970; 0 = geen)")
+        Gauge.builder("fbs.stelseldocument.geldig.tot", uitgegeven) {
+            tijdstip(it.geldend()?.verlooptOp?.epochSecond)
+        }
+            .description("Einde van de geldigheid van het geldende stelseldocument (0 = geen)")
+            .baseUnit(SECONDEN)
+            .strongReference(true)
             .register(registry)
-        Gauge.builder("fbs.stelseldocument.uitgegeven.op", uitgegeven) { tijdstip(it.geldend()?.uitgegevenOp?.epochSecond) }
-            .description("Uitgifte van het geldende stelseldocument (seconden sinds 1970; 0 = geen)")
+        Gauge.builder("fbs.stelseldocument.uitgegeven.op", uitgegeven) {
+            tijdstip(it.geldend()?.uitgegevenOp?.epochSecond)
+        }
+            .description("Uitgifte van het geldende stelseldocument (0 = geen)")
+            .baseUnit(SECONDEN)
+            .strongReference(true)
             .register(registry)
-        Gauge.builder("fbs.stelseldocument.organisaties", uitgegeven) { (it.geldend()?.aantalOrganisaties ?: 0).toDouble() }
-            .description("Organisaties in het geldende stelseldocument")
+        Gauge.builder("fbs.stelseldocument.organisaties", uitgegeven) {
+            (it.geldend()?.aantalOrganisaties ?: 0).toDouble()
+        }
+            .description("Organisaties in het geldende stelseldocument (0 = geen geldend exemplaar)")
+            .strongReference(true)
             .register(registry)
-        Gauge.builder("fbs.stelseldocument.sleutel.geldig.tot", sleutelbron) { it.sleutel.geldigTot.epochSecond.toDouble() }
-            .description("Het vroegste einde van de certificaatketen van de ondertekensleutel (seconden sinds 1970)")
+        Gauge.builder("fbs.stelseldocument.sleutel.geldig.tot", sleutelbron) {
+            it.sleutel.geldigTot.epochSecond.toDouble()
+        }
+            .description("Het vroegste einde van de certificaatketen van de ondertekensleutel")
+            .baseUnit(SECONDEN)
             .tag("herkomst", sleutelbron.sleutel.herkomst.name.lowercase())
+            .strongReference(true)
             .register(registry)
         Gauge.builder("fbs.magazijnregister.magazijnen", register) { it.alle().size.toDouble() }
             .description("Ingeschreven magazijnen in het register van deze dienst")
+            .strongReference(true)
             .register(registry)
     }
 
     private fun tijdstip(epochSeconde: Long?): Double = (epochSeconde ?: 0L).toDouble()
+
+    private companion object {
+        /** Prometheus plakt de eenheid achter de naam: `..._geldig_tot_seconds`. */
+        const val SECONDEN = "seconds"
+    }
 }

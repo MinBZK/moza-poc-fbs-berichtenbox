@@ -9,7 +9,6 @@ import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import nl.rijksoverheid.moz.fbs.magazijnregister.Magazijnregister
 import org.junit.jupiter.api.Assertions.assertEquals
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import java.time.Instant
 
@@ -22,6 +21,9 @@ class StelseldocumentMetingTest {
 
     @Inject
     lateinit var uitgegeven: UitgegevenStelseldocument
+
+    @Inject
+    lateinit var sleutelbron: Sleutelbron
 
     @Inject
     lateinit var register: Magazijnregister
@@ -40,29 +42,44 @@ class StelseldocumentMetingTest {
 
     // In een test ondertekent de dienst met een wegwerpketen; het label maakt dat zichtbaar.
     @Test
-    fun `het verlopen van de sleutelketen ligt in de toekomst en draagt de herkomst`() {
+    fun `het verlopen van de sleutelketen staat met zijn herkomst in de meting`() {
         val tot = registry.get("fbs.stelseldocument.sleutel.geldig.tot").tag("herkomst", "wegwerp").gauge().value()
 
-        assertTrue(tot > Instant.now().epochSecond, "keten verloopt op $tot")
+        assertEquals(sleutelbron.sleutel.geldigTot.epochSecond.toDouble(), tot)
     }
 
+    // Losse registry en mocks: zo is te zien dat elke scrape opnieuw leest, ook als het geldende
+    // exemplaar verdwijnt of terugkomt.
     @Test
-    fun `zonder geldend document staan de tijdstippen op nul`() {
+    fun `de meting volgt het geldende document bij elke scrape`() {
         val eigen = SimpleMeterRegistry()
-        val zonder = mockk<UitgegevenStelseldocument> { every { geldend() } returns null }
-        val leeg = mockk<Magazijnregister> { every { alle() } returns emptyList() }
-
+        val uitgifte = Uitgifte(
+            jws = "x.y.z",
+            versie = "1",
+            kid = "kid",
+            uitgegevenOp = Instant.ofEpochSecond(1_000),
+            verlooptOp = Instant.ofEpochSecond(2_000),
+            aantalOrganisaties = 3,
+        )
+        val bron = mockk<UitgegevenStelseldocument> { every { geldend() } returnsMany listOf(null, null, null, uitgifte) }
         val sleutel = mockk<Ondertekensleutel> {
             every { herkomst } returns Sleutelherkomst.KEYSTORE
-            every { geldigTot } returns Instant.EPOCH
+            every { geldigTot } returns Instant.ofEpochSecond(5_000)
         }
-        val bron = mockk<Sleutelbron> { every { this@mockk.sleutel } returns sleutel }
+        val sleutels = mockk<Sleutelbron> { every { this@mockk.sleutel } returns sleutel }
+        val leeg = mockk<Magazijnregister> { every { alle() } returns emptyList() }
 
-        StelseldocumentMeting(eigen, zonder, bron, leeg).registreer(StartupEvent())
+        StelseldocumentMeting(eigen, bron, sleutels, leeg).registreer(StartupEvent())
 
-        assertEquals(0.0, eigen.get("fbs.stelseldocument.geldig.tot").gauge().value())
-        assertEquals(0.0, eigen.get("fbs.stelseldocument.uitgegeven.op").gauge().value())
-        assertEquals(0.0, eigen.get("fbs.stelseldocument.organisaties").gauge().value())
-        assertEquals(0.0, eigen.get("fbs.magazijnregister.magazijnen").gauge().value())
+        val waarde = { naam: String -> eigen.get(naam).gauge().value() }
+
+        assertEquals(0.0, waarde("fbs.stelseldocument.geldig.tot"))
+        assertEquals(0.0, waarde("fbs.stelseldocument.uitgegeven.op"))
+        assertEquals(0.0, waarde("fbs.stelseldocument.organisaties"))
+        assertEquals(2_000.0, waarde("fbs.stelseldocument.geldig.tot"))
+        assertEquals(1_000.0, waarde("fbs.stelseldocument.uitgegeven.op"))
+        assertEquals(3.0, waarde("fbs.stelseldocument.organisaties"))
+        assertEquals(5_000.0, eigen.get("fbs.stelseldocument.sleutel.geldig.tot").tag("herkomst", "keystore").gauge().value())
+        assertEquals(0.0, waarde("fbs.magazijnregister.magazijnen"))
     }
 }
