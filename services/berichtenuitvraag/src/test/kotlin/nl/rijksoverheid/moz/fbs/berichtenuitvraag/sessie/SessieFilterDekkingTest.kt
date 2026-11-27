@@ -61,7 +61,7 @@ class SessieFilterDekkingTest {
         private const val MAGAZIJN = "00000001003214345000"
 
         /** Vastgelegd zodat een halve spec-parse de dekking niet stil verkleint. */
-        private const val OPERATIES = 14
+        private const val OPERATIES = 15
 
         @JvmStatic
         fun operaties(): List<SpecOperatie> {
@@ -113,7 +113,7 @@ class SessieFilterDekkingTest {
 
         assertEquals(OPERATIES, alle.size, alle.toString())
         assertEquals(
-            setOf("POST /sessies", "POST /aanmeldingen", "GET /openapi.json"),
+            setOf("POST /sessies", "POST /aanmeldingen", "GET /openapi.json", "GET /logboek/verwerkingen"),
             vrijgesteld().map { it.toString() }.toSet(),
         )
     }

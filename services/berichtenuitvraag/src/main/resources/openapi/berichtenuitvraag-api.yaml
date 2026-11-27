@@ -111,6 +111,11 @@ tags:
       uitloggen en bij zijn eigen time-out (`DELETE /sessies/huidige`), en geeft bij het starten
       zijn eigen plafond mee. De inactiviteitstermijn en het plafond van deze dienst zijn alleen
       een vangnet.
+  - name: Logboek
+    description: |
+      Inzage in het Logboek Dataverwerkingen van deze dienst per betrokkene, bijvoorbeeld bij
+      een verzoek tot inzage (AVG art. 15). Demonstratie: dit endpoint is niet afgeschermd en
+      vraagt geen sessie.
   - name: Specificatie
     description: Dit OpenAPI-document, op de plek waar de API Design Rules het verwachten.
 
@@ -707,6 +712,44 @@ paths:
         '500': { $ref: '#/components/responses/InternalServerError' }
         '503': { $ref: '#/components/responses/ServiceUnavailable' }
 
+  /logboek/verwerkingen:
+    get:
+      tags: [Logboek]
+      summary: Verwerkingen van één betrokkene uit het Logboek Dataverwerkingen
+      operationId: getLogboekVerwerkingen
+      description: |
+        Geeft per verwerking van persoonsgegevens van de betrokkene uit `X-Betrokkene` één
+        regel, met één uitkomst volgens de leesregel van het logboek: een logregel op `UNSET`
+        zonder ERROR-child is geslaagd; een logregel op `ERROR`, of met een ERROR-child, is
+        mislukt. Nieuwste verwerking eerst. De inzage zelf wordt ook als verwerking vastgelegd.
+      security: []
+      parameters:
+        - name: X-Betrokkene
+          in: header
+          required: true
+          description: 'Betrokkene als `<TYPE>:<WAARDE>`, bijv. `BSN:999990019`'
+          schema: { type: string, pattern: '^(BSN:[0-9]{9}|RSIN:[0-9]{9}|KVK:[0-9]{8}|OIN:[0-9]{20})$' }
+        - name: van
+          in: query
+          required: false
+          description: Alleen verwerkingen vanaf dit tijdstip (inclusief).
+          schema: { type: string, format: date-time }
+        - name: tot
+          in: query
+          required: false
+          description: Alleen verwerkingen vóór dit tijdstip (exclusief).
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: De verwerkingen van de betrokkene; een lege lijst als er geen zijn.
+          headers:
+            API-Version: { $ref: '#/components/headers/API-Version' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LogboekVerwerkingen' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+
   /openapi.json:
     get:
       tags: [Specificatie]
@@ -886,6 +929,47 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    LogboekVerwerkingen:
+      type: object
+      required: [betrokkene, verwerkingen]
+      properties:
+        betrokkene:
+          $ref: '#/components/schemas/LogboekBetrokkene'
+        verwerkingen:
+          type: array
+          items: { $ref: '#/components/schemas/LogboekVerwerking' }
+
+    LogboekBetrokkene:
+      type: object
+      required: [type, waarde]
+      properties:
+        type: { type: string, enum: [BSN, RSIN, KVK, OIN] }
+        waarde: { type: string, pattern: '^[0-9]{8,20}$' }
+
+    LogboekVerwerking:
+      type: object
+      required: [tijdstip, handeling, uitkomst]
+      properties:
+        tijdstip: { type: string, format: date-time, description: Begin van de verwerking. }
+        handeling:
+          type: string
+          description: Wat de dienst deed, zoals `uitvraag-lijst` of `uitvraag-sessie-start`.
+        verwerkingsactiviteit:
+          type: string
+          description: Identificatie van de verwerkingsactiviteit in het verwerkingsregister.
+        uitkomst: { type: string, enum: [geslaagd, mislukt] }
+        berichtId:
+          type: string
+          format: uuid
+          description: Het bericht waarop de verwerking betrekking had, als het logboek dat vastlegt.
+        verstrektAan:
+          type: string
+          description: Partij waaraan een bericht verstrekt is of had moeten worden.
+        poging: { type: integer, format: int64, description: Nummer van de leverpoging. }
+        foutcategorie:
+          type: string
+          description: Bij een mislukte verwerking de soort fout, zonder details uit het verzoek.
+
     BerichtenLijst:
       type: object
       description: |
