@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=481
+VERWACHTE_CONTROLES=492
 MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
@@ -705,6 +705,10 @@ for pad in /api/v1/berichten/_ophalen /api/v1/berichten/_volgen; do
 done
 toets_aantal "demo" "één regel zonder request-timeout" 'request: 0s' 1
 toets_bevat "demo" "uitzondering op /q alleen met reden" 'fbs.minbzk.nl/backend-zonder-q: "de demo-proxy'
+toets_env "demo" "paneel: berichtenbox voor de browser, zonder poort 443" BERICHTENBOX_URL "https://demo.$DEMO_DOMEIN/moza/berichtenbox/"
+# Een lokaal cluster bereikt de Gateway op een andere poort; de browser moet die in het adres zien.
+TOETS_CHART=$DEMO TOETS_RELEASE=fbs-demo toets_render "demo-poort" "${demo[@]}" --set httpsPoort=9443
+toets_env "demo-poort" "paneel: berichtenbox met de poort" BERICHTENBOX_URL "https://demo.$DEMO_DOMEIN:9443/moza/berichtenbox/"
 # De standaarden in het proeftuin-image wijzen naar de testomgeving op ZAD.
 toets_env "demo" "proeftuin naar de eigen uitvraag" BACKEND_KETEN 'http://berichtenuitvraag.fbs.svc.cluster.local:80'
 toets_env "demo" "proeftuin met de host van de eigen uitvraag" BACKEND_KETEN_HOST 'berichtenuitvraag.fbs.svc.cluster.local'
@@ -782,6 +786,10 @@ demo_weigering "demo-set-als-register" "magazijnenregister is leeg of bevat geen
 for p in servicePoort uitvraagPoort magazijnPoort; do
   demo_weigering "demo-$p-als-tekst" "stelsel.$p is geen poortnummer" --set-string "stelsel.$p=http"
 done
+for p in 0 65536 -1; do
+  demo_weigering "demo-httpsPoort-$p" "httpsPoort $p is geen poortnummer van 1 tot 65535" --set "httpsPoort=$p"
+done
+demo_weigering "demo-httpsPoort-als-tekst" "httpsPoort https is geen poortnummer" --set-string httpsPoort=https
 # Alle fouten in één keer, niet alleen de eerste.
 demo_weigering "demo-twee-fouten" "basisdomein is verplicht" --set basisdomein= --set images.tag=
 demo_weigering "demo-twee-fouten-tweede" "images.tag is verplicht" --set basisdomein= --set images.tag=

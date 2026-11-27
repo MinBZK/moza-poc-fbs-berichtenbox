@@ -12,6 +12,9 @@ een knop niets doet.
 {{- else if not (regexMatch "^([a-z0-9]([-a-z0-9]*[a-z0-9])?\\.)+[a-z0-9]([-a-z0-9]*[a-z0-9])?$" $v.basisdomein) }}
 {{- $fouten = append $fouten (printf "basisdomein %q is geen DNS-naam in kleine letters" $v.basisdomein) }}
 {{- end }}
+{{- if not (and (or (kindIs "float64" $v.httpsPoort) (kindIs "int64" $v.httpsPoort) (kindIs "int" $v.httpsPoort)) (ge (int $v.httpsPoort) 1) (le (int $v.httpsPoort) 65535)) }}
+{{- $fouten = append $fouten (printf "httpsPoort %v is geen poortnummer van 1 tot 65535" $v.httpsPoort) }}
+{{- end }}
 {{- if not $v.cluster.gateway.name }}
 {{- $fouten = append $fouten "cluster.gateway.name is verplicht: de routes hangen eraan, en de NetworkPolicy laat zijn proxy's binnen" }}
 {{- end }}

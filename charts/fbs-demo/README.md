@@ -306,6 +306,15 @@ done
 demo. `.github/scripts/proeftuin-image.sh` leest die regel. De chart weigert een referentie zonder
 digest.
 
+Een andere versie, bijvoorbeeld nog niet gemergd werk uit hun preview-repository, zet je per
+installatie met `PROEFTUIN_IMAGE`, niet in de values: zo blijft de pin in `compose.yaml` de enige
+die bijgehouden wordt. Het script en `proeftuin-image.sh` lezen die variabele allebei. Neem de
+referentie mét digest; hoe je die bij een preview vindt, staat in `docs/demo-runbook.md` §5b.
+
+```bash
+PROEFTUIN_IMAGE=ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha7>@sha256:<digest> charts/demo-op-fundament.sh op
+```
+
 Na de installatie:
 - de berichtenbox op `https://demo.<basisdomein>/moza/berichtenbox/`;
 - het paneel op `https://demo.<basisdomein>/bediening/`, met gebruiker `demo` en het wachtwoord uit

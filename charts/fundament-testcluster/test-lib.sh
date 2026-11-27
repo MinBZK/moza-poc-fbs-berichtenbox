@@ -1175,7 +1175,8 @@ echo "== demo(): de flow =="
 # demo-op-fundament.sh gaat, en waar het stopt.
 DEMO_STUBS='WERK=$(mktemp -d); TAG=main-1234567;
 hm() { echo "HM $*" >&2; case "$*" in "list "*) [ "${HMLIST:-leeg}" = fout ] && return 1; [ "${HMLIST:-leeg}" = ja ] && echo berichtenmagazijn; return 0 ;; esac; };
-kc() { case "$*" in *"get service"*) echo "${SVC-envoy-x}" ;; *"get configmap coredns"*) echo "${COREFILE-import /etc/coredns/custom/*.override}" ;; *"get secret web-tls"*) printf CA | base64 ;; *"-f -"*) cat >/dev/null ;; esac; };
+kc() { case "$*" in *"get service"*) echo "${SVC-envoy-x}" ;; *"get configmap coredns"*) echo "${COREFILE-import /etc/coredns/custom/*.override}" ;; *"get secret web-tls"*) printf CA | base64 ;; *"-f -"*) cat >/dev/null ;; *"delete httproute"*) echo "KC $*" >&2 ;;
+  *"get httproute"*) r=$(printf "%s\n" "$@" | grep -xE "berichtenuitvraag|berichtenmagazijn|stelselregister"); case " ${LOS-} ${HELM-} " in *" $r "*) [[ " ${HELM-} " != *" $r "* ]] || echo "$r" ;; *) return 1 ;; esac ;; esac; };
 docker() { case "$*" in *berichtenmagazijn*JAVA_HOME*) echo "${JH_MAGAZIJN-/usr/lib/jvm/jre}" ;; *importkeystore*) cat >/dev/null; echo "KEYTOOL $*" >&2; [ "${KEYTOOL:-ok}" = ok ] && echo KEYSTORE ;; *JAVA_HOME*) echo "${JH-/usr/lib/jvm/jre}" ;; esac; };
 env() { echo "ENV $*"; ls "$WERK/demo-values"; };'
 
@@ -1197,6 +1198,18 @@ bevat_niet "demo: leest hem terug zonder wachtwoord, zoals de JVM" "storepass" "
 
 uitvoer=$(in_script "$DEMO_STUBS HMLIST=ja; demo")
 bevat "demo: de oude magazijn-release verdwijnt" "HM uninstall berichtenmagazijn" "$uitvoer"
+bevat_niet "demo: zonder losse routes wordt er geen verwijderd" "KC " "$uitvoer"
+
+# Na een ronde als projectlid: de routes die de beheerder los van Helm maakte verdwijnen, ook die van
+# het oude magazijn; een route van een Helm-release blijft staan.
+uitvoer=$(in_script "$DEMO_STUBS HMLIST=ja; LOS=\"berichtenuitvraag berichtenmagazijn stelselregister\"; demo")
+gelijk "demo: alle drie losse routes verdwijnen" \
+  "berichtenmagazijn berichtenuitvraag stelselregister" \
+  "$(echo "$uitvoer" | sed -n 's/^KC .*delete httproute //p' | sort | paste -sd' ' -)"
+bevat "demo: de losse routes verdwijnen in de namespace van de proef" "KC -n tnt-fbs--fbs delete httproute" "$uitvoer"
+uitvoer=$(in_script "$DEMO_STUBS LOS=stelselregister; HELM=berichtenuitvraag; demo")
+gelijk "demo: alleen de losse route verdwijnt, niet die van Helm" "stelselregister" \
+  "$(echo "$uitvoer" | sed -n 's/^KC .*delete httproute //p' | paste -sd' ' -)"
 
 # Met een oude release: een stop laat die staan.
 for geval in "HMLIST=fout|helm list in" "SVC=|geen Service voor de proxy's" "SVC='a b'|meer dan één Service" \
@@ -1208,6 +1221,7 @@ for geval in "HMLIST=fout|helm list in" "SVC=|geen Service voor de proxy's" "SVC
   bevat "demo stopt bij ${geval%%|*}" "${geval#*|}" "$uitvoer"
   bevat_niet "demo stopt bij ${geval%%|*}: niets geïnstalleerd" "ENV " "$uitvoer"
   bevat_niet "demo stopt bij ${geval%%|*}: de oude release blijft" "HM uninstall" "$uitvoer"
+  bevat_niet "demo stopt bij ${geval%%|*}: de losse routes blijven" "KC " "$uitvoer"
 done
 
 echo "ASSERTIES=$asserties"
