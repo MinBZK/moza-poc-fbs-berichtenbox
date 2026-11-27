@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import io.micrometer.core.instrument.MeterRegistry
+import io.quarkus.narayana.jta.QuarkusTransaction
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
@@ -39,6 +41,12 @@ class PostgresPublicatieClaimerIntegrationTest {
 
     @Inject
     lateinit var achterstand: PublicatieAchterstand
+
+    @Inject
+    lateinit var registry: MeterRegistry
+
+    @Inject
+    lateinit var config: PublicatieConfig
 
     @BeforeEach
     @Transactional
@@ -176,13 +184,13 @@ class PostgresPublicatieClaimerIntegrationTest {
         )
     }
 
-
-    // Echte Postgres: de GROUP BY, de statusfilter en de typen die pgjdbc teruggeeft.
+    // Echte Postgres: de JOIN, de filters, de klok van de database en de typen die pgjdbc teruggeeft.
     @Test
     @Transactional
-    fun `de telling van de achterstand telt alleen niet-gepubliceerde rijen, per status en doel`() {
+    fun `de telling van de achterstand telt alleen wat gepubliceerd had mogen zijn, per status en doel`() {
         val nu = Instant.now()
         val ids = List(4) { maakBericht(nu.minusSeconds(60)) }
+        maakBericht(nu.plusSeconds(86_400))
         val claims = claimer.claimNuVerwerkbaar(maxBatch = 10).associateBy { it.berichtId }
 
         claimer.markeerGeslaagd(claims.getValue(ids[0]).claimId, nu)
@@ -192,14 +200,53 @@ class PostgresPublicatieClaimerIntegrationTest {
         val doel = claims.getValue(ids[2]).doel.key
 
         assertEquals(setOf(DeliveryStatus.TE_PUBLICEREN to doel, DeliveryStatus.MISLUKT to doel), rijen.keys)
-        assertEquals(2L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to doel).aantal)
+        assertEquals(2L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to doel).aantal, "het bericht van morgen telt niet")
         assertEquals(1L, rijen.getValue(DeliveryStatus.MISLUKT to doel).aantal)
-        assertTrue(rijen.values.all { !it.oudste.isAfter(Instant.now()) })
+        assertTrue(rijen.values.all { it.oudsteSeconden in 0..60 }, rijen.toString())
     }
 
     @Test
     @Transactional
     fun `een lege outbox levert geen rijen`() {
         assertTrue(achterstand.telRijen().isEmpty())
+    }
+
+    // Zonder testtransactie: zo ziet de telling alleen gecommitte rijen, in haar eigen transactie, zoals
+    // in productie. Een rij met een vervallen bestemming komt onder _onbekend.
+    @Test
+    fun `de geplande telling zet de meetwaarden uit gecommitte rijen`() {
+        val doel = config.downstreams().keys.single()
+        val verleden = Instant.now().minusSeconds(600)
+
+        QuarkusTransaction.requiringNew().run {
+            repeat(2) { maakBericht(verleden) }
+            val vervallen = maakBericht(verleden)
+
+            deliveries.getEntityManager()
+                .createNativeQuery(
+                    "UPDATE publicatie_deliveries SET doel = 'vervallen' " +
+                        "WHERE bericht_db_id = (SELECT id FROM berichten WHERE bericht_id = :id)",
+                )
+                .setParameter("id", vervallen)
+                .executeUpdate()
+        }
+
+        try {
+            achterstand.tel()
+
+            val waarde = { naam: String, d: String ->
+                registry.get(naam).tags("status", "te_publiceren", "doel", d).gauge().value()
+            }
+
+            assertEquals(2.0, waarde("fbs.publicatie.achterstand", doel))
+            assertEquals(1.0, waarde("fbs.publicatie.achterstand", DownstreamClient.ONBEKEND_DOEL))
+            assertTrue(waarde("fbs.publicatie.achterstand.oudste", doel) >= 0.0)
+            assertTrue(registry.get("fbs.publicatie.achterstand.gemeten.op").gauge().value() > 0.0)
+        } finally {
+            QuarkusTransaction.requiringNew().run {
+                deliveries.deleteAll()
+                berichten.deleteAll()
+            }
+        }
     }
 }

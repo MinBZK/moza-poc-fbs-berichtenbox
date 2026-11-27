@@ -69,6 +69,7 @@ aanstaan.
 | `magazijn.publicatie.downstreams.<key>.max-pogingen` | `5` | Per downstream; verhoog bij een doel met lange recovery |
 | `magazijn.publicatie.downstreams.<key>.backoff.basis` / `plafond` | `PT1S` / `PT1H` | Per downstream; plafond voorkomt runaway-backoff |
 | `magazijn.publicatie.opschonen.interval` | `24h` | Verlaag interval (bv. `1h`) bij hoog volume voor frequenter opruimen; verhoog (bv. `7d`) bij lage throughput |
+| `magazijn.publicatie.achterstand.interval` | `60s` | Hoe vaak de outbox geteld wordt voor de meetwaarden (`fbs_publicatie_achterstand`). Eén query per pod per ronde over de hele outbox; lager maakt de meetwaarde actueler, hoger spaart de database |
 
 ## Downstream-URL conventies
 

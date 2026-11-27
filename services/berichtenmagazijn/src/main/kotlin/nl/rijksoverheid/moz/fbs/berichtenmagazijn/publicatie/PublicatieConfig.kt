@@ -95,7 +95,7 @@ interface PublicatieConfig {
          * Hoe vaak [PublicatieAchterstand] de outbox telt. Korter maakt de meetwaarde actueler en
          * kost één `GROUP BY` per pod per ronde.
          */
-        @WithDefault("30s")
+        @WithDefault("60s")
         fun interval(): Duration
     }
 

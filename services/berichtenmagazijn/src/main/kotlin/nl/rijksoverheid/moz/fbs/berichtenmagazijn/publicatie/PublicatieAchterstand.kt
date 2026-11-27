@@ -2,28 +2,31 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
+import io.quarkus.narayana.jta.QuarkusTransaction
+import io.quarkus.narayana.jta.QuarkusTransactionException
 import io.quarkus.runtime.StartupEvent
 import io.quarkus.scheduler.Scheduled
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceException
-import jakarta.transaction.Transactional
 import org.jboss.logging.Logger
 import java.time.Clock
-import java.time.Duration
-import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * De achterstand van de outbox als meetwaarden: hoeveel aanmeldingen nog niet gepubliceerd zijn en
- * hoe lang de oudste al wacht, per status en bestemming. Een stilgevallen publicatie valt zo op
- * vóórdat ontvangers merken dat er geen meldingen meer komen.
+ * De achterstand van de outbox als meetwaarden: hoeveel aanmeldingen niet gepubliceerd zijn, en
+ * hoe lang de oudste al had mogen gaan. Een stilgevallen publicatie valt zo op vóórdat ontvangers
+ * merken dat er geen meldingen meer komen.
  *
- * Periodiek geteld en niet per scrape: de telling is één `GROUP BY` over de tabel, en een scrape
- * mag de database niet belasten. Elke pod telt dezelfde tabel, dus over pods hoort `max()`, geen
- * `sum()`. De labels zijn begrensd: `status` is een van twee waarden, `doel` een geconfigureerde
- * bestemming of [DownstreamClient.ONBEKEND_DOEL] voor rijen met een vervallen key.
+ * `te_publiceren` telt alleen aanmeldingen waarvan het publicatietijdstip voorbij is: een bericht
+ * dat volgende week gepubliceerd mag worden, is geen achterstand. De leeftijd loopt vanaf het moment
+ * dat de aanmelding mocht gaan, ook tijdens een retry. Voor `mislukt` is er alleen het aantal: die
+ * rijen zijn terminaal, dus een leeftijd zegt niets over nu.
+ *
+ * Periodiek geteld en niet per scrape, zodat een scrape de database niet raakt. Elke pod telt
+ * dezelfde tabel, dus over pods hoort `max()`, geen `sum()`. De labels zijn begrensd: `status` is
+ * een van twee waarden, `doel` een geconfigureerde bestemming of [DownstreamClient.ONBEKEND_DOEL].
  */
 @ApplicationScoped
 class PublicatieAchterstand(
@@ -35,31 +38,30 @@ class PublicatieAchterstand(
 
     private val log = Logger.getLogger(PublicatieAchterstand::class.java)
 
-    private val aantal = mutableMapOf<Sleutel, AtomicLong>()
+    // In de constructor, niet bij de start: de scheduler kan al tellen voordat [registreer] draait.
+    private val doelen: Set<String> = config.downstreams().keys + DownstreamClient.ONBEKEND_DOEL
 
-    private val oudsteSeconden = mutableMapOf<Sleutel, AtomicLong>()
+    private val aantal: Map<Sleutel, AtomicLong> =
+        GETELD.flatMap { status -> doelen.map { Sleutel(status, it) } }.associateWith { AtomicLong() }
+
+    private val oudsteSeconden: Map<String, AtomicLong> = doelen.associateWith { AtomicLong() }
 
     private val gemetenOp = AtomicLong()
 
     fun registreer(@Observes start: StartupEvent) {
-        val doelen = config.downstreams().keys + DownstreamClient.ONBEKEND_DOEL
+        for ((sleutel, waarde) in aantal) {
+            Gauge.builder("fbs.publicatie.achterstand", waarde) { it.get().toDouble() }
+                .description("Aanmeldingen in de outbox die niet gepubliceerd zijn")
+                .tags("status", sleutel.status.name.lowercase(), "doel", sleutel.doel)
+                .register(registry)
+        }
 
-        for (status in GETELD) {
-            for (doel in doelen) {
-                val sleutel = Sleutel(status, doel)
-                val a = AtomicLong().also { aantal[sleutel] = it }
-                val o = AtomicLong().also { oudsteSeconden[sleutel] = it }
-
-                Gauge.builder("fbs.publicatie.achterstand", a) { it.get().toDouble() }
-                    .description("Aanmeldingen in de outbox die niet gepubliceerd zijn")
-                    .tags("status", status.name.lowercase(), "doel", doel)
-                    .register(registry)
-                Gauge.builder("fbs.publicatie.achterstand.oudste", o) { it.get().toDouble() }
-                    .description("Leeftijd van de oudste aanmelding in die achterstand (0 = geen)")
-                    .baseUnit(SECONDEN)
-                    .tags("status", status.name.lowercase(), "doel", doel)
-                    .register(registry)
-            }
+        for ((doel, waarde) in oudsteSeconden) {
+            Gauge.builder("fbs.publicatie.achterstand.oudste", waarde) { it.get().toDouble() }
+                .description("Hoe lang de oudste te publiceren aanmelding al had mogen gaan (0 = geen)")
+                .baseUnit(SECONDEN)
+                .tags("status", "te_publiceren", "doel", doel)
+                .register(registry)
         }
 
         Gauge.builder("fbs.publicatie.achterstand.gemeten.op", gemetenOp) { it.get().toDouble() }
@@ -74,24 +76,35 @@ class PublicatieAchterstand(
     )
     fun tel() {
         // Een mislukte telling laat de vorige waarden staan; `gemeten.op` loopt dan achter, en
-        // dat is het signaal. De volgende ronde probeert het opnieuw.
+        // dat is het signaal. Een gesloten EntityManager bij het afsluiten valt onder dezelfde regel.
         try {
-            zet(telRijen(), clock.instant())
+            zet(QuarkusTransaction.requiringNew().call { telRijen() })
         } catch (ex: PersistenceException) {
-            log.warnf(ex, "Telling van de publicatie-achterstand mislukt; vorige waarden blijven staan")
+            meldMislukt(ex)
+        } catch (ex: QuarkusTransactionException) {
+            meldMislukt(ex)
+        } catch (ex: IllegalStateException) {
+            meldMislukt(ex)
         }
     }
 
-    @Transactional
+    private fun meldMislukt(ex: RuntimeException) {
+        log.warnf("Telling van de publicatie-achterstand mislukt (%s); vorige waarden blijven staan", ex.javaClass.name)
+    }
+
+    /** Leeftijd met de klok van de database, dus geen verschil tussen pods en database. */
     internal fun telRijen(): List<Rij> {
         @Suppress("UNCHECKED_CAST")
         val rijen = entityManager
             .createNativeQuery(
                 """
-                SELECT status, doel, COUNT(*), MIN(aangemaakt_op)
-                FROM publicatie_deliveries
-                WHERE status IN ('TE_PUBLICEREN', 'MISLUKT')
-                GROUP BY status, doel
+                SELECT d.status, d.doel, COUNT(*),
+                       GREATEST(0, EXTRACT(EPOCH FROM now() - MIN(GREATEST(d.aangemaakt_op, b.publicatietijdstip))))
+                FROM publicatie_deliveries d
+                JOIN berichten b ON b.id = d.bericht_db_id
+                WHERE d.status = 'MISLUKT'
+                   OR (d.status = 'TE_PUBLICEREN' AND b.publicatietijdstip <= now())
+                GROUP BY d.status, d.doel
                 """.trimIndent(),
             )
             .resultList as List<Array<Any?>>
@@ -101,28 +114,29 @@ class PublicatieAchterstand(
                 status = DeliveryStatus.valueOf(rij[0] as String),
                 doel = rij[1] as String,
                 aantal = (rij[2] as Number).toLong(),
-                oudste = rij[3] as Instant,
+                oudsteSeconden = (rij[3] as Number).toLong(),
             )
         }
     }
 
     /** Een combinatie zonder rijen gaat naar 0, anders blijft een opgeloste achterstand zichtbaar. */
-    internal fun zet(rijen: List<Rij>, nu: Instant) {
-        val perSleutel = rijen
-            .groupBy { Sleutel(it.status, if (it.doel in config.downstreams()) it.doel else DownstreamClient.ONBEKEND_DOEL) }
+    internal fun zet(rijen: List<Rij>) {
+        val perSleutel = rijen.groupBy { Sleutel(it.status, if (it.doel in doelen) it.doel else DownstreamClient.ONBEKEND_DOEL) }
 
-        for ((sleutel, teller) in aantal) {
+        for ((sleutel, waarde) in aantal) {
             val groep = perSleutel[sleutel].orEmpty()
-            val oudste = groep.minOfOrNull { it.oudste }
 
-            teller.set(groep.sumOf { it.aantal })
-            oudsteSeconden.getValue(sleutel).set(oudste?.let { Duration.between(it, nu).seconds.coerceAtLeast(0) } ?: 0)
+            waarde.set(groep.sumOf { it.aantal })
+
+            if (sleutel.status == DeliveryStatus.TE_PUBLICEREN) {
+                oudsteSeconden.getValue(sleutel.doel).set(groep.maxOfOrNull { it.oudsteSeconden } ?: 0)
+            }
         }
 
-        gemetenOp.set(nu.epochSecond)
+        gemetenOp.set(clock.instant().epochSecond)
     }
 
-    internal data class Rij(val status: DeliveryStatus, val doel: String, val aantal: Long, val oudste: Instant)
+    internal data class Rij(val status: DeliveryStatus, val doel: String, val aantal: Long, val oudsteSeconden: Long)
 
     private data class Sleutel(val status: DeliveryStatus, val doel: String)
 
