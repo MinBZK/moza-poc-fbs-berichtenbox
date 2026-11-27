@@ -1,0 +1,230 @@
+openapi: 3.0.3
+info:
+  title: FBS Beheerconsole API
+  version: 0.1.0
+  description: |
+    De API achter de beheerschermen van het Federatief Berichtenstelsel (FBS). Hij levert de
+    schermen van de beheerconsole hun gegevens; hij is geen koppelvlak voor andere systemen.
+
+    ## Stelseloverzicht
+
+    `GET /stelsel` haalt het stelseldocument op bij het stelselregister en verifieert het zoals een
+    afnemer dat doet: de zes stappen uit de API-beschrijving van het stelselregister, tegen de
+    vastgelegde root van de stelselbeheerder. Het antwoord geeft de deelnemende organisaties, de
+    geldigheid van het document en het verloopmoment van het ondertekencertificaat, met de uitkomst
+    van de verificatie erbij.
+
+    Ook een document dat de verificatie niet doorstaat, wordt getoond, met de reden: juist dan wil
+    een beheerder zien wat er gepubliceerd staat. De velden zijn dan niet te vertrouwen.
+
+    ## Foutcodes
+
+    | `type` | Status | Betekenis |
+    |---|---|---|
+    | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad onder `/api/v1` bestaat niet |
+    | `urn:fbs:fout:ongeldig-verzoek` | 400, 405, 406 | Een verzoek dat niet aan het contract voldoet |
+    | `urn:fbs:fout:keten-fout` | 502 | Het stelselregister gaf geen document |
+    | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
+  contact:
+    name: MijnOverheid Zakelijk
+    email: moza@minbzk.nl
+    url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox
+  license:
+    name: EUPL-1.2
+    url: https://eupl.eu/1.2/nl/
+  x-api-id: nl.rijksoverheid.moz.fbs.beheerconsole
+  x-summary: Gegevens voor de beheerschermen van het berichtenstelsel
+
+# ADR nlgov:servers-use-https — bewust afgeweken (pas-toe-of-leg-uit): de API wordt
+# achter een TLS-terminerende gateway geserveerd, waardoor de externe https-host per
+# omgeving verschilt. De relatieve base-path is omgeving-onafhankelijk.
+servers:
+  - url: /api/v1
+    description: Base-path; de host verschilt per omgeving
+
+tags:
+  - name: Stelsel
+    description: De deelnemende organisaties en de geldigheid van het stelseldocument
+
+paths:
+  /stelsel:
+    get:
+      tags: [Stelsel]
+      operationId: getStelseloverzicht
+      summary: Het geverifieerde stelseldocument als overzicht
+      description: |
+        Haalt het stelseldocument op bij het stelselregister, verifieert het en geeft de inhoud
+        als overzicht. `verificatie.status` zegt of de inhoud te vertrouwen is.
+      responses:
+        '200':
+          description: Het overzicht, met de uitkomst van de verificatie
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Stelseloverzicht'
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '502':
+          $ref: '#/components/responses/BadGateway'
+
+components:
+  headers:
+    API-Version:
+      description: De volledige versie van deze API (semver)
+      schema:
+        type: string
+        example: 0.1.0
+
+  schemas:
+    Stelseloverzicht:
+      type: object
+      required: [verificatie, organisaties, _links]
+      properties:
+        verificatie:
+          $ref: '#/components/schemas/Verificatie'
+        document:
+          $ref: '#/components/schemas/Documentgegevens'
+        ondertekening:
+          $ref: '#/components/schemas/Ondertekening'
+        organisaties:
+          type: array
+          description: De deelnemende organisaties, gesorteerd op OIN zoals in het document
+          items:
+            $ref: '#/components/schemas/Organisatie'
+        _links:
+          $ref: '#/components/schemas/Links'
+
+    Verificatie:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          description: |
+            `GELDIG`: alle zes stappen geslaagd. `ONGELDIG`: een stap faalde; `reden` zegt welke.
+            `NIET_GETOETST`: er is geen root vastgelegd, dus de keten is niet te controleren.
+          enum: [GELDIG, ONGELDIG, NIET_GETOETST]
+        reden:
+          type: string
+          description: Bij `ONGELDIG` of `NIET_GETOETST` de reden, in gewone taal
+          maxLength: 500
+
+    Documentgegevens:
+      type: object
+      required: [uitgever, omgeving, versie, uitgegevenOp, geldigTot]
+      properties:
+        uitgever:
+          type: string
+          description: OIN van de stelselbeheerder (`iss`)
+          example: '00000000000000001000'
+        omgeving:
+          type: string
+          description: De omgeving waarvoor het document is uitgegeven (`environment`)
+        versie:
+          type: string
+          description: Kenmerk van de inhoud (`version`)
+        uitgegevenOp:
+          type: string
+          format: date-time
+        geldigTot:
+          type: string
+          format: date-time
+
+    Ondertekening:
+      type: object
+      required: [kid, onderwerp, certificaatGeldigTot]
+      properties:
+        kid:
+          type: string
+          description: RFC 7638-thumbprint van de ondertekensleutel
+        onderwerp:
+          type: string
+          description: Het subject van het ondertekencertificaat
+        certificaatGeldigTot:
+          type: string
+          format: date-time
+          description: Het vroegste `notAfter` in de meegeleverde keten; daarna is geen document meer uit te geven
+
+    Organisatie:
+      type: object
+      required: [oin, naam, magazijnUrl]
+      properties:
+        oin:
+          type: string
+          pattern: '^[0-9]{20}$'
+        naam:
+          type: string
+        magazijnUrl:
+          type: string
+          format: uri
+
+    Links:
+      type: object
+      required: [self]
+      properties:
+        self:
+          $ref: '#/components/schemas/Link'
+
+    Link:
+      type: object
+      required: [href]
+      properties:
+        href:
+          type: string
+          format: uri-reference
+
+    Problem:
+      type: object
+      description: |
+        RFC 9457 Problem Details. `type`, `title` en `status` zijn de stabiele velden waar clients
+        op kunnen koppelen; `detail` en `instance` zijn diagnostisch.
+      required: [type, title, status]
+      additionalProperties: true
+      properties:
+        type:
+          type: string
+          format: uri
+          default: "about:blank"
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+          format: uri-reference
+
+  responses:
+    NotAcceptable:
+      description: De `Accept`-header sluit `application/json` uit
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    InternalServerError:
+      description: Onverwachte fout; `instance` draagt de correlatie-id
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+    BadGateway:
+      description: Het stelselregister gaf geen document (onbereikbaar, time-out of foutantwoord)
+      headers:
+        API-Version:
+          $ref: '#/components/headers/API-Version'
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

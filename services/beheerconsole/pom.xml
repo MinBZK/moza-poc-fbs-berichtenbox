@@ -18,6 +18,10 @@
     <properties>
         <!-- Niet in de Quarkus-BOM. 2.9.x is de lijn voor Quarkus 3; 4.x hoort bij Quarkus 4. -->
         <quinoa.version>2.9.3</quinoa.version>
+        <!-- Voeden de gedeelde API-generatie (openapi-generator + ApiInfo-antrun) in de
+             parent-pluginManagement: spec-pad en de root package van deze dienst. -->
+        <api.spec.file>${project.basedir}/src/main/resources/openapi/beheerconsole-api.yaml</api.spec.file>
+        <api.base.package>nl.rijksoverheid.moz.fbs.beheerconsole</api.base.package>
     </properties>
 
     <dependencies>
@@ -37,6 +41,24 @@
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-smallrye-health</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-smallrye-openapi</artifactId>
+        </dependency>
+        <!-- Haalt het stelseldocument op bij het stelselregister. -->
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-rest-client-jackson</artifactId>
+        </dependency>
+        <!-- Controleert de handtekening van het stelseldocument (ES256), zoals een afnemer. -->
+        <dependency>
+            <groupId>org.bitbucket.b_c</groupId>
+            <artifactId>jose4j</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.module</groupId>
+            <artifactId>jackson-module-kotlin</artifactId>
         </dependency>
         <!-- fbs-common brengt de exception mappers voor Bean Validation mee. -->
         <dependency>
@@ -76,6 +98,11 @@
             <artifactId>quarkus-jacoco</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>com.atlassian.oai</groupId>
+            <artifactId>openapi-request-validator-restassured</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -98,6 +125,19 @@
                 </executions>
             </plugin>
 
+            <!-- Config (spec-pad, pakket, jaxrs-spec-opties) staat in de parent
+                 pluginManagement; gevoed via api.spec.file / api.base.package. -->
+            <plugin>
+                <groupId>org.openapitools</groupId>
+                <artifactId>openapi-generator-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- ApiInfo-generatie: config staat in de parent pluginManagement. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-antrun-plugin</artifactId>
+            </plugin>
+
             <plugin>
                 <groupId>org.jetbrains.kotlin</groupId>
                 <artifactId>kotlin-maven-plugin</artifactId>
@@ -108,6 +148,7 @@
                 <artifactId>jacoco-maven-plugin</artifactId>
                 <configuration>
                     <excludes>
+                        <exclude>nl/rijksoverheid/moz/fbs/beheerconsole/api/**</exclude>
                         <!-- fbs-kern en fbs-common hebben eigen testsuites; uitsluiten voorkomt dubbele meting. -->
                         <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                         <exclude>nl/rijksoverheid/moz/fbs/kern/**</exclude>
@@ -135,6 +176,7 @@
                         <goals><goal>check</goal></goals>
                         <configuration>
                             <excludes>
+                                <exclude>nl/rijksoverheid/moz/fbs/beheerconsole/api/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/common/**</exclude>
                                 <exclude>nl/rijksoverheid/moz/fbs/kern/**</exclude>
                             </excludes>
@@ -142,6 +184,7 @@
                                 <rule>
                                     <element>BUNDLE</element>
                                     <excludes>
+                                        <exclude>nl.rijksoverheid.moz.fbs.beheerconsole.api.**</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.common.**</exclude>
                                         <exclude>nl.rijksoverheid.moz.fbs.kern.**</exclude>
                                     </excludes>
@@ -154,6 +197,34 @@
                                     </limits>
                                 </rule>
                             </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>default-compile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>default-testCompile</id>
+                        <phase>none</phase>
+                    </execution>
+                    <execution>
+                        <id>java-compile</id>
+                        <phase>compile</phase>
+                        <goals>
+                            <goal>compile</goal>
+                        </goals>
+                        <configuration>
+                            <!-- Alleen de OpenAPI-gegenereerde Java; de Kotlin-plugin doet de rest. -->
+                            <compileSourceRoots>
+                                <compileSourceRoot>${project.build.directory}/generated-sources/openapi/src/gen/java</compileSourceRoot>
+                            </compileSourceRoots>
                         </configuration>
                     </execution>
                 </executions>
