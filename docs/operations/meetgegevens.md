@@ -15,14 +15,21 @@ mogen beslist #1472.
 
 - De beheerpoort is de applicatiepoort met een `2` ervoor (`quarkus.management.port=2${quarkus.http.port}`).
   Wie `QUARKUS_HTTP_PORT` zet, verschuift de beheerpoort mee. Zo botsen twee instanties in één
-  netwerk-namespace (podman-hostnet) niet. De `1` ervoor is al bezet door Toxiproxy.
+  netwerk-namespace (podman-hostnet) niet. De `1` ervoor is al bezet door Toxiproxy. Dit werkt
+  voor een applicatiepoort van 1000 tot en met 9999; daarbuiten zet je `QUARKUS_MANAGEMENT_PORT`.
+- De beheerpoort luistert op dezelfde interface als de applicatiepoort
+  (`quarkus.management.host=${quarkus.http.host}`). Zonder die regel bindt Quarkus hem op
+  `0.0.0.0`, ook waar de applicatie alleen op `127.0.0.1` luistert.
 - Op de applicatiepoort geeft `/q/metrics` een `404`. Er gaat geen route, Service-poort of
   ZAD-ingress naar de beheerpoort, dus van buiten is hij niet te bereiken.
 - `/q/health/*` en `/openapi.json` blijven op de applicatiepoort. De probes van ZAD, Kubernetes
   en het statusdashboard vragen ze daar op.
-- Overschrijven kan met `QUARKUS_MANAGEMENT_PORT`. Zet `QUARKUS_MANAGEMENT_ENABLED` niet op
-  `false`: dan staat `/q/metrics` op de applicatiepoort, en op ZAD is `/q` via het publieke adres
+- Overschrijven kan met `QUARKUS_MANAGEMENT_PORT`. Of de beheerpoort er is, ligt bij de build vast
+  (`quarkus.management.enabled`); een omgevingsvariabele verandert dat niet. Bouw nooit zonder:
+  dan staat `/q/metrics` op de applicatiepoort, en op ZAD is `/q` via het publieke adres
   bereikbaar (het statusdashboard leest daar `/q/health/ready`).
+- In de chart (`charts/fbs-dienst`) laat de NetworkPolicy alleen de applicatiepoort toe. Een
+  scraper binnen het cluster heeft een eigen regel nodig; dat hoort bij #1473.
 
 ## Wat
 
@@ -30,15 +37,17 @@ Standaard uit Quarkus:
 
 - `http_server_requests_seconds_*` per `method`, `uri`, `status` en `outcome`. `uri` is het
   endpoint-template zonder het root-pad `/api/v1`: `GET /api/v1/berichten/<id>` telt als
-  `uri="/berichten/{berichtId}"`. Een `4xx` op een pad dat geen endpoint is, telt als
-  `uri="NOT_FOUND"` (`suppress4xx-errors`), zodat een aanroeper met willekeurige paden geen
-  reeksen kan aanmaken. `/q/*` telt niet mee.
+  `uri="/berichten/{berichtId}"`. Een antwoord zonder template telt onder een vaste waarde, zodat
+  een aanroeper met willekeurige paden geen reeksen kan aanmaken: een `404` als `uri="NOT_FOUND"`,
+  andere `4xx` en `5xx` (zoals een `405`) als `uri="UNKNOWN"` (`suppress4xx-errors`), en een
+  CORS-preflight als `uri="CORS_PREFLIGHT"` (`Meetfilters`, per dienst). `/q/*` telt niet mee.
 - `http_client_requests_seconds_*` voor de REST-clients, per `clientName`, `address`, `method`,
   `uri` (template) en `status`. De Profiel-service heet `profiel-service`; de magazijnclients
   bouwen hun client zelf en heten `none`, ze zijn te herkennen aan `address`.
-- `agroal_*` (magazijn): verbindingen in gebruik, wachtend, het maximum, wachttijd.
+- `agroal_*` (magazijn): connections in gebruik, wachtend, het maximum, wachttijd.
 - `redis_*` (uitvraag): commando's en de pool van de tijdelijke opslag.
 - `jvm_*`, `process_*`, `system_*`: geheugen, threads, GC, CPU.
+- `ft_*`: de circuit breakers, retries en time-outs van SmallRye Fault Tolerance, per methode.
 
 Eigen meetwaarden:
 
@@ -47,7 +56,8 @@ Eigen meetwaarden:
 | `fbs_publicatie_aflevering_seconds_*` | magazijn | `doel`, `uitkomst`, `status` | Elke poging om een CloudEvent bij de aanmeldservice of notificatieservice af te leveren. `doel` is de key uit `magazijn.publicatie.downstreams`, of `_onbekend` voor een doel dat niet (meer) geconfigureerd is. `uitkomst`: `geslaagd`, `http_fout`, `timeout`, `netwerkfout`, `configuratiefout`, `serialisatiefout`, `opbouwfout`. `status`: de statusklasse (`2xx`, `4xx`, `5xx`) of `geen`. |
 
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
-ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488.
+ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op
+te bouwen is, bereikt `DownstreamClient` niet en telt hier dus niet mee; ook dat hoort bij #1488.
 
 ## Wat er niet in mag
 

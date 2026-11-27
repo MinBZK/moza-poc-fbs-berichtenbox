@@ -8,6 +8,8 @@ import org.hamcrest.MatcherAssert.assertThat
 import org.hamcrest.Matchers.containsString
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -77,5 +79,41 @@ class BeheerpoortTest {
         val regels = File("src/main/resources/application.properties").readLines()
 
         assertEquals(listOf("quarkus.management.port=2\${quarkus.http.port}"), regels.filter { it.startsWith("quarkus.management.port=") })
+    }
+
+    // Een 404 is altijd al NOT_FOUND; dit toetst de instelling die andere antwoorden zonder
+    // template (hier een 405) onder UNKNOWN laat tellen in plaats van onder het ruwe pad.
+    @Test
+    fun `een antwoord zonder template telt niet onder zijn pad`() {
+        val id = UUID.randomUUID().toString()
+
+        given().`when`().put("/api/v1/berichten/$id").then().statusCode(405)
+
+        val tekst = given().`when`().get(meetgegevens).then().statusCode(200).extract().asString()
+
+        assertFalse(id in tekst, "ruw pad in de meetgegevens")
+        assertTrue(tekst.lines().any { "status=\"405\"" in it && "uri=\"UNKNOWN\"" in it }, "geen 405 onder UNKNOWN")
+    }
+
+    // Een CORS-preflight krijgt antwoord vóór de routering; zonder filter wordt elk pad een reeks.
+    @Test
+    fun `een preflight telt niet onder zijn pad`() {
+        val pad = "/api/v1/preflight-" + UUID.randomUUID()
+
+        given()
+            .header("Origin", "https://voorbeeld.nl")
+            .header("Access-Control-Request-Method", "GET")
+            .`when`().options(pad)
+
+        val tekst = given().`when`().get(meetgegevens).then().statusCode(200).extract().asString()
+
+        assertFalse(pad in tekst, "preflight-pad in de meetgegevens")
+    }
+
+    @Test
+    fun `de beheerpoort luistert op dezelfde interface als de applicatiepoort`() {
+        val regels = File("src/main/resources/application.properties").readLines()
+
+        assertEquals(listOf("quarkus.management.host=\${quarkus.http.host}"), regels.filter { it.startsWith("quarkus.management.host=") })
     }
 }

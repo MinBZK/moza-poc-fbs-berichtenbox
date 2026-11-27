@@ -196,19 +196,33 @@ class DownstreamClientTest {
         assertNull(registry.find(DownstreamClient.AFLEVERING_METER).tag("doel", "vervallen-doel").timer())
     }
 
+    // De waarden zijn een contract met dashboards en meldingsregels (docs/operations/meetgegevens.md).
     @Test
-    fun `elke soort uitkomst heeft een eigen label`() {
-        val labels = listOf(
-            DownstreamResultaat.Geslaagd,
-            DownstreamResultaat.HttpFout(404, null, "x"),
-            DownstreamResultaat.Timeout.bijLezen("x"),
-            DownstreamResultaat.NetwerkFout.onderweg("x"),
-            DownstreamResultaat.SerialisatieFout.voorVerzending("x"),
-            DownstreamResultaat.OpbouwFout.voorVerzending("x"),
-            DownstreamResultaat.ConfiguratieFout.voorVerzending("x"),
-        ).map { DownstreamClient.uitkomstLabel(it) }
+    fun `elke soort uitkomst heeft zijn vaste label`() {
+        val verwacht = mapOf(
+            DownstreamResultaat.Geslaagd to "geslaagd",
+            DownstreamResultaat.HttpFout(404, null, "x") to "http_fout",
+            DownstreamResultaat.Timeout.bijLezen("x") to "timeout",
+            DownstreamResultaat.NetwerkFout.onderweg("x") to "netwerkfout",
+            DownstreamResultaat.SerialisatieFout.voorVerzending("x") to "serialisatiefout",
+            DownstreamResultaat.OpbouwFout.voorVerzending("x") to "opbouwfout",
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("x") to "configuratiefout",
+        )
 
-        assertEquals(labels.size, labels.toSet().size, labels.toString())
+        assertEquals(verwacht.values.toList(), verwacht.keys.map { DownstreamClient.uitkomstLabel(it) })
+    }
+
+    @Test
+    fun `elk doel telt apart`() {
+        every { config.downstreams() } returns mapOf(
+            "aanmeld" to DownstreamStub(server.baseUrl),
+            "notificatie" to DownstreamStub(server.baseUrl),
+        )
+
+        client.lever(Publicatiedoel("notificatie"), event)
+
+        assertEquals(1, afleveringen("notificatie", "geslaagd", "2xx"))
+        assertEquals(0, afleveringen("aanmeld", "geslaagd", "2xx"))
     }
 
     @ParameterizedTest

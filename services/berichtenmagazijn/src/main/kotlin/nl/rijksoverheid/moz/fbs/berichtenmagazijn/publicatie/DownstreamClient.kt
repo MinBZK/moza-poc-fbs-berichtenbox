@@ -132,8 +132,9 @@ class DownstreamClient(
     fun lever(doel: Publicatiedoel, event: CloudEvent): DownstreamResultaat {
         val start = System.nanoTime()
         val resultaat = probeerTeLeveren(doel, event)
+        val duur = Duration.ofNanos(System.nanoTime() - start)
 
-        meetAflevering(doel, resultaat, Duration.ofNanos(System.nanoTime() - start))
+        meetAflevering(doel, uitkomstLabel(resultaat), statusLabel(resultaat), duur)
 
         return resultaat
     }
@@ -143,13 +144,13 @@ class DownstreamClient(
      * staat telt als [ONBEKEND_DOEL]: anders maakt elke oude outbox-rij met een vervallen key een
      * eigen reeks aan.
      */
-    private fun meetAflevering(doel: Publicatiedoel, resultaat: DownstreamResultaat, duur: Duration) {
+    private fun meetAflevering(doel: Publicatiedoel, uitkomst: String, status: String, duur: Duration) {
         try {
             Timer.builder(AFLEVERING_METER)
                 .description("Pogingen om een CloudEvent bij een downstream af te leveren")
                 .tag("doel", if (config.downstreams().containsKey(doel.key)) doel.key else ONBEKEND_DOEL)
-                .tag("uitkomst", uitkomstLabel(resultaat))
-                .tag("status", statusLabel(resultaat))
+                .tag("uitkomst", uitkomst)
+                .tag("status", status)
                 .register(meterRegistry)
                 .record(duur)
         } catch (ex: RuntimeException) {
@@ -587,6 +588,8 @@ class DownstreamClient(
         /** Prometheus maakt hier `fbs_publicatie_aflevering_seconds_*` van. */
         const val AFLEVERING_METER = "fbs.publicatie.aflevering"
 
+        private const val GEEN_STATUS = "geen"
+
         /** Begint met een `_`, dus nooit gelijk aan een geldige [Publicatiedoel]-key. */
         const val ONBEKEND_DOEL = "_onbekend"
 
@@ -605,7 +608,7 @@ class DownstreamClient(
         internal fun statusLabel(resultaat: DownstreamResultaat): String = when (resultaat) {
             DownstreamResultaat.Geslaagd -> "2xx"
             is DownstreamResultaat.HttpFout -> "${resultaat.statusCode / 100}xx"
-            is DownstreamResultaat.Mislukt -> "geen"
+            is DownstreamResultaat.Mislukt -> GEEN_STATUS
         }
 
         /**
