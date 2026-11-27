@@ -221,7 +221,8 @@ zadctl -p mpfm-w3h alias get KETEN_BACKEND_URL -c portaal
 ```
 
 Ontbreekt er één of wijkt hij af, draai dan `portaal-component.sh apply` opnieuw: dat trekt de
-aliassen recht en laat een bestaand `AUTH_SECRET` staan.
+aliassen recht en laat een bestaand `AUTH_SECRET` staan. Die staat, net als `HOSTNAME`, op de env-laag
+van het portaal (`zadctl -p mpfm-w3h env list -c portaal`), niet bij de aliassen.
 
 Kies daarna `Aangesloten onderneming, landelijk concern` (honderd organisaties) en laat de ronde
 helemaal uitlopen, ook als er tussen twee organisaties lang niets komt. De browser volgt de ronde

@@ -75,9 +75,11 @@ heeft gebouwd; vóór de merge van #492 gaat de pin naar dat image.
   sluiten van hun PR.
 - **Het component op ZAD heet `portaal`**, poort 3000, met `KETEN_BACKEND_URL` en
   `KETEN_PERSONAS_URL` op de publieke adressen van uitvraag en personadienst (de NetworkPolicy laat
-  tussen projecten alleen de route toe). `AUTH_SECRET` krijgt een willekeurige waarde, alleen als
-  hij er nog niet is: een nieuw geheim zou elke open Berichtenbox uitloggen. Aanmaken gebeurt met de
-  hand vóór de merge; het oude component `proeftuin` gaat erna weg.
+  tussen projecten alleen de route toe). `AUTH_SECRET` en `HOSTNAME` gaan op de env-laag van alleen
+  het portaal: ZAD voegt de aliassen van een deployment samen tot één secret dat elk component
+  krijgt. `AUTH_SECRET` krijgt een willekeurige waarde, alleen als hij er nog niet is: een nieuw
+  geheim zou elke open Berichtenbox uitloggen. Aanmaken gebeurt met de hand vóór de merge; het oude
+  component `proeftuin` gaat erna weg.
 - **Op Fundament een eigen Secret `fbs-demo-portaal`.** `secret_eenmalig` voegt geen key toe aan
   een bestaand Secret, dus een installatie van vóór het portaal krijgt zo alsnog een geheim.
   `HOSTNAME=0.0.0.0` expliciet, want Kubernetes zet de variabele op de podnaam.

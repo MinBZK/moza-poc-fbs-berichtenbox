@@ -714,14 +714,19 @@ aanmaken; de aliassen trekt een tweede aanroep alsnog recht.
 alleen met het portaal:
 
 - `KETEN_BACKEND_URL=https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.<domein>` — de uitvraag;
-- `KETEN_PERSONAS_URL=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.<domein>` — de testaccounts;
-- `AUTH_SECRET` — het geheim waarmee next-auth de cookies van het portaal ondertekent.
+- `KETEN_PERSONAS_URL=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.<domein>` — de testaccounts.
 
 Publieke adressen en geen cluster-interne: de NetworkPolicy van ZAD laat verkeer tussen projecten
-alleen via de route toe, en de uitvraag staat in een ander project. `AUTH_SECRET` krijgt een
-willekeurige waarde van 32 bytes, en alleen als hij er nog niet staat: een nieuw geheim bij elke
-aanroep zou iedereen met een open Berichtenbox uitloggen. Het script toont de waarde nergens, ook
-niet in `plan`.
+alleen via de route toe, en de uitvraag staat in een ander project.
+
+**Op de env-laag van alleen het portaal, niet als alias:** `AUTH_SECRET` (het geheim waarmee
+next-auth de cookies van het portaal ondertekent) en `HOSTNAME=0.0.0.0` (de container-runtime zet
+de variabele anders op de podnaam, en dan luistert Next.js alleen op het adres van de pod). ZAD
+voegt alle aliassen van een deployment samen tot één secret dat elk component als env krijgt; als
+alias kwam het geheim dus ook bij de magazijnen terecht. `AUTH_SECRET` krijgt een willekeurige
+waarde van 32 bytes, en alleen als hij er nog niet staat: een nieuw geheim bij elke aanroep zou
+iedereen met een open Berichtenbox uitloggen. Het script toont de waarde nergens, ook niet in
+`plan`. Nakijken: `zadctl -p mpfm-w3h env list -c portaal`.
 
 Staat `portaal` er al, draai het script dan gewoon nog een keer. Het kiest per sleutel de vorm die
 past bij wat er staat — `add` weigert een bestaande sleutel en `set` een nieuwe, dus geen van beide
