@@ -29,7 +29,7 @@ DIENSTEN=(berichtenuitvraag berichtenmagazijn stelselregister)
 # Het exacte aantal controles en een ondergrens voor de rego-tests, zodat een geschrapte controle
 # of een rego-test die niet meer laadt opvalt in plaats van een kortere, groene run op te leveren.
 # Elke wijziging van het aantal is zo een zichtbare diff.
-VERWACHTE_CONTROLES=485
+VERWACHTE_CONTROLES=488
 MINIMUM_REGO_TESTS=124
 
 for gereedschap in helm conftest kubeconform; do
@@ -714,6 +714,9 @@ toets_blok "demo" "ketenstream zonder buffering" 'location /api/keten/ {' 'proxy
 toets_blok "demo" "ketenstream met X-Forwarded-Host" 'location /api/keten/ {' 'proxy_set_header X-Forwarded-Host $http_host;'
 toets_blok "demo" "wachtwoord van het paneel niet naar het portaal" 'location / {' 'proxy_set_header Authorization "";'
 toets_bevat_niet "demo" "geen route meer naar de uitvraag" 'location /api/v1/'
+toets_bevat_niet "demo" "geen route naar de uitvraag als regex" 'location ~ ^/api/v1'
+toets_bevat_niet "demo" "geen route naar de uitvraag als voorrangsprefix" 'location ^~ /api/v1'
+toets_blok "demo" "wachtwoord van het paneel niet naar de ketenstream" 'location /api/keten/ {' 'proxy_set_header Authorization "";'
 
 TOETS_RELEASE=berichtenuitvraag toets_render "demo-uitvraag" -f "$CHART/diensten/berichtenuitvraag.yaml" \
   -f "$DEMO/stelsel/berichtenuitvraag.yaml" "${stelsel_demo[@]}"

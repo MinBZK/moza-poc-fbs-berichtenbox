@@ -85,6 +85,18 @@ verwacht_image "een preview-referentie uit hun repository" \
   "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:pr-142-41c83e3")" \
   "ghcr.io/minbzk/moza-portaal:pr-142-41c83e3"
 
+# Tags die met elke bouw verschuiven: op ZAD verandert het manifest dan niet en rolt er niets uit.
+for tag in main latest ux-fork pr-303; do
+  verwacht_fout "de meebewegende tag :$tag" \
+    "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:$tag")" \
+    "met elke bouw verschuift"
+done
+
+# Een commit-tag lijkt op een meebewegende, maar verschuift niet.
+verwacht_image "een preview-commit-tag is geen meebewegende tag" \
+  "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:pr-303-b08f20b")" \
+  "ghcr.io/minbzk/moza-portaal:pr-303-b08f20b"
+
 # YAML staat aanhalingstekens toe. Belanden die in de referentie, dan hangt het component op ZAD in
 # ImagePullBackOff op een naam die in de logs correct oogt.
 verwacht_image "dubbele aanhalingstekens worden gestript" \

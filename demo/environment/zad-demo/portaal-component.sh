@@ -217,13 +217,17 @@ alias_zet() {
 
 # Het portaal praat server-side met de uitvraag en de personadienst, over hun publieke adres: de
 # NetworkPolicy van ZAD laat verkeer tussen projecten alleen via de route toe.
+# HOSTNAME expliciet: het image zet 0.0.0.0, maar de container-runtime zet de variabele op de
+# podnaam, en dan luistert Next.js alleen op het adres van de pod.
 alias_zet portaal \
     "KETEN_BACKEND_URL=https://${UITVRAAG_HOST}" \
-    "KETEN_PERSONAS_URL=https://${PERSONAS_HOST}"
+    "KETEN_PERSONAS_URL=https://${PERSONAS_HOST}" \
+    "HOSTNAME=0.0.0.0"
 
 # next-auth ondertekent zijn cookies met dit geheim. Alleen zetten als het er nog niet is: een nieuw
 # geheim bij elke aanroep zou iedereen met een open Berichtenbox uitloggen. De waarde komt niet in
-# de uitvoer, ook niet in plan-modus.
+# de uitvoer, ook niet in plan-modus. Het staat wel kort in de argumenten van zadctl, en is daar via
+# ps te lezen zolang die aanroep loopt. Dat korte venster is bewust geaccepteerd.
 geheim_zet() {
     local component="$1" naam="$2"
 

@@ -294,12 +294,26 @@ if ! grep -qF '\"ontvanger\":\"KVK:' "$pagina" 2>/dev/null; then
 fi
 
 # Daarna de keten zoals de Berichtenbox hem gebruikt: een sessie starten via het portaal, de lijst
-# lezen met het sessie-cookie dat het portaal zet, en de sessie weer beëindigen. Het sessie-cookie
-# uit de headers en niet uit een cookie-jar: het portaal zet het met `Secure`, en dan stuurt curl
-# het over gewone HTTP niet terug.
-keten=/tmp/smoke-portaal-keten.json
-kop=/tmp/smoke-portaal-kop.txt
-rm -f "$keten" "$kop"
+# lezen met het sessie-cookie dat het portaal zet, en de sessie weer beëindigen. Het cookie uit de
+# headers en niet uit een cookie-jar: het portaal zet het met `Secure`, en dan stuurt curl het over
+# gewone HTTP niet terug. Het gaat via een header-bestand mee, niet als argument: dat is via ps te
+# lezen.
+werk=$(mktemp -d)
+keten=$werk/keten.json
+kop=$werk/kop.txt
+hdr=$werk/sessie.hdr
+
+# Ook bij een fout halverwege de sessie beëindigen: de uitvraag staat er vijf per ontvanger toe, en
+# een achtergebleven sessie houdt de cache van deze persona in leven.
+ruim_sessie_op() {
+    if [[ -s "$hdr" ]]; then
+        curl -s --max-time 10 -o /dev/null -X DELETE "$DEMO_PROXY/api/keten/sessies/huidige" -H @"$hdr" || true
+    fi
+
+    rm -rf "$werk"
+}
+trap ruim_sessie_op EXIT
+
 status=$(curl -s --max-time 30 -o "$keten" -D "$kop" -w '%{http_code}' -X POST \
     "$DEMO_PROXY/api/keten/sessies" -H "Cookie: personaId=$PORTAAL_PERSONA" || true)
 
@@ -309,15 +323,21 @@ if [[ "$status" != "201" ]]; then
     exit 1
 fi
 
-sessie_cookie=$(tr -d '\r' < "$kop" | sed -n 's/^[Ss]et-[Cc]ookie: \(keten-sessie=[^;]*\).*/\1/p' | head -1)
+# Dezelfde vorm als sessie_cookie_uit_kop in charts/demo-op-fundament/lib.sh: de laatste telt, en
+# een lege waarde wist de sessie juist.
+sessie_cookie=$(tr -d '\r' < "$kop" | sed -n 's/^[Ss]et-[Cc]ookie: *\(keten-sessie=[^;]*\).*/\1/p' | tail -1)
 
-if [[ -z "$sessie_cookie" || "$sessie_cookie" == "keten-sessie=" ]]; then
-    echo "FOUT: het portaal startte een sessie maar zette geen sessie-cookie"
-    exit 1
-fi
+case "$sessie_cookie" in
+    "" | "keten-sessie=" | 'keten-sessie=""')
+        echo "FOUT: het portaal startte een sessie maar zette geen sessie-cookie"
+        exit 1
+        ;;
+esac
+
+(umask 077 && printf 'Cookie: personaId=%s; %s\n' "$PORTAAL_PERSONA" "$sessie_cookie" > "$hdr")
 
 status=$(curl -s --max-time 10 -o "$keten" -w '%{http_code}' \
-    "$DEMO_PROXY/api/keten/berichten" -H "Cookie: personaId=$PORTAAL_PERSONA; $sessie_cookie" || true)
+    "$DEMO_PROXY/api/keten/berichten" -H @"$hdr" || true)
 
 # 200 is een lijst, 409 zegt dat er nog geen ophaalronde was: allebei antwoorden van de uitvraag.
 case "$status" in
@@ -329,13 +349,15 @@ case "$status" in
         ;;
 esac
 
-# Opruimen, zodat de proef geen sessie achterlaat die de cache van deze persona in leven houdt.
 status=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' -X DELETE \
-    "$DEMO_PROXY/api/keten/sessies/huidige" -H "Cookie: personaId=$PORTAAL_PERSONA; $sessie_cookie" || true)
+    "$DEMO_PROXY/api/keten/sessies/huidige" -H @"$hdr" || true)
 
 if [[ "$status" != "204" ]]; then
     echo "FOUT: de sessie beëindigen via het portaal gaf HTTP $status (verwacht 204)"
     exit 1
 fi
+
+# Beëindigd: niet nog eens bij het afsluiten.
+: > "$hdr"
 
 echo "OK: keten werkt end-to-end via beide magazijnen, de ondernemers halen op bij 3/15/45/100 organisaties, een bijlage komt binnen via zijn eigen adres, en het portaal bereikt de keten via de demo-proxy"

@@ -59,7 +59,7 @@ trap 'rm -rf "$WERKMAP"' EXIT
 
 # Wat het script uit de omgeving leest; een geëxporteerde waarde op de machine mag geen geval
 # veranderen.
-OMGEVING=(TAG NS KUBE_CONTEXT BASISDOMEIN EXTRA_VALUES PORTAAL_IMAGE GATEWAY GATEWAY_SECRET ISSUER GATEWAY_ADRES
+OMGEVING=(TAG NS KUBE_CONTEXT BASISDOMEIN EXTRA_VALUES PORTAAL_IMAGE KETEN_PERSONA GATEWAY GATEWAY_SECRET ISSUER GATEWAY_ADRES
   HTTPS_POORT CA_BESTAND KETEN_ONTVANGER KETEN_SECONDEN)
 
 # Draait $2 (bash) met het script gesourcet, in een eigen map met een log. Zet UIT (uitvoer), CODE
@@ -222,7 +222,7 @@ echo "== installeren =="
 
 mkdir -p "$WERKMAP/extra"
 echo "dienst: {}" >"$WERKMAP/extra/berichtenuitvraag.yaml"
-draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PORTAAL_IMAGE=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; installeren"
+draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; EXTRA_VALUES='$WERKMAP/extra'; installeren"
 gelijk "installeren: in orde" 0 "$CODE"
 gelijk "vijf releases" 5 "$(grep -c '^hm upgrade --install' <<<"$LOG")"
 uitvraag=$(grep '^hm upgrade --install berichtenuitvraag ' <<<"$LOG")
@@ -245,7 +245,13 @@ gelijk "precies één extra values-bestand" 1 "$(grep -o "$WERKMAP/extra/[a-z-]*
 bevat "register herstart na de installatie" "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
 bevat "register uit een kopie, niet uit demo/generated" "magazijnenregister=$WERKMAP/installeren/repo/demo/generated/" "$LOG"
 
-draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PORTAAL_IMAGE=p@sha256:0; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
+bevat "installeren: het portaal uit PORTAAL_IMAGE" "--set images.portaal=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$(grep 'install fbs-demo' <<<"$LOG")"
+draai installeren-kapot-portaal "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=kapot; installeren"
+gelijk "een onbruikbare PORTAAL_IMAGE: exit 2" 2 "$CODE"
+bevat "een onbruikbare PORTAAL_IMAGE: zegt het" "portaal-image.sh faalde" "$UIT"
+bevat_niet "een onbruikbare PORTAAL_IMAGE: niets geïnstalleerd" "upgrade --install" "$LOG"
+
+draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
 gelijk "magazijn B faalt: exit 1" 1 "$CODE"
 bevat "magazijn B faalt: noemt hem" "installeren van berichtenmagazijn-b faalde" "$UIT"
 bevat_niet "magazijn B faalt: geen herstart" "rollout restart" "$LOG"
@@ -294,6 +300,7 @@ bevat "routes: de simulator met een gesimuleerd magazijn, en een 400 van de simu
 bevat "routes: aanleveren bij de simulator dicht" "/magazijn/00000009000000000001/api/v1/aanleveringen" "$(grep 'CODE 404' <<<"$LOG")"
 bevat "routes: het stelseldocument" "CODE 200 stelselregister 200 stelselregister: het stelseldocument https://stelselregister.fbs.x.nl:443/api/v1/stelseldocument" "$LOG"
 bevat "routes: de aanmeld-webhook dicht" "CODE 404 demo 404 aanmeld-webhook niet via de Berichtenbox -X POST" "$LOG"
+bevat "routes: de aanmeld-webhook niet via het portaal" "CODE 404 demo 404 aanmeld-webhook niet via de ketenroute van het portaal -X POST https://demo.fbs.x.nl:443/api/keten/aanmeldingen" "$LOG"
 bevat "routes: de Berichtenbox stuurt zonder persona naar de keuze" "CODE 307 demo 307 Berichtenbox van het portaal https://demo.fbs.x.nl:443/berichtenbox" "$LOG"
 bevat "routes: paneel met het wachtwoord" "CODE 200 demo 200 paneel met het wachtwoord" "$LOG"
 bevat_niet "routes: het wachtwoord niet als argument" "pw" "$(grep 'paneel met het wachtwoord' <<<"$LOG")"
@@ -560,7 +567,7 @@ bevat "op, eerste installatie: geen aanmeldingen" "ARGS=[]" "$UIT"
 draai behouden-fout "$(stub_aanmelden); hm() { echo 'Error: Kubernetes cluster unreachable' >&2; return 1; }; aanmeldingen_behouden"
 gelijk "op, values niet te lezen: exit 1" 1 "$CODE"
 bevat "op, values niet te lezen: zegt waarom" "cluster unreachable" "$UIT"
-draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PORTAAL_IMAGE=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
+draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
 demo=$(grep '^hm upgrade --install fbs-demo ' <<<"$LOG" || true)
 bevat "op: aanmeldingen vóór EXTRA_VALUES" "-f $WERKMAP/installeren-behoudt/aanmeldingen.json -f $WERKMAP/extra/fbs-demo.yaml" "$demo"
 rm -f "$WERKMAP/extra/fbs-demo.yaml"

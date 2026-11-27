@@ -12,8 +12,9 @@
 # status betekent. Statussen:
 #   ok               — de pin wijst naar de huidige main-commit van het portaal
 #   verouderd        — er staat een image voor een nieuwere main-commit klaar
-#   ontbreekt        — die main-commit heeft nog geen image. Hun main-images worden met de hand
-#                      gebouwd (`workflow_dispatch` op hun deploy.yml), dus dat kan dagen duren
+#   ontbreekt        — geen van de laatste main-commits heeft een image. Hun main-images worden
+#                      met de hand gebouwd (`workflow_dispatch` op hun deploy.yml); vergeleken
+#                      wordt met de nieuwste commit die er wél een heeft
 #   preview          — de pin staat op nog niet gemergd werk van hun kant; die tag verdwijnt zodra
 #                      hun PR sluit, dus hier valt niets te vergelijken met main
 #   pin-onvindbaar   — de gepinde tag bestaat niet (meer) in het register
@@ -110,9 +111,17 @@ if ! token=$(ghcr_token "$pad"); then
 fi
 
 # Een tag-pin heeft zijn digest nog niet bij zich; die eerst opzoeken, anders vergelijkt de controle
-# straks een tag met een digest en meldt hij eeuwig "verouderd".
+# straks een tag met een digest en meldt hij eeuwig "verouderd". Een digest-pin zoeken we óók op: een
+# preview-image verdwijnt zodra hun PR sluit, en zonder deze vraag bleef zo'n pin groen tot de
+# eerstvolgende herstart van het component hem niet meer kan trekken.
 case "$image" in
-  *@sha256:*) huidige_digest=${image##*@} ;;
+  *@sha256:*)
+    huidige_digest=${image##*@}
+    digest_van "$pad" "$huidige_digest" "$token" >/dev/null || case $? in
+      2) meld pin-onvindbaar "" "" "$image" ;;
+      *) meld oncontroleerbaar "" "" "$image" ;;
+    esac
+    ;;
   *)
     huidige_digest=$(digest_van "$pad" "${image##*:}" "$token") || case $? in
       2) meld pin-onvindbaar "" "" "$image" ;;
@@ -152,10 +161,18 @@ if ! standaardtak=$(curl -fsS "${gh_auth[@]}" "https://api.github.com/repos/${BR
   meld oncontroleerbaar "" "" "$image"
 fi
 
-if ! kop=$(curl -fsS "${gh_auth[@]}" \
-  "https://api.github.com/repos/${BRON_REPO}/commits/${standaardtak}" | jq -er .sha); then
+# De laatste commits van hun main, nieuwste eerst. Hun main-images worden met de hand gebouwd, dus
+# de nieuwste commit heeft vaak nog geen image; dan telt de nieuwste die er wél een heeft. Alleen
+# naar de kop kijken zou de bump laten wachten op een dag waarop hun bouw toevallig precies de kop
+# raakt, en elke merge zonder bouw zet hem weer terug.
+if ! commits=$(curl -fsS "${gh_auth[@]}" \
+  "https://api.github.com/repos/${BRON_REPO}/commits?sha=${standaardtak}&per_page=${COMMITS_TERUG:-30}" |
+  jq -er '[.[].sha] | select(length > 0) | .[]'); then
   meld oncontroleerbaar "" "" "$image"
 fi
+
+mapfile -t commitlijst <<<"$commits"
+kop=${commitlijst[0]}
 
 # `jq -er` grijpt alleen op `null` en `false`, dus een antwoord met een lege of afgekapte `.sha`
 # passeert. Dat zou hieronder een tag als `main-` opleveren, die in het register een 404 geeft en
@@ -170,11 +187,27 @@ fi
 # tag-lijst van het register ongesorteerd terugkomt en "de nieuwste" er dus niet uit te lezen valt.
 # Via de commit weten we bovendien wélke wijzigingen een bump zou meenemen.
 verwachte_tag="main-${kop:0:7}"
+verwachte_digest=""
 
-verwachte_digest=$(digest_van "$MAIN_PAD" "$verwachte_tag" "$token") || case $? in
-  2) meld ontbreekt "$verwachte_tag" "" "$image" ;;
-  *) meld oncontroleerbaar "$verwachte_tag" "" "$image" ;;
-esac
+for commit in "${commitlijst[@]}"; do
+  if ! [[ $commit =~ ^[0-9a-f]{40}$ ]]; then
+    echo "GitHub gaf geen bruikbare commit-sha ('$commit') voor ${BRON_REPO}" >&2
+    meld oncontroleerbaar "$verwachte_tag" "" "$image"
+  fi
+
+  rc=0
+  digest=$(digest_van "$MAIN_PAD" "main-${commit:0:7}" "$token") || rc=$?
+
+  case $rc in
+    0) verwachte_tag="main-${commit:0:7}"; verwachte_digest=$digest; break ;;
+    2) ;;
+    *) meld oncontroleerbaar "main-${commit:0:7}" "" "$image" ;;
+  esac
+done
+
+if [ -z "$verwachte_digest" ]; then
+  meld ontbreekt "$verwachte_tag" "" "$image"
+fi
 
 if [ "$huidige_digest" = "$verwachte_digest" ]; then
   meld ok "$verwachte_tag" "" "$image"

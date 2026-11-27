@@ -91,7 +91,7 @@ case "$url" in
 
     printf '%s' "$code"
     ;;
-  https://api.github.com/repos/*/commits/*)
+  https://api.github.com/repos/*/commits\?*)
     [ -n "${COMMIT_JSON:-}" ] || exit 22
 
     printf '%s\n' "$COMMIT_JSON"
@@ -139,6 +139,10 @@ DIGEST_ANDERS=$(digest_blok 81920a3b)
 DIGEST_PREVIEW=$(digest_blok c5d6e7f8)
 
 KOP=6e0751e9a8b4c2d0f1e3a5b7c9d1e3f5a7b9c1d3
+# De commit vóór de kop: hun main-images worden met de hand gebouwd, dus vaak heeft alleen die er
+# een.
+OUDER=2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e
+OUDERE_TAG=main-2b3c4d5
 VERWACHTE_TAG=main-6e0751e
 PAD=minbzk/moza-portaal
 
@@ -165,7 +169,7 @@ nieuw_geval() {
 
   export REPO_HTTP=200
   export REPO_JSON='{"default_branch":"main","name":"moza-portaal"}'
-  export COMMIT_JSON="{\"sha\":\"$KOP\"}"
+  export COMMIT_JSON="[{\"sha\":\"$KOP\"},{\"sha\":\"$OUDER\"}]"
   export GHCR_TOKEN_JSON='{"token":"stub-pull-token"}'
 }
 
@@ -178,6 +182,22 @@ printf '%s\n' "$1"
 EOF
 
   chmod +x "$IMAGE_STUB"
+
+  # Een digest-pin bestaat in het register, tenzij het geval dat met `verdwenen_pin` anders zegt.
+  case "$1" in
+    *@sha256:*)
+      local zonder=${1#ghcr.io/}
+      local pad=${zonder%%@*}
+      pad=${pad%:*}
+      manifest "$pad" "${1##*@}" 200 "${1##*@}"
+      ;;
+  esac
+}
+
+# Haalt de digest van de pin weer uit de tabel: het image is uit het register verdwenen.
+verdwenen_pin() {
+  grep -vF "${1}" "$MANIFESTEN" > "$MANIFESTEN.nieuw" || true
+  mv "$MANIFESTEN.nieuw" "$MANIFESTEN"
 }
 
 geen_pin() {
@@ -300,7 +320,7 @@ REPO_JSON='{"default_branch":"ontwikkel"}'
 uitvoeren
 verwacht "een andere standaardtak levert dezelfde uitkomst" \
   ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_MAIN"
-aangeroepen "de commit wordt op de gemelde standaardtak opgevraagd" "/commits/ontwikkel"
+aangeroepen "de commits worden op de gemelde standaardtak opgevraagd" "/commits?sha=ontwikkel&"
 
 # --- de pin loopt achter ------------------------------------------------------------------------
 
@@ -376,6 +396,75 @@ uitvoeren
 verwacht "een pin op een pr-tag met digest" \
   preview "" "" "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
 niet_aangeroepen "een preview-pin met digest wordt niet met hun main vergeleken" "api.github.com"
+
+# Hun PR sloot en ghcr wist het image, terwijl de pin er nog op staat. Zonder de opzoeking van de
+# digest bleef dat `preview` (een waarschuwing), en trok pas de eerstvolgende herstart niets meer.
+nieuw_geval preview-verdwenen
+pin "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
+verdwenen_pin "$DIGEST_PREVIEW"
+uitvoeren
+verwacht "een preview-pin waarvan het image verdwenen is" \
+  pin-onvindbaar "" "" "ghcr.io/$PAD:pr-1-abc1234@$DIGEST_PREVIEW"
+
+nieuw_geval main-digest-verdwenen
+pin "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+verdwenen_pin "$DIGEST_PIN"
+uitvoeren
+verwacht "een main-pin waarvan het image verdwenen is" \
+  pin-onvindbaar "" "" "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+niet_aangeroepen "een verdwenen pin leidt niet tot een main-vergelijking" "api.github.com"
+
+nieuw_geval digest-opzoeking-onbereikbaar
+pin "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+verdwenen_pin "$DIGEST_PIN"
+manifest "$PAD" "$DIGEST_PIN" 500
+uitvoeren
+verwacht "een onbereikbare opzoeking van de digest-pin" \
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main-1111111@$DIGEST_PIN"
+
+# --- hun main-images worden met de hand gebouwd ---------------------------------------------------
+
+# De kop heeft nog geen image, de commit ervoor wel. Dan telt die: zonder terugkijken bleef dit
+# `ontbreekt` tot hun bouw toevallig precies de kop raakt.
+nieuw_geval kop-zonder-image-oudere-wel
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+manifest "$PAD" "$OUDERE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "de kop zonder image, de commit ervoor met" \
+  verouderd "$OUDERE_TAG" "    image: ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+nieuw_geval kop-zonder-image-pin-bij
+pin "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN"
+manifest "$PAD" "$OUDERE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "de pin op de nieuwste commit met image" \
+  ok "$OUDERE_TAG" "" "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN"
+
+# Eén commit, en de lijst is verder leeg: dat is wat de API bij een vers repository geeft.
+nieuw_geval een-commit
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+COMMIT_JSON="[{\"sha\":\"$KOP\"}]"
+manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
+uitvoeren
+verwacht "één commit in de lijst" \
+  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+nieuw_geval geen-commits
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+COMMIT_JSON='[]'
+uitvoeren
+verwacht "een lege commitlijst" \
+  oncontroleerbaar "" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
+
+# Een onbereikbaar register halverwege het terugkijken is niet hetzelfde als "geen image".
+nieuw_geval terugkijken-onbereikbaar
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+manifest "$PAD" "$OUDERE_TAG" 500
+uitvoeren
+verwacht "ghcr onbereikbaar bij een oudere commit" \
+  oncontroleerbaar "$OUDERE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
 
 # Een ander repository (een fork, een verhuisd image) is evenmin hun main.
 nieuw_geval preview-ander-repository

@@ -12,6 +12,7 @@
 # en geen tweede regel in compose.yaml: zo blijft er één gepinde waarde die bijgehouden wordt, en is
 # de afwijking zichtbaar op de plek waar hij gezet wordt in plaats van in de repo te blijven staan.
 set -euo pipefail
+shopt -s extglob
 
 REPO_ROOT=${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 COMPOSE=${COMPOSE:-$REPO_ROOT/compose.yaml}
@@ -24,6 +25,12 @@ COMPOSE_PAD=${COMPOSE_PAD:-ghcr.io/minbzk/moza-portaal}
 toets() {
   case "$1" in
     *@sha256:?*) ;;
+    # Tags die met elke bouw verschuiven. Op ZAD verandert het gerenderde manifest dan niet, dus rolt
+    # er niets uit terwijl de deploy groen is; een commit-tag of een digest wél.
+    *:main | *:latest | *:ux-fork | *:pr-+([0-9]))
+      echo "'$1' is een tag die met elke bouw verschuift; neem een commit-tag (main-<sha7>, pr-<n>-<sha7>) of een digest" >&2
+      exit 1
+      ;;
     */*:?*) ;;
     *)
       echo "'$1' ziet er niet uit als een image met een tag of digest" >&2

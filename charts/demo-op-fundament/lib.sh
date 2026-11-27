@@ -103,12 +103,15 @@ EOF
 }
 
 # Het sessie-cookie (`keten-sessie=<waarde>`) uit de headers van POST /api/keten/sessies van het
-# portaal. Een leeg cookie wist de sessie juist, en telt dus niet.
+# portaal. Een leeg cookie wist de sessie juist, en telt dus niet. Staat hij er twee keer, dan wint
+# de laatste, zoals in een browser.
 sessie_cookie_uit_kop() {
   local cookie
 
-  cookie=$(tr -d '\r' <"$1" 2>/dev/null | sed -n 's/^[Ss]et-[Cc]ookie: *\(keten-sessie=[^;]*\).*/\1/p' | head -1)
-  [ -n "$cookie" ] && [ "$cookie" != "keten-sessie=" ] || return 1
+  cookie=$(tr -d '\r' <"$1" 2>/dev/null | sed -n 's/^[Ss]et-[Cc]ookie: *\(keten-sessie=[^;]*\).*/\1/p' | tail -1)
+  case "$cookie" in
+    "" | "keten-sessie=" | 'keten-sessie=""') return 1 ;;
+  esac
   printf '%s' "$cookie"
 }
 

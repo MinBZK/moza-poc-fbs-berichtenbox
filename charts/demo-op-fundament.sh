@@ -450,6 +450,9 @@ controleer_routes() {
   code demo 403 "gereedschap weigert een andere origin" -X POST -H 'Origin: https://elders.example' "$(url demo /api/demo/legen)"
   # De demo-proxy heeft geen route naar de uitvraag; het portaal kent dit pad niet.
   code demo 404 "aanmeld-webhook niet via de Berichtenbox" -X POST "$(url demo /api/v1/aanmeldingen)"
+  # De doorgifte van het portaal laat alleen de paden van de Berichtenbox door; een nieuwe versie die
+  # ruimer doorgeeft, zou de webhook (zonder sessie) alsnog bereikbaar maken.
+  code demo 404 "aanmeld-webhook niet via de ketenroute van het portaal" -X POST "$(url demo /api/keten/aanmeldingen)"
 
   # Met het wachtwoord uit het Secret, als header-bestand: een argument van curl is via ps zichtbaar.
   local wachtwoord
