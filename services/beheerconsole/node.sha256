@@ -1,0 +1,5 @@
+# Checksum van de Node-distributie waarmee CI de console bouwt (.github/scripts/node-klaarzetten.sh).
+# Hoort bij quarkus.quinoa.package-manager-install.node-version in src/main/resources/application.properties.
+# Bijwerken: haal SHASUMS256.txt.asc van https://nodejs.org/dist/v<versie>/, controleer de handtekening
+# met de sleutels uit https://github.com/nodejs/release-keys, en neem de regel van linux-x64.tar.xz over.
+48cc0e21e048790e54c0cf5749c2725005313d652651c40b7a21feb9697aaf75  node-v24.22.2-linux-x64.tar.xz

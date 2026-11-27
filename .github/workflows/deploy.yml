@@ -494,6 +494,8 @@ jobs:
       - uses: ./.github/actions/maven-cache
         with:
           scope: build-${{ matrix.service }}
+      - uses: ./.github/actions/node-beheerconsole
+        if: matrix.service == 'beheerconsole'
       - name: Build + push image (jib)
         # Variabele waarden via env i.p.v. inline interpolatie (defense-in-depth injectie).
         # Het GHCR-token gaat via de MicroProfile-env-vorm QUARKUS_CONTAINER_IMAGE_PASSWORD
@@ -514,6 +516,9 @@ jobs:
             -Dquarkus.container-image.group="$GROUP" \
             -Dquarkus.container-image.tag="$TAG" \
             -Dquarkus.container-image.username="$GHCR_USER"
+
+          # Na de build: had Quinoa toch zelf Node gedownload, dan faalt de job (alle services).
+          .github/scripts/quinoa-zonder-download.sh
 
       # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
       - name: Controleer de publicatie

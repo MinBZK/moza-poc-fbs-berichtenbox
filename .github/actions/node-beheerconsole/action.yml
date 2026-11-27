@@ -1,0 +1,45 @@
+name: Node voor de beheerconsole
+description: >-
+  Zet Node met een gecontroleerde checksum klaar voor de Quinoa-build van de beheerconsole, en
+  herstelt de npm-cache. Zonder deze stap haalt Quinoa Node zelf op, zonder controle.
+
+runs:
+  using: composite
+  steps:
+    # Zelfde regel als de Maven-cache: alleen main bewaart, zodat PR-code de cache van main niet kan
+    # vullen.
+    - name: Bepaal of deze run de npm-cache bewaart
+      id: bewaren
+      shell: bash
+      env:
+        REF: ${{ github.ref }}
+        EVENT: ${{ github.event_name }}
+      run: |
+        case "$REF:$EVENT" in
+          refs/heads/main:push | refs/heads/main:schedule | refs/heads/main:workflow_dispatch) echo "ja=true" ;;
+          *) echo "ja=false" ;;
+        esac >> "$GITHUB_OUTPUT"
+
+    # Alleen de downloadcache van npm, niet node_modules: `npm ci` legt die toch opnieuw aan en
+    # toetst elk pakket aan de integrity uit de lockfile, ook als het uit de cache komt.
+    - name: npm-cache herstellen en bewaren
+      if: steps.bewaren.outputs.ja == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.npm
+        key: npm-beheerconsole-${{ runner.os }}-${{ hashFiles('services/beheerconsole/src/main/webui/package-lock.json') }}
+
+    - name: npm-cache herstellen
+      if: steps.bewaren.outputs.ja != 'true'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.npm
+        key: npm-beheerconsole-${{ runner.os }}-${{ hashFiles('services/beheerconsole/src/main/webui/package-lock.json') }}
+
+    - name: Node klaarzetten (checksum gecontroleerd)
+      shell: bash
+      run: >-
+        .github/scripts/node-klaarzetten.sh
+        services/beheerconsole/src/main/resources/application.properties
+        services/beheerconsole/node.sha256
+        "$RUNNER_TEMP/node"
