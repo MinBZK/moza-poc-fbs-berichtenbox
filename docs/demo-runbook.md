@@ -295,7 +295,9 @@ gh variable delete PORTAAL_IMAGE          # terug naar de pin
 De variabele geldt voor **`test` én elke preview**: hij zit in de `meta`-job die alle drie de
 projecten voedt. Een uitrol die hem gebruikt, zet er een `notice` over bovenaan de run, zodat een
 demo die zich anders gedraagt dan de repo pint terug te vinden is. `.github/scripts/portaal-image.sh`
-weigert een waarde zonder tag of digest, dus een typfout hangt geen component in ImagePullBackOff.
+weigert een waarde zonder digest, tenzij de tag een commit-tag is (`main-<sha7>`, `pr-<n>-<sha7>`):
+een tag als `main` of `pr-302` verschuift met elke bouw, en dan rolt er op ZAD niets uit. Een
+typfout in een digest hangt zo evenmin een component in ImagePullBackOff.
 
 **Alleen voor één preview.** Om een PR van het portaal aan een PR van ons te koppelen, zet je
 dezelfde variabele op de GitHub-environment van die preview. Die wint daar van de repo-variabele en
@@ -580,7 +582,7 @@ de persona-keuze van het portaal staat de naam uit §6.
 | 6 | Cache-tijd verloopt | Scenario's → *Cache verlopen* → binnen 20 s merkt de open Berichtenbox het. Deed je de laatste minuut iets, dan haalt hij meteen opnieuw op; anders meldt hij "U was een tijd niet actief op deze pagina. Daarom staan hier misschien niet uw nieuwste berichten." en haalt hij bij de volgende actie (of met *Berichten opnieuw ophalen*) opnieuw op. De oude lijst blijft staan, met de voortgang erboven en "Wij halen uw berichten opnieuw op…" in de melding; op een berichtpagina staat "Zodra u verdergaat, halen wij dit bericht opnieuw op." Wachten werkt ook: na de demo-inactiviteit (`PT2M`) zonder klik of toets verloopt de sessie, want de hartslag van `_volgen` verlengt haar niet |
 | 7 | Bijlage wordt niet opgehaald | *Magazijn A* → *Uit* → open in de Berichtenbox een RVO-bericht met een bijlage (uit de cache) → de bijlage opent in een nieuw tabblad met "Bijlage niet beschikbaar — Wij kunnen deze bijlage nu niet ophalen. Probeer het later opnieuw." (HTTP 502) |
 | 8 | Foutieve aanlevering | Scenario's → *Ongeldig bericht aanbieden* → 400 RFC 9457 problem+json in de melding van het paneel |
-| 9 | Profielservice weg | *Profielservice uit* → wacht een halve minuut → nieuwe ronde: de uitvraag kan niet bepalen welke organisaties hij moet bevragen en logt `Profiel-service onbereikbaar`. Zonder wachten slaagt de ronde nog, want de uitvraag onthoudt die organisaties per ontvanger 30 seconden (`profiel.resolver.cache.ttl-seconds`). Het problem+json-detail staat in de netwerk-tab |
+| 9 | Profielservice weg | *Profielservice uit* → wacht een halve minuut → nieuwe ronde → "Wij kunnen uw berichten nu niet ophalen. Ververs de pagina over een minuut om het opnieuw te proberen.": de uitvraag kan niet bepalen welke organisaties hij moet bevragen (`Profiel-service onbereikbaar` in de log). Zonder wachten slaagt de ronde nog, want de uitvraag onthoudt die organisaties per ontvanger 30 seconden (`profiel.resolver.cache.ttl-seconds`). Het problem+json-detail staat in de netwerk-tab |
 | 10 | Notificatieservice weg | *Notificatie uit* → *Bericht plaatsen* → het bericht verschijnt tóch vanzelf (aanmelden slaagt; de notificatie probeert opnieuw) |
 | 11 | Uitvraagsysteem eruit | *Uitvraag/aanmeld uit* → *Bericht plaatsen* → het bericht verschijnt níet; *Alles normaal* → de outbox levert alsnog af en het bericht verschijnt alsnog vanzelf |
 | 12 | Redis weg | *Redis uit* → de Berichtenbox kan zijn lijst niet meer lezen en meldt "Wij kunnen uw berichten nu niet ophalen. Ververs de pagina over een minuut om het opnieuw te proberen."; de uitvraag antwoordt met problem+json (geen kale 500), te zien in de netwerk-tab. *Cache verlopen* blijft werken |

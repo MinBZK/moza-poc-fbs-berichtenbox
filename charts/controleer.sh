@@ -713,16 +713,31 @@ toets_blok "demo" "Server Actions: portaal krijgt de host van de browser" 'locat
 toets_blok "demo" "ketenstream zonder buffering" 'location /api/keten/ {' 'proxy_buffering off;'
 toets_blok "demo" "ketenstream met X-Forwarded-Host" 'location /api/keten/ {' 'proxy_set_header X-Forwarded-Host $http_host;'
 toets_blok "demo" "wachtwoord van het paneel niet naar het portaal" 'location / {' 'proxy_set_header Authorization "";'
-# Elke location-vorm (prefix, =, ~, ~*, ^~) en elke spatiëring: de demo-proxy heeft geen route naar
-# de uitvraag, en een teruggezette route in een andere vorm hoort hier ook rood te worden.
-if grep -qE 'location[^{]*/api/(v1|[[:space:]]*\{)' "$WERK/demo.yaml"; then
-  fout "demo: geen route meer naar de uitvraag (gevonden: $(grep -m1 -E 'location[^{]*/api/(v1|[[:space:]]*\{)' "$WERK/demo.yaml"))"
+# Geen route naar de uitvraag, in welke location-vorm ook: toets de bestemming in plaats van de vorm.
+# Elke proxy_pass gaat naar het portaal, de console of de personadienst.
+vreemd=$(grep -E '^[[:space:]]*proxy_pass ' "$WERK/demo.yaml" | grep -vE 'proxy_pass \$(portaal|console|personas);' || true)
+
+if [ -z "$vreemd" ]; then
+  ok "demo: elke proxy_pass naar portaal, console of personadienst"
 else
-  ok "demo: geen route meer naar de uitvraag"
+  fout "demo: proxy_pass naar een andere bestemming: $vreemd"
+fi
+
+# Het wachtwoord van het paneel gaat nergens door. Op serverniveau precies één keer, en elk
+# location-blok met een eigen proxy_set_header herhaalt hem: zo'n regel heft de erfenis op.
+if awk '
+  /^ {8}proxy_set_header Authorization "";$/ { server++ }
+  /^ {8}location / { in_blok = 1; eigen = 0; wist = 0; naam = $0; next }
+  in_blok && /^ {8}}$/ { if (eigen && !wist) { print naam; fout = 1 } in_blok = 0; next }
+  in_blok && /proxy_set_header Authorization "";/ { wist = 1 }
+  in_blok && /proxy_set_header / { eigen = 1 }
+  END { exit !(server == 1 && !fout) }' "$WERK/demo.yaml" >"$WERK/authorization.txt"; then
+  ok "demo: wachtwoord van het paneel op serverniveau en per eigen proxy_set_header gewist"
+else
+  fout "demo: wachtwoord van het paneel gaat door ($(tr '\n' ' ' <"$WERK/authorization.txt"))"
 fi
 # Op serverniveau voor console en personalijst, plus de twee locations naar het portaal die hem
 # zelf herhalen: een proxy_set_header in een location heft de erfenis op.
-toets_aantal "demo" "wachtwoord van het paneel nergens door" 'proxy_set_header Authorization "";' 3
 toets_blok "demo" "wachtwoord van het paneel niet naar de ketenstream" 'location /api/keten/ {' 'proxy_set_header Authorization "";'
 
 TOETS_RELEASE=berichtenuitvraag toets_render "demo-uitvraag" -f "$CHART/diensten/berichtenuitvraag.yaml" \

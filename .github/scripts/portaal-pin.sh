@@ -65,7 +65,7 @@ digest_van() {
   headers=$(mktemp)
   trap 'rm -f "$headers"' RETURN
 
-  http=$(curl -sS -o /dev/null -D "$headers" -w '%{http_code}' -I \
+  http=$(curl -sS --max-time 20 -o /dev/null -D "$headers" -w '%{http_code}' -I \
     -H "Authorization: Bearer $token" \
     -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json" \
     "https://ghcr.io/v2/${pad}/manifests/${tag}" || true)

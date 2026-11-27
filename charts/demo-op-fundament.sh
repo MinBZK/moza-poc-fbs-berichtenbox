@@ -342,6 +342,9 @@ installeren() {
   local portaal args
   # portaal-image.sh leest PORTAAL_IMAGE zelf, met dezelfde vormcontrole als voor de pin.
   portaal=$("$REPO/.github/scripts/portaal-image.sh") || stop 2 "portaal-image.sh faalde"
+  # De chart eist een digest; zonder viel dit pas bij helm om, met een melding over de installatie.
+  [[ $portaal =~ @sha256:[0-9a-f]{64}$ ]] ||
+    stop 2 "het portaal-image '$portaal' staat niet op digest; Fundament eist dat (zet PORTAAL_IMAGE met @sha256:…)"
 
   register
   aanmeldingen_behouden

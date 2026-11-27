@@ -246,6 +246,11 @@ bevat "register herstart na de installatie" "rollout restart deployment/berichte
 bevat "register uit een kopie, niet uit demo/generated" "magazijnenregister=$WERKMAP/installeren/repo/demo/generated/" "$LOG"
 
 bevat "installeren: het portaal uit PORTAAL_IMAGE" "--set images.portaal=ghcr.io/x/p:t@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" "$(grep 'install fbs-demo' <<<"$LOG")"
+draai installeren-portaal-zonder-digest "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=ghcr.io/minbzk/moza-portaal:pr-302-5830f5e; installeren"
+gelijk "een portaal zonder digest: exit 2" 2 "$CODE"
+bevat "een portaal zonder digest: zegt het" "staat niet op digest" "$UIT"
+bevat_niet "een portaal zonder digest: niets geïnstalleerd" "upgrade --install" "$LOG"
+
 draai installeren-kapot-portaal "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; export PORTAAL_IMAGE=kapot; installeren"
 gelijk "een onbruikbare PORTAAL_IMAGE: exit 2" 2 "$CODE"
 bevat "een onbruikbare PORTAAL_IMAGE: zegt het" "portaal-image.sh faalde" "$UIT"

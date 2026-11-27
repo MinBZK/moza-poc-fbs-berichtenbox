@@ -327,7 +327,7 @@ jobs:
       #
       # De repo-variabele `PORTAAL_IMAGE` overschrijft die pin voor elke uitrol die daarna draait.
       # Bedoeld om de demo tijdelijk op nog niet gemergd werk van het portaal te zetten, of op een
-      # bevroren release-tag: variabele zetten, deploy opnieuw draaien, en terugzetten door hem weg
+      # vaste eerdere versie: variabele zetten, deploy opnieuw draaien, en terugzetten door hem weg
       # te halen. Een variabele en geen commit, want dit hoort niet in de geschiedenis van de repo
       # thuis; hij geldt wél voor `test` én elke preview, vandaar de notice hieronder. Voor één
       # preview: dezelfde variabele op de environment `pr-<n>`, zie `deploy-preview-magazijnen`.

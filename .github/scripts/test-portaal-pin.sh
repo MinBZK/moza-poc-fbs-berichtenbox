@@ -320,7 +320,7 @@ REPO_JSON='{"default_branch":"ontwikkel"}'
 uitvoeren
 verwacht "een andere standaardtak levert dezelfde uitkomst" \
   ok "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_MAIN"
-aangeroepen "de commits worden op de gemelde standaardtak opgevraagd" "/commits?sha=ontwikkel&"
+aangeroepen_exact "honderd commits terug, op de gemelde standaardtak" "https://api.github.com/repos/MinBZK/moza-portaal/commits?sha=ontwikkel&per_page=100"
 
 # --- de pin loopt achter ------------------------------------------------------------------------
 

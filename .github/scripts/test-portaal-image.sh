@@ -86,15 +86,22 @@ verwacht_image "een preview-referentie uit hun repository" \
   "ghcr.io/minbzk/moza-portaal:pr-142-41c83e3"
 
 # Tags die met elke bouw verschuiven: op ZAD verandert het manifest dan niet en rolt er niets uit.
-for tag in main latest ux-fork pr-303 edge Main pr- main-123456 main-1234567x pr-1-abc; do
+for tag in main latest ux-fork pr-303 edge Main pr- main-123456 main-1234567x pr-1-abc \
+  xmain-1234567 main-ABCDEF0 main-123456g main-12345678 pr--1234567 pr-1-123456 pr-1-12345678 \
+  pr-12-0123abc-r2 pr-12-0123abc-k7 v1.4.0 1.4.0 V1.4.0; do
   verwacht_fout "de tag :$tag zonder digest" \
     "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:$tag")" \
     "kan verschuiven"
 done
 
-verwacht_image "een releasenummer zonder digest" \
-  "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:v1.4.0")" \
-  "ghcr.io/minbzk/moza-portaal:v1.4.0"
+# Een digest moet er als digest uitzien: een afgekapte, getypte of anders gehashte waarde hangt het
+# component in ImagePullBackOff.
+for digest in "sha256:$(printf 'a%.0s' {1..63})" "sha256:$(printf 'A%.0s' {1..64})" "sha256:$(printf 'g%.0s' {1..64})" \
+  "sha512:$(printf 'a%.0s' {1..64})" "sha256:"; do
+  verwacht_fout "digest '${digest:0:12}…' (${#digest} tekens)" \
+    "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:main@$digest")" \
+    "geen geldige digest"
+done
 
 verwacht_image "een meebewegende tag mét digest" \
   "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:main@sha256:$(printf 'b%.0s' {1..64})")" \
@@ -149,7 +156,7 @@ verwacht_fout "een lege tag" \
 
 verwacht_fout "een lege digest" \
   "$(compose_met "    image: \"ghcr.io/minbzk/moza-portaal@sha256:\"")" \
-  "ziet er niet uit als een image met een tag of digest"
+  "geen geldige digest"
 
 # --- het bestand zelf ---
 

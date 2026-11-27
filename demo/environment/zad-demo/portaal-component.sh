@@ -226,7 +226,7 @@ alias_zet portaal \
 # env. Een ondertekengeheim van het portaal hoort niet in de env van de magazijnen, en een
 # HOSTNAME-alias zou op elk component landen.
 env_zet() {
-    local component="$1" paar="$2" alleen_als_nieuw="${3:-}" naam="${2%%=*}"
+    local component="$1" paar="$2" alleen_als_nieuw="${3:-}" naam="${2%%=*}" lijst
 
     if [ "$MODE" = plan ] && ! component_bestaat "$component"; then
         echo "plan: '$component' bestaat nog niet; '$naam' komt er na het aanmaken op." >&2
@@ -234,14 +234,24 @@ env_zet() {
         return 0
     fi
 
-    if [ -n "$alleen_als_nieuw" ] && component_bestaat "$component" &&
-        "${ZAD[@]}" env list -c "$component" | grep -qw -- "$naam"; then
-        echo "'$naam' staat al op '$component'; ongewijzigd gelaten." >&2
+    # Eén keer lezen, in een variabele en niet via een pipe: een mislukte lijst (niet ingelogd, een
+    # OM-lock) mag niet als "staat er niet" langskomen, en een `grep -q` in een pipe kan de schrijver
+    # met SIGPIPE afbreken. Beide zouden een nieuw geheim zetten en iedereen uitloggen.
+    lijst="$("${ZAD[@]}" env list -c "$component")" ||
+        meld_zadctl_fout $? "zadctl kon de env van '$component' niet lezen"
 
-        return 0
+    # `env add` weigert een bestaande naam en `env set` een nieuwe, net als bij de aliassen.
+    if grep -qE "(^|[^A-Za-z0-9_])${naam}([^A-Za-z0-9_]|$)" <<<"$lijst"; then
+        if [ -n "$alleen_als_nieuw" ]; then
+            echo "'$naam' staat al op '$component'; ongewijzigd gelaten." >&2
+
+            return 0
+        fi
+
+        "${ZAD[@]}" env set -c "$component" "$paar" "${DROOG[@]}"
+    else
+        "${ZAD[@]}" env add -c "$component" "$paar" "${DROOG[@]}"
     fi
-
-    "${ZAD[@]}" env set -c "$component" "$paar" "${DROOG[@]}"
 }
 
 # HOSTNAME expliciet: het image zet 0.0.0.0, maar de container-runtime zet de variabele op de
@@ -252,11 +262,13 @@ env_zet portaal "HOSTNAME=0.0.0.0"
 # geheim bij elke aanroep zou iedereen met een open Berichtenbox uitloggen. In plan-modus wordt geen
 # geheim gemaakt, en de waarde komt niet in de uitvoer. Hij staat wel kort in de argumenten van
 # zadctl en is daar via ps te lezen zolang die aanroep loopt; dat korte venster is bewust
-# geaccepteerd.
+# geaccepteerd. Eerst toekennen: een falende openssl in een argument zou een leeg geheim zetten.
 if [ "$MODE" = plan ]; then
     echo "plan: 'AUTH_SECRET' krijgt op 'portaal' een willekeurig geheim van 32 bytes, als het er nog niet staat." >&2
 else
-    env_zet portaal "AUTH_SECRET=$(openssl rand -base64 32)" alleen-als-nieuw
+    geheim="$(openssl rand -base64 32)"
+    env_zet portaal "AUTH_SECRET=${geheim}" alleen-als-nieuw
+    unset geheim
 fi
 
 # Het paneel toetst dit adres niet vooraf: een HEAD naar een ander component strandt op CORS, en

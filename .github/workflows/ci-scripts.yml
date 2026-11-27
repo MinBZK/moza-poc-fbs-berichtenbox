@@ -181,7 +181,7 @@ jobs:
             [.github/scripts/test-maven-cache.sh]=45
             [.github/scripts/test-fuzz-basis-modules.sh]=16
             [.github/scripts/test-fuzz-basis-pin.sh]=74
-            [.github/scripts/test-portaal-image.sh]=33
+            [.github/scripts/test-portaal-image.sh]=49
             [.github/scripts/test-portaal-pin-pr.sh]=129
             [.github/scripts/test-pin-pr-teststubs.sh]=40
             [.github/scripts/test-portaal-pin.sh]=217
@@ -192,7 +192,7 @@ jobs:
             [demo/test-meet-fanout.sh]=223
             [charts/fundament-testcluster/test-lib.sh]=473
             [charts/demo-op-fundament/test-lib.sh]=147
-            [charts/demo-op-fundament/test-script.sh]=213
+            [charts/demo-op-fundament/test-script.sh]=216
           )
           declare -A GEDRAAID=()
 

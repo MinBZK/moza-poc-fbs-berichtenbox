@@ -160,7 +160,7 @@ opnieuw. Wil je een versie overslaan, laat deze PR dan staan tot de volgende lan
 Dependabot biedt deze bump niet aan; de reden staat bij de \`ignore\`-regel in
 \`.github/dependabot.yml\`.
 
-Een andere versie draaien dan de gepinde — een release-tag voor een gebruikersonderzoek, of nog niet
+Een andere versie draaien dan de gepinde — een vaste eerdere versie voor een gebruikersonderzoek, of nog niet
 gemergd werk van hun kant — gaat via de variabele \`PORTAAL_IMAGE\`, niet via deze regel.
 EOM
 }

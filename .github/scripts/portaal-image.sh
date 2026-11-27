@@ -8,7 +8,7 @@
 # moeten worden.
 #
 # `PORTAAL_IMAGE` overschrijft die regel voor één draai. Bedoeld om nog niet gemergd werk van hun
-# kant te beproeven, of een demo op een bevroren release-tag te zetten. Bewust een omgevingsvariabele
+# kant te beproeven, of een demo op een vaste eerdere versie te zetten. Bewust een omgevingsvariabele
 # en geen tweede regel in compose.yaml: zo blijft er één gepinde waarde die bijgehouden wordt, en is
 # de afwijking zichtbaar op de plek waar hij gezet wordt in plaats van in de repo te blijven staan.
 set -euo pipefail
@@ -21,14 +21,22 @@ COMPOSE_PAD=${COMPOSE_PAD:-ghcr.io/minbzk/moza-portaal}
 # stilzwijgend `latest` en zet een demo op een andere versie dan het repo denkt; een lege tag
 # (`...moza-portaal:`) is bovendien geen geldige referentie, maar passeert wél `docker compose config`
 # zodra de waarde geciteerd is. Het `?` in de patronen eist dus minstens één teken ná de scheiding.
-# Zonder digest alleen een tag die niet verschuift: een commit-tag of een releasenummer. Een tag als
-# `main` of `pr-303` wijst na elke bouw naar iets anders; op ZAD verandert het gerenderde manifest
-# dan niet, dus rolt er niets uit terwijl de deploy groen is.
+# Zonder digest alleen een commit-tag: een tag als `main` of `pr-303` wijst na elke bouw naar iets
+# anders, en ook een releasetag kan opnieuw gepusht worden. Op ZAD verandert het gerenderde manifest
+# dan niet, dus rolt er niets uit terwijl de deploy groen is. Een digest moet er als digest uitzien:
+# een afgekapte of getypte waarde hangt het component in ImagePullBackOff.
 toets() {
   local tag
 
   case "$1" in
-    */*@sha256:?*) return 0 ;;
+    */*@*)
+      if ! [[ ${1##*@} =~ ^sha256:[0-9a-f]{64}$ ]]; then
+        echo "'$1' heeft geen geldige digest (sha256: plus 64 hex-tekens)" >&2
+        exit 1
+      fi
+
+      return 0
+      ;;
     */*:?*) ;;
     *)
       echo "'$1' ziet er niet uit als een image met een tag of digest" >&2
@@ -38,8 +46,8 @@ toets() {
 
   tag=${1##*:}
 
-  if ! [[ $tag =~ ^(main-[0-9a-f]{7}|pr-[0-9]+-[0-9a-f]{7}|v?[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
-    echo "'$1' heeft geen digest en een tag die kan verschuiven; neem een commit-tag (main-<sha7>, pr-<n>-<sha7>), een releasenummer of een digest" >&2
+  if ! [[ $tag =~ ^(main-[0-9a-f]{7}|pr-[0-9]+-[0-9a-f]{7})$ ]]; then
+    echo "'$1' heeft geen digest en een tag die kan verschuiven; neem een commit-tag (main-<sha7>, pr-<n>-<sha7>) of een digest" >&2
     exit 1
   fi
 }
