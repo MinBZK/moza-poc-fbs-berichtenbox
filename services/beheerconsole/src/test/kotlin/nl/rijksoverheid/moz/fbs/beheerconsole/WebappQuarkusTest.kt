@@ -23,7 +23,7 @@ class WebappQuarkusTest {
     private fun csp(pad: String): List<String> =
         given().redirects().follow(false).`when`().get(pad).then().extract().headers().getValues("Content-Security-Policy")
 
-    // Een scherm dat de router van de app kent, maar waarvoor geen bestand bestaat, krijgt index.html.
+    // Elk pad zonder bestand krijgt index.html; de router van de app kiest dan het scherm.
     @ParameterizedTest
     @ValueSource(strings = ["/", "/stelsel", "/stelsel/magazijnen"])
     fun `elk app-pad levert de app`(pad: String) {
@@ -49,13 +49,16 @@ class WebappQuarkusTest {
         assertEquals(listOf(webappCsp), csp(script))
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["/api/v1/bestaat-niet", "/openapi.json", "/.well-known/security.txt"])
+    fun `een API-pad krijgt geen app maar de strenge policy`(pad: String) {
+        given().`when`().get(pad).then().statusCode(404)
+        assertEquals(listOf("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"), csp(pad))
+    }
+
     @Test
-    fun `een API-pad krijgt geen app maar de strenge policy`() {
-        given().`when`().get("/api/v1/bestaat-niet").then().statusCode(404)
-        assertEquals(
-            listOf("default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"),
-            csp("/api/v1/bestaat-niet"),
-        )
+    fun `de API draagt zijn versie`() {
+        given().`when`().get("/api/v1/bestaat-niet").then().header("API-Version", "0.1.0")
     }
 
     @Test
@@ -73,7 +76,6 @@ class WebappQuarkusTest {
     private fun cacheControl(pad: String): List<String> =
         given().`when`().get(pad).then().extract().headers().getValues("Cache-Control")
 
-    // Een dag een oude index.html in de browser betekent een dag een app die verdwenen assets opvraagt.
     @ParameterizedTest
     @ValueSource(strings = ["/", "/index.html", "/stelsel"])
     fun `het app-document wordt elke keer gevalideerd`(pad: String) {
@@ -94,5 +96,18 @@ class WebappQuarkusTest {
     @Test
     fun `de API houdt no-store`() {
         assertEquals(listOf("no-store"), cacheControl("/api/v1/bestaat-niet"))
+    }
+
+
+    @Test
+    fun `het beheerpad houdt no-store`() {
+        assertEquals(listOf("no-store"), cacheControl("/q/health/ready"))
+    }
+
+    // Een browser met een oude index.html vraagt na een uitrol een asset op dat er niet meer is.
+    // Dan komt index.html terug; dat antwoord mag niet onder de asset-URL in de cache blijven.
+    @Test
+    fun `een verdwenen asset krijgt de app zonder dagcache`() {
+        assertEquals(listOf("no-cache"), cacheControl("/assets/bestaat-niet-meer.js"))
     }
 }

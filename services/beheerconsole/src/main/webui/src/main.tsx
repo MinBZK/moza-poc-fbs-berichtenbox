@@ -9,11 +9,11 @@ import type { Onderdeel } from "./shell/onderdeel";
 // De onderdelen van deze console. Een samengevoegd beheerportaal voegt hier zijn eigen toe.
 const onderdelen: Onderdeel[] = [start];
 
-const wortel = document.getElementById("root");
+const root = document.getElementById("root");
 
-if (wortel === null) throw new Error("element #root ontbreekt in index.html");
+if (root === null) throw new Error("element #root ontbreekt in index.html");
 
-createRoot(wortel).render(
+createRoot(root).render(
   <StrictMode>
     <BrowserRouter basename={import.meta.env.BASE_URL}>
       <Shell titel="Berichtenstelsel" ondertitel="Beheer" onderdelen={onderdelen}>

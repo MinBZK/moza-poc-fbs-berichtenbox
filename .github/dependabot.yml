@@ -30,10 +30,14 @@ updates:
     directory: "/tools/adr-lint"
     schedule:
       interval: "weekly"
+  # De beheerconsole: wekelijks, en een versie pas na twee weken, zoals bij handmatig toevoegen
+  # (services/beheerconsole/README.md). Een verse npm-release is het venster van supply-chain-aanvallen.
   - package-ecosystem: "npm"
     directory: "/services/beheerconsole/src/main/webui"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 14
   # Dagelijks: Dependabot genereert geen alerts voor container-images, dus voor de
   # images uit compose.yaml (die via pin-consistency.yml ook de ZAD-runtime-pins
   # sturen) is deze version-update-ronde het enige signaal dat er een nieuwe versie is.

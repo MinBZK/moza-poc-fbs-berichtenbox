@@ -17,7 +17,7 @@ interface ShellProps {
 
 /**
  * Het paginaraamwerk dat elk beheerportaal deelt: navigatiebalk, inhoud en voet. Kent geen
- * FBS-begrippen; titel en menu komen uit de onderdelen die de app meegeeft.
+ * FBS-begrippen: titel en ondertitel krijgt hij van de app mee, het menu komt uit de onderdelen.
  */
 export function Shell({ titel, ondertitel, onderdelen, children }: ShellProps) {
   const locatie = useLocation();

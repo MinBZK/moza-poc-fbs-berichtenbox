@@ -84,6 +84,15 @@ object SecurityHeaders {
             "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 
     /**
+     * Alleen voor de ontwikkelserver (`quarkus:dev`). Vite zet daar een inline preamble voor React
+     * Refresh in de pagina en laadt CSS als `<style>`-element; zonder `'unsafe-inline'` rendert de
+     * app niet. Een gebouwde app krijgt altijd [CSP_WEBAPP].
+     */
+    private const val CSP_WEBAPP_ONTWIKKEL =
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+    /**
      * Maakt van de geconfigureerde beheerpad-root een absoluut pad.
      *
      * Quarkus levert `quarkus.http.non-application-root-path` terug zoals het is
@@ -132,15 +141,21 @@ object SecurityHeaders {
      * app (de router serveert `index.html` op elk app-pad) en krijgt [CSP_WEBAPP].
      *
      * Bewust een lijst van API-paden en niet een lijst van app-paden: een nieuw API-pad dat hier
-     * ontbreekt, krijgt de ruimere webapp-policy, maar blijft zonder script uit te voeren
-     * (`script-src 'self'`). Omgekeerd zou een nieuw scherm stil leeg blijven.
+     * ontbreekt, krijgt de ruimere webapp-policy, die nog steeds niets inline en niets van een
+     * andere origin laadt. Omgekeerd zou een nieuw scherm stil leeg blijven. [ontwikkelserver]
+     * staat alleen in `quarkus:dev` aan, zie [CSP_WEBAPP_ONTWIKKEL].
      */
-    fun voorWebapp(pad: String, beheerpadRoot: String, apiPaden: Collection<String>): Map<String, String> {
+    fun voorWebapp(
+        pad: String,
+        beheerpadRoot: String,
+        apiPaden: Collection<String>,
+        ontwikkelserver: Boolean = false,
+    ): Map<String, String> {
         val headers = voorPad(pad, beheerpadRoot)
 
         if (isBeheerpad(pad, beheerpadRoot) || apiPaden.any { isBeheerpad(pad, it) }) return headers
 
-        return headers + (CONTENT_SECURITY_POLICY to CSP_WEBAPP)
+        return headers + (CONTENT_SECURITY_POLICY to if (ontwikkelserver) CSP_WEBAPP_ONTWIKKEL else CSP_WEBAPP)
     }
 
     /**

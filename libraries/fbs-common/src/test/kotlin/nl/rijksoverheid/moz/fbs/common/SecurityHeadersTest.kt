@@ -265,4 +265,23 @@ class SecurityHeadersTest {
 
         assertEquals(apiHeaders - "Content-Security-Policy", webappHeaders - "Content-Security-Policy")
     }
+
+    @Test
+    fun `alleen de ontwikkelserver mag inline script en style`() {
+        val ontwikkel = SecurityHeaders.voorWebapp("/", "/q", apiPaden, ontwikkelserver = true)
+            .getValue("Content-Security-Policy")
+
+        assertTrue("script-src 'self' 'unsafe-inline'" in ontwikkel)
+        assertTrue("style-src 'self' 'unsafe-inline'" in ontwikkel)
+        assertTrue("frame-ancestors 'none'" in ontwikkel)
+        assertEquals(webapp, webappCsp("/"))
+    }
+
+    @Test
+    fun `ook op de ontwikkelserver houdt de API de strenge policy`() {
+        assertEquals(
+            strikt,
+            SecurityHeaders.voorWebapp("/api/v1/x", "/q", apiPaden, ontwikkelserver = true).getValue("Content-Security-Policy"),
+        )
+    }
 }
