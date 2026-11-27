@@ -471,7 +471,7 @@ services:
   # andere versie draaien gaat via compose.portaal-versie.yaml, een lokale checkout via
   # compose.portaal-lokaal.yaml.
   portaal:
-    image: ghcr.io/minbzk/moza-portaal:pr-303-b91940b@sha256:bba2663173e436fcf9f2aeb1edafb6788aec7757289a6f9d9c3eeb14dd1832eb
+    image: ghcr.io/minbzk/moza-portaal:pr-303-5e4c590@sha256:d9dddaa78e317dbd5890d302c9c6a4319e0d0e4a9f8cef81efa30d5f40c77c54
     profiles: [demo]
     ports:
       - "${DEMO_BIND:-127.0.0.1}:8096:3000"
