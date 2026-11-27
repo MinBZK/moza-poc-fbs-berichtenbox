@@ -38,6 +38,7 @@ ongewijzigde code.
 ./mvnw clean test -pl services/berichtenmagazijn -am          # Docker vereist
 ./mvnw clean test -pl services/berichtenuitvraag -am          # Docker vereist
 ./mvnw clean test -pl services/stelselregister -am            # geen Docker; maakt testsleutels met keytool
+./mvnw clean test -pl services/beheerconsole -am             # geen Docker; Quinoa installeert Node en bouwt de app
 ```
 
 De modules die Docker vereisen draaien hun infrastructuur via Quarkus Dev Services

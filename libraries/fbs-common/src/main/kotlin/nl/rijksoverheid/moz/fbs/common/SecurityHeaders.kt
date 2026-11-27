@@ -71,6 +71,28 @@ object SecurityHeaders {
             "form-action 'none'; frame-ancestors 'self'"
 
     /**
+     * De policy voor een webapp die zijn eigen script en stylesheet laadt, zoals de
+     * beheerconsole. Alles van de eigen origin, niets inline en niets van elders.
+     *
+     * Geen `'unsafe-inline'` voor styles: de bundler levert losse bestanden, en de NLDD-
+     * componenten zetten hun opmaak via constructable stylesheets, die niet onder `style-src`
+     * vallen. `img-src` staat ook `data:` toe voor de iconen die het designsysteem zo meelevert.
+     * `form-action 'self'` in plaats van `'none'`: een beheerscherm kan een formulier hebben.
+     */
+    private const val CSP_WEBAPP =
+        "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; " +
+            "object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+    /**
+     * Alleen voor de ontwikkelserver (`quarkus:dev`). Vite zet daar een inline preamble voor React
+     * Refresh in de pagina en laadt CSS als `<style>`-element; zonder `'unsafe-inline'` rendert de
+     * app niet. Een gebouwde app krijgt altijd [CSP_WEBAPP].
+     */
+    private const val CSP_WEBAPP_ONTWIKKEL =
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; " +
+            "img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+
+    /**
      * Maakt van de geconfigureerde beheerpad-root een absoluut pad.
      *
      * Quarkus levert `quarkus.http.non-application-root-path` terug zoals het is
@@ -114,6 +136,29 @@ object SecurityHeaders {
     }
 
     /**
+     * Als [voorPad], voor een dienst die naast zijn API een webapp serveert. De paden in
+     * [apiPaden] en het beheerpad houden hun eigen policy; elk ander pad is een scherm van de
+     * app (de router serveert `index.html` op elk app-pad) en krijgt [CSP_WEBAPP].
+     *
+     * Bewust een lijst van API-paden en niet een lijst van app-paden: een nieuw API-pad dat hier
+     * ontbreekt, krijgt de ruimere webapp-policy, die nog steeds niets inline en niets van een
+     * andere origin laadt. Omgekeerd zou een nieuw scherm stil leeg blijven. [ontwikkelserver]
+     * staat alleen in `quarkus:dev` aan, zie [CSP_WEBAPP_ONTWIKKEL].
+     */
+    fun voorWebapp(
+        pad: String,
+        beheerpadRoot: String,
+        apiPaden: Collection<String>,
+        ontwikkelserver: Boolean = false,
+    ): Map<String, String> {
+        val headers = voorPad(pad, beheerpadRoot)
+
+        if (isBeheerpad(pad, beheerpadRoot) || apiPaden.any { isBeheerpad(pad, it) }) return headers
+
+        return headers + (CONTENT_SECURITY_POLICY to if (ontwikkelserver) CSP_WEBAPP_ONTWIKKEL else CSP_WEBAPP)
+    }
+
+    /**
      * De headers voor een response die als `inline` de deur uit gaat, of `null` wanneer
      * dat niet zo is en de gewone [voorPad]-waarden blijven staan.
      *
@@ -152,7 +197,8 @@ object SecurityHeaders {
         contentDisposition == INLINE || contentDisposition?.startsWith("$INLINE;") == true
 
     /**
-     * Een pad hoort bij het beheerpad wanneer het de root zelf is of eronder hangt.
+     * Een pad hoort bij het beheerpad (of bij een API-pad, zie [voorWebapp]) wanneer het de
+     * root zelf is of eronder hangt.
      * De segmentgrens is de reden dat dit geen kale `startsWith` is: `/qux` begint met
      * `/q` maar is een ander pad, en zou anders stilzwijgend de losse policy krijgen.
      */

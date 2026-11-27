@@ -1,0 +1,4 @@
+# De Node die Quinoa zelf installeert.
+.quinoa/
+# Incrementele typecheck van tsc -b.
+*.tsbuildinfo

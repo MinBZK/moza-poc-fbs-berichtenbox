@@ -33,6 +33,7 @@ COPY libraries/fbs-berichtensessiecache/pom.xml libraries/fbs-berichtensessiecac
 COPY services/berichtenmagazijn/pom.xml services/berichtenmagazijn/pom.xml
 COPY services/berichtenuitvraag/pom.xml services/berichtenuitvraag/pom.xml
 COPY services/stelselregister/pom.xml services/stelselregister/pom.xml
+COPY services/beheerconsole/pom.xml services/beheerconsole/pom.xml
 COPY demo/demo-console/pom.xml demo/demo-console/pom.xml
 COPY demo/demo-personas/pom.xml demo/demo-personas/pom.xml
 COPY demo/magazijn-simulator/pom.xml demo/magazijn-simulator/pom.xml
