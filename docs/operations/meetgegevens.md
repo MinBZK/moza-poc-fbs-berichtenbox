@@ -55,6 +55,10 @@ Eigen meetwaarden:
 | Meetwaarde | Dienst | Labels | Betekenis |
 |---|---|---|---|
 | `fbs_publicatie_aflevering_seconds_*` | magazijn | `doel`, `uitkomst`, `status` | Elke poging om een CloudEvent bij de aanmeldservice of notificatieservice af te leveren. `doel` is de key uit `magazijn.publicatie.downstreams`, of `_onbekend` voor een doel dat niet (meer) geconfigureerd is. `uitkomst`: `geslaagd`, `http_fout`, `timeout`, `netwerkfout`, `configuratiefout`, `serialisatiefout`, `opbouwfout`. `status`: de statusklasse (`2xx`, `4xx`, `5xx`) of `geen`. |
+| `fbs_retentie_laatste_ronde_seconds`, `fbs_retentie_laatste_geslaagde_ronde_seconds` | magazijn | — | Einde van de laatste ronde van het definitief wissen, en van de laatste ronde zonder fouten (sinds 1970; `0` = nog geen sinds de start). Per pod: neem `max()` over de pods. De ronde draait volgens `retentie.hard-delete.cron`; een geslaagde ronde die meer dan twee periodes oud is, betekent dat het wissen stilstaat of steeds faalt. |
+| `fbs_retentie_verwijderd_total` | magazijn | — | Definitief gewiste berichten. |
+| `fbs_retentie_fouten_total` | magazijn | `soort` (`wissen`, `logboek`, `ronde`) | `wissen`: een bericht dat niet te wissen was; `logboek`: gewist, maar de registratie in het logboek mislukte; `ronde`: de hele ronde brak af. |
+| `fbs_retentie_wachtend` | magazijn | — | Berichten die na de laatste ronde nog aan beide bewaardrempels voldeden. Hoort na een ronde 0 te zijn, tenzij een bericht niet te wissen was of de ronde de grens van 100.000 haalde. |
 
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op

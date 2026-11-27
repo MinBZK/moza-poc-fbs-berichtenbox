@@ -36,10 +36,12 @@ class HardDeleteMeting(registry: MeterRegistry) {
 
     init {
         Gauge.builder("fbs.retentie.laatste.ronde", laatsteRonde) { it.get().toDouble() }
-            .description("Einde van de laatste ronde, ook met fouten (seconden sinds 1970; 0 = nog geen)")
+            .description("Einde van de laatste ronde, ook met fouten, sinds 1970 (0 = nog geen)")
+            .baseUnit(SECONDEN)
             .register(registry)
         Gauge.builder("fbs.retentie.laatste.geslaagde.ronde", laatsteGeslaagdeRonde) { it.get().toDouble() }
-            .description("Einde van de laatste ronde zonder fouten (seconden sinds 1970; 0 = nog geen)")
+            .description("Einde van de laatste ronde zonder fouten, sinds 1970 (0 = nog geen)")
+            .baseUnit(SECONDEN)
             .register(registry)
         Gauge.builder("fbs.retentie.wachtend", wachtend) { it.get().toDouble() }
             .description("Berichten die na de laatste ronde nog aan beide drempels voldeden")
@@ -61,6 +63,11 @@ class HardDeleteMeting(registry: MeterRegistry) {
     /** Een ronde die als geheel afbrak, bijvoorbeeld omdat de database onbereikbaar was. */
     fun rondeAfgebroken() {
         fouten.getValue(Fout.RONDE).increment()
+    }
+
+    private companion object {
+        /** Prometheus plakt de eenheid achter de naam: `..._laatste_ronde_seconds`. */
+        const val SECONDEN = "seconds"
     }
 
     private enum class Fout(val label: String) {
