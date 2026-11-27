@@ -39,3 +39,7 @@ npm install --prefix services/beheerconsole/src/main/webui --save-exact --before
 De app krijgt een eigen CSP (`default-src 'self'`, niets inline); de API onder `/api` en
 `/openapi.json` houden de strenge policy van de andere diensten. Gebruik in de app daarom geen
 `style`-attributen of inline scripts: die blokkeert de browser.
+
+Uitzondering: `quarkus:dev` staat inline script en style toe, want Vite zet daar een inline
+preamble en laadt CSS als `<style>`. Een CSP-overtreding in eigen code zie je in dev dus niet;
+controleer een nieuw scherm op de gebouwde app (`./mvnw package` en de jar starten).

@@ -58,7 +58,8 @@ autorisatiebeslissing.
    `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`. Geen
    `unsafe-inline`: Vite levert losse script- en stylebestanden, en NLDD (Lit) gebruikt
    constructable stylesheets, die niet onder `style-src` vallen. De waarde staat bij de andere
-   in `fbs-common/SecurityHeaders`.
+   in `fbs-common/SecurityHeaders`. Alleen de ontwikkelserver (`quarkus:dev`) krijgt `'unsafe-inline'`
+   voor script en style: Vite zet daar een inline preamble en laadt CSS als `<style>`.
 6. **Geen inlog in stap 1 en 2.** De console toont alleen wat al openbaar is. Een scherm met
    niet-openbare gegevens of een beheerhandeling komt pas na het besluit over afscherming uit
    #1484. Tot die tijd hoort de console op ZAD achter de inlogmuur van het platform.

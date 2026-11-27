@@ -98,7 +98,6 @@ class WebappQuarkusTest {
         assertEquals(listOf("no-store"), cacheControl("/api/v1/bestaat-niet"))
     }
 
-
     @Test
     fun `het beheerpad houdt no-store`() {
         assertEquals(listOf("no-store"), cacheControl("/q/health/ready"))
