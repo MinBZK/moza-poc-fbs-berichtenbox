@@ -192,7 +192,9 @@ verwacht_poort "uitrol op positie 2 draaide toch" 1 "'deploy-preview-externe-stu
 verwacht_poort "uitrol op positie 3 draaide toch" 1 "'deploy-preview-magazijnen'" \
   pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped success skipped" "$VIER_UIT")"
 verwacht_poort "uitrol op positie 4 draaide toch" 1 "'deploy-preview-stelselregister'" \
-  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped success" "$VIER_UIT")"
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped success skipped" "$VIER_UIT")"
+verwacht_poort "uitrol op positie 5 draaide toch" 1 "'deploy-preview-beheerconsole'" \
+  pull_request "$PR_REF" false success false skipped "$(fixture "skipped skipped skipped skipped success" "$VIER_UIT")"
 
 # --- F. tak "uitrol verwacht" ---------------------------------------------------------------------
 for gate in failure skipped cancelled ''; do
@@ -210,7 +212,9 @@ for resultaat in failure skipped cancelled ''; do
   verwacht_poort "uitrol-job '$resultaat' op positie 3 blokkeert" 1 "'deploy-preview-magazijnen'" \
     pull_request "$PR_REF" false success true success "$(fixture "success success ${resultaat:--} success" "$VIER_UIT")"
   verwacht_poort "uitrol-job '$resultaat' op positie 4 blokkeert" 1 "'deploy-preview-stelselregister'" \
-    pull_request "$PR_REF" false success true success "$(fixture "success success success ${resultaat:--}" "$VIER_UIT")"
+    pull_request "$PR_REF" false success true success "$(fixture "success success success ${resultaat:--} success" "$VIER_UIT")"
+  verwacht_poort "uitrol-job '$resultaat' op positie 5 blokkeert" 1 "'deploy-preview-beheerconsole'" \
+    pull_request "$PR_REF" false success true success "$(fixture "success success success success ${resultaat:--}" "$VIER_UIT")"
 done
 
 # De bouw-jobs zijn de gebruikelijke oorzaak van een overgeslagen uitrol; hun stand hoort in de
@@ -291,7 +295,6 @@ deploy-preview-externe-stubs=success
 $TEST_STIL
 $HULP
 $BOUW"
-# Het geval van de dag dat er een project bijkomt: vier van de vijf jobs op de actieve as.
 verwacht_poort "drie previews in needs blokkeert" 1 "3 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success
@@ -299,6 +302,7 @@ deploy-preview-magazijnen=success
 $TEST_STIL
 $HULP
 $BOUW"
+# Het geval van de dag dat er een project bijkomt: vier van de vijf jobs op de actieve as.
 verwacht_poort "vier previews in needs blokkeert" 1 "4 uitrol-jobs gevonden in plaats van 5" \
   pull_request "$PR_REF" false success true success "deploy-preview-uitvraag=success
 deploy-preview-externe-stubs=success

@@ -1,4 +1,4 @@
-# Ruimt de preview van een PR op: de `pr-<n>`-deployment in elk van de vier ZAD-projecten, de
+# Ruimt de preview van een PR op: de `pr-<n>`-deployment in elk van de vijf ZAD-projecten, de
 # GitHub-omgeving en -deployments, de deploy-comment en de ghcr-versies van die PR.
 #
 # WAAROM EEN EIGEN WORKFLOW EN NIET IN deploy.yml: die filtert met `branches: [main]` op de

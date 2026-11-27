@@ -169,7 +169,7 @@ env:
   # NIET door deze waarde beïnvloed — die deploys landen alsnog gezond; opnieuw draaien volstaat.
   #
   # De waarde geldt per wachtstap, niet per deploy: neemt een nieuwere taak de uitrol over, dan
-  # wacht de action opnieuw zo lang op die opvolger. De `timeout-minutes` van de vier
+  # wacht de action opnieuw zo lang op die opvolger. De `timeout-minutes` van de vijf
   # deploy-preview-jobs laat daarom twee wachtstappen toe; verhoog je deze waarde, verhoog die mee.
   PREVIEW_TASK_TIMEOUT: '900'
   # De comment wordt door .github/scripts/preview-comment.sh geplaatst en niet door de

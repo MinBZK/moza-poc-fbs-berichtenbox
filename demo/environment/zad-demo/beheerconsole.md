@@ -20,14 +20,17 @@ Manager vergrendelt op project.
 
 Ingericht op 2026-11-27:
 
-- project `fb-m6c`, aangemaakt met `zadctl project create "FBS Beheerconsole"`. De projectsleutel
-  uit dat antwoord staat als repo-secret `ZAD_API_KEY_BEHEERCONSOLE`;
+- project `fb-m6c`, aangemaakt met `zadctl project create "FBS Beheerconsole"`. Dat antwoord geeft
+  het token `eerste` van het service-account `project-api` (rollen admin en ops), geldig tot
+  **2027-11-27**. Het staat als repo-secret `ZAD_API_KEY_BEHEERCONSOLE`. Vernieuwen vóór die datum:
+  een nieuw token voor `project-api` uitgeven (vraagt een step-up met 2FA) en het secret vervangen.
+  Verloopt het, dan faalt elke uitrol naar dit project, en via `uitrol-poort` elke PR;
 - component `beheerconsole`, poort 8093, geheugenlimiet 384 MiB;
 - de env-namen hieronder, de alias, de attachment met de root, de health-check en `publish-on-web`;
 - deployment `test`, nog zonder component: de eerste uitrol naar main zet het component erin met zijn image.
 
 Poorten zijn alleen bij het aanmaken van een component te zetten. Health staat op dezelfde poort
-als de app; de beheerpoort (28093) heeft geen route.
+als de app.
 
 ## 1. Env
 
@@ -86,7 +89,9 @@ Een draft-PR bouwt geen image en krijgt geen preview. Loop bij de eerste run (zo
 review staat) deze punten na:
 
 - **Het ghcr-pakket `fbs-beheerconsole` moet publiek zijn**, net als de andere images. Een nieuw
-  pakket kan privé beginnen; dan kan ZAD het niet trekken.
+  pakket kan privé beginnen; dan kan ZAD het niet trekken, en schakelt OM het component na de
+  pull-fout uit. Zet het pakket op publiek en hef de uitschakeling op met
+  `zadctl deployment update-image <deployment> -c beheerconsole --image <dezelfde image>`.
 - **De eerste preview kloont een lege `test`.** Env, alias, attachment en health-check staan op het
   component en gaan dus mee; het image geeft de action zelf mee. Faalt de kloon toch, zet het
   component dan met de hand in `test`: `zadctl deployment create test -c beheerconsole --image <image>`.

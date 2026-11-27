@@ -357,14 +357,14 @@ tel() {
 }
 
 alle="$(tel alle)"
-som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) + $(tel mpfs-rab) ))
+som=$(( $(tel mpfb-8wh) + $(tel mpfm-w3h) + $(tel mpfpsm-lcl) + $(tel mpfs-rab) + $(tel fb-m6c) ))
 
 # De ondergrens apart: zonder deze check zou een script dat meteen afbreekt alle=0 en som=0 geven,
 # en dan is "de filters dekken samen de hele tabel" waar zonder iets te betekenen.
 if [ "$alle" -le 0 ]; then
   fout "de kale plan-run leverde geen enkele regel op; de teller meet niets"
 elif [ "$alle" -eq "$som" ]; then
-  ok "de vier projectfilters samen dekken de hele tabel ($alle regels)"
+  ok "de vijf projectfilters samen dekken de hele tabel ($alle regels)"
 else
   fout "alle=$alle maar de projecten samen $som"
 fi

@@ -167,7 +167,7 @@ jobs:
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
             [.github/scripts/test-wijzigingsfilter.sh]=117
-            [.github/scripts/test-uitrol-poort.sh]=101
+            [.github/scripts/test-uitrol-poort.sh]=106
             [.github/scripts/test-opruim-oordeel.sh]=62
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
