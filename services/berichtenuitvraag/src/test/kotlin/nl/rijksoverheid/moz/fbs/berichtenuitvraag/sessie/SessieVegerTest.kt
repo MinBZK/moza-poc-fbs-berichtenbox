@@ -15,6 +15,7 @@ import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.ProcessingHandler
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheException
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.LogboekMeting
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.ProcessingActivities
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecache
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.MockSessiecacheProfile
@@ -22,6 +23,7 @@ import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Kvk
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -111,6 +113,14 @@ abstract class SessieVegerTestBasis {
 
             override fun close() = Unit
         }
+
+        // Elke code bestaat vanaf de start, ook zonder één geval: anders mist increase() het eerste.
+        LogboekMeting.Waarschuwing.entries.forEach { soort ->
+            assertNotNull(Metrics.globalRegistry.find("fbs.logboek.waarschuwing").tag("code", soort.code).counter(), soort.code)
+        }
+
+        assertNotNull(Metrics.globalRegistry.find("fbs.logboek.geweigerd").counter())
+
         val teller = { Metrics.globalRegistry.find("fbs.logboek.waarschuwing").tag("code", SessieLogboek.ALERT_TOKEN).counter()?.count() ?: 0.0 }
         val voor = teller()
 
