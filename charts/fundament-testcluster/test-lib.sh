@@ -245,6 +245,69 @@ bevat "organisatie" "organizationName: system" "$m"
 bevat "versie gequote" 'pluginVersion: "v0.2.0"' "$m"
 bevat "hash gequote" "definitionHash: \"$HASH_A\"" "$m"
 
+echo "== eigen plug-in: definitie_veld, definitie_met_versie =="
+
+DEF=$(mktemp)
+cat >"$DEF" <<'EOF'
+apiVersion: fundament.io/v1
+kind: PluginDefinition
+metadata:
+  name: berichtenmagazijn
+  displayName: Berichtenmagazijn
+  version: v0.1.0
+spec:
+  configSchema:
+    - name: OIN
+      version: geen-metadata
+EOF
+gelijk "naam uit metadata, niet uit configSchema" berichtenmagazijn "$(definitie_veld "$DEF" name)"
+gelijk "versie uit metadata" v0.1.0 "$(definitie_veld "$DEF" version)"
+gelijk "onbekend veld: exit 1" 1 "$(code_van definitie_veld "$DEF" license)"
+m=$(definitie_met_versie "$DEF" v0.1.0-5d539bc)
+bevat "nieuwe versie" "  version: v0.1.0-5d539bc" "$m"
+bevat_niet "oude versie weg" "  version: v0.1.0"$'\n' "$m"
+bevat "configSchema ongemoeid" "      version: geen-metadata" "$m"
+gelijk "versie met build-metadata: exit 1" 1 "$(code_van definitie_met_versie "$DEF" v0.1.0+abc)"
+gelijk "versie zonder punten: exit 1" 1 "$(code_van definitie_met_versie "$DEF" latest)"
+printf 'metadata:\n  name: x\nspec: {}\n' >"$DEF"
+gelijk "definitie zonder versie: exit 1" 1 "$(code_van definitie_met_versie "$DEF" v1.0.0)"
+rm -f "$DEF"
+
+echo "== eigen plug-in: config_als_json =="
+
+CFG=$(mktemp)
+printf '# test\n\nOIN=00000001234567890000\nWEERGAVENAAM=Testmagazijn C\nAANMELD_URL=https://a.example.nl/x?y=z\r\n' >"$CFG"
+c=$(config_als_json "$CFG")
+gelijk "aantal sleutels" 3 "$(jq 'length' <<<"$c")"
+gelijk "spatie in waarde" "Testmagazijn C" "$(jq -r .WEERGAVENAAM <<<"$c")"
+gelijk "= in waarde, CR weg" "https://a.example.nl/x?y=z" "$(jq -r .AANMELD_URL <<<"$c")"
+printf 'OIN=1\nkleine_letters=2\n' >"$CFG"
+gelijk "sleutel in kleine letters: exit niet 0" 1 "$( [ "$(code_van config_als_json "$CFG")" != 0 ] && echo 1 || echo 0)"
+printf 'OIN=1\nOIN=2\n' >"$CFG"
+gelijk "dubbele sleutel: exit niet 0" 1 "$( [ "$(code_van config_als_json "$CFG")" != 0 ] && echo 1 || echo 0)"
+printf 'export OIN=1\n' >"$CFG"
+gelijk "export-regel: exit niet 0" 1 "$( [ "$(code_van config_als_json "$CFG")" != 0 ] && echo 1 || echo 0)"
+rm -f "$CFG"
+
+echo "== eigen plug-in: manifest_plugininstallatie_config =="
+
+gelijk "zonder hash: exit 1" 1 "$(code_van manifest_plugininstallatie_config x v1.0.0 "" '{}')"
+m=$(manifest_plugininstallatie_config berichtenmagazijn v0.1.0-5d539bc "$HASH_A" '{"WEERGAVENAAM":"Gemeente \"Test\": C"}')
+gelijk "naam met organisatie" system--berichtenmagazijn "$(jq -r .metadata.name <<<"$m")"
+gelijk "versie" v0.1.0-5d539bc "$(jq -r .spec.definitionRef.pluginVersion <<<"$m")"
+gelijk "hash" "$HASH_A" "$(jq -r .spec.definitionRef.definitionHash <<<"$m")"
+gelijk "waarde met aanhalingsteken en dubbele punt heel" 'Gemeente "Test": C' "$(jq -r .spec.config.WEERGAVENAAM <<<"$m")"
+
+echo "== eigen plug-in: secret_kopie =="
+
+bron='{"apiVersion":"v1","kind":"Secret","metadata":{"name":"gateway-ca","namespace":"tnt-fbs--fbs","uid":"u","resourceVersion":"7","ownerReferences":[{"name":"x"}]},"type":"Opaque","data":{"jssecacerts":"QUJD"}}'
+m=$(secret_kopie plugin-system--berichtenmagazijn jssecacerts <<<"$bron")
+gelijk "naam" gateway-ca "$(jq -r .metadata.name <<<"$m")"
+gelijk "namespace van de plug-in" plugin-system--berichtenmagazijn "$(jq -r .metadata.namespace <<<"$m")"
+gelijk "data mee" QUJD "$(jq -r .data.jssecacerts <<<"$m")"
+gelijk "geen uid, resourceVersion of ownerReferences" "nullnullnull" "$(jq -r '[.metadata.uid, .metadata.resourceVersion, .metadata.ownerReferences] | map(tostring) | join("")' <<<"$m")"
+gelijk "zonder de sleutel: exit niet 0" 1 "$( [ "$(code_van secret_kopie ns jssecacerts <<<'{"metadata":{"name":"x"},"data":{"ander":"QQ=="}}')" != 0 ] && echo 1 || echo 0)"
+
 echo "== manifest_tenant_namespace =="
 
 m=$(manifest_tenant_namespace tnt-fbs--fbs)
@@ -1209,6 +1272,14 @@ for geval in "HMLIST=fout|helm list in" "SVC=|geen Service voor de proxy's" "SVC
   bevat_niet "demo stopt bij ${geval%%|*}: niets geïnstalleerd" "ENV " "$uitvoer"
   bevat_niet "demo stopt bij ${geval%%|*}: de oude release blijft" "HM uninstall" "$uitvoer"
 done
+
+# namespace_weg onder pipefail: NotFound telt, een andere fout niet.
+uitvoer=$(in_script 'set -o pipefail; kc() { echo "Error from server (NotFound): namespaces \"x\" not found" >&2; return 1; }; namespace_weg x && echo WEG')
+bevat "namespace_weg: NotFound telt onder pipefail" "WEG" "$uitvoer"
+uitvoer=$(in_script 'set -o pipefail; kc() { echo "Unable to connect to the server" >&2; return 1; }; namespace_weg x || echo NIET_WEG')
+bevat "namespace_weg: andere fout is niet weg" "NIET_WEG" "$uitvoer"
+uitvoer=$(in_script 'set -o pipefail; kc() { echo "x Active"; }; namespace_weg x || echo NIET_WEG')
+bevat "namespace_weg: bestaande namespace is niet weg" "NIET_WEG" "$uitvoer"
 
 echo "ASSERTIES=$asserties"
 exit "$mislukt"

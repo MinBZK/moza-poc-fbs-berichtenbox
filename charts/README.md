@@ -250,6 +250,7 @@ via de echte plugin-controller, zoals op het fieldlab. Het ontwerp staat in
 TAG=main-<sha7> charts/fundament-testcluster.sh op       # opzetten, installeren, controleren
 TAG=main-<sha7> charts/fundament-testcluster.sh op --rol projectlid
 TAG=main-<sha7> charts/fundament-testcluster.sh demo      # daarna: de hele demo (fbs-demo)
+charts/fundament-testcluster.sh plugin <repo> <commit> <config>   # een eigen plug-in erbij
 charts/fundament-testcluster.sh controleer                # alleen controleren
 charts/fundament-testcluster.sh af                        # sandbox weg; het platform blijft
 charts/fundament-testcluster.sh af --met-platform         # ook het platform
@@ -442,3 +443,55 @@ Fundament (`.dev/kubeconfig`): daar zetten hun recipes de contexten van beide cl
 `~/.kube/config` en je huidige context blijven onaangeroerd. Het zet daarom `FUNDAMENT_TEST_ENV`
 uit en weigert in hun test-VM: daar schrijven hun recipes wel in `~/.kube/config`. Een kale
 `kubectl` of `helm` in het script breekt het af.
+
+### Een eigen plug-in
+
+`plugin` bouwt een plug-in uit een eigen repo, zoals
+[fundament-fbs-magazijn](https://code.digitaledienst.overheid.nl/moza/fundament-fbs-magazijn), en
+installeert hem op de sandbox zoals een organisatie dat op het fieldlab doet:
+
+```bash
+charts/fundament-testcluster.sh plugin ~/dev/moza/fundament-fbs-magazijn <commit> magazijn-c.env
+```
+
+- **Uit een vaste commit** (`git archive`), niet uit de werkmap. De versie wordt
+  `<metadata.version>-<sha7>`: versies zijn create-only, zo krijgt elke commit de zijne, en een
+  tweede run van dezelfde commit vindt hem in de catalogus terug.
+- **Image en publicatie** zoals de first-party plug-ins: `linux/amd64` zonder attestaties naar
+  `localhost:5112`, gepubliceerd als organisatie `system`, ingediend en goedgekeurd.
+- **Configuratie** uit een bestand met regels `SLEUTEL=waarde` (zonder `FUNP_`), als `spec.config`
+  van de `PluginInstallation`. Een regel in een andere vorm of een dubbele sleutel is een fout.
+- **Wat op het fieldlab een beheerder regelt:** een Role op HTTPRoutes voor ServiceAccount `plugin`
+  in `plugin-system--<naam>`, Gateway `web` die routes uit die namespace toelaat (alleen bij
+  `GATEWAY_NAAM=web` en `GATEWAY_NAMESPACE=tnt-fbs--fbs`), en met `TRUSTSTORE_SECRET` een kopie
+  van die Secret uit `tnt-fbs--fbs` (sleutel `jssecacerts`; `gateway-ca` maakt `demo`). Een nieuwe
+  versie is verwijderen en opnieuw installeren (`definitionRef` is onveranderlijk): de namespace
+  komt opnieuw, zonder de database en het magazijn van de vorige versie. Het script wacht tot de
+  oude weg is en zet alles in de nieuwe.
+- `op` zet de Gateway terug op alleen `tnt-fbs--fbs`: draai `plugin` daarna opnieuw.
+
+Binnen het cluster wijzen `*.fbs.localhost` na `demo` via CoreDNS naar de Gateway, op 443. Een
+plug-in kan dus `https://aanmelding.fbs.localhost/api/v1/aanmeldingen` gebruiken, zoals magazijn A
+en B.
+
+**Via de console** gaat het installeren ook, zoals een organisatie dat op het fieldlab doet; het
+script publiceert dan alleen (de versie staat daarna goedgekeurd in de catalogus):
+
+1. Lokaal is er geen Gardener: `cluster-worker` zet het seed-cluster `acme-cluster` op `lost`, en de
+   console installeert alleen op een cluster dat draait. Fundaments `just plugin-sandbox-kubeconfig`
+   zet het op `ready`; alleen dat deel:
+   ```bash
+   kubectl --kubeconfig "$KC" --context k3d-fundament -n fundament exec db-1 -c postgres -- \
+     psql -U postgres -d fundament -qtAc "UPDATE tenant.clusters SET shoot_status = 'ready', shoot_status_updated = now() WHERE deleted IS NULL"
+   ```
+   De volgende controle van `cluster-worker` (binnen 30 minuten) zet het terug; een geïnstalleerde
+   plug-in draait gewoon door.
+2. Log in op https://console.fundament.localhost:8443 als `alice@acme-corp.com` (wachtwoord
+   `password`, een openbaar seed-account), en installeer de plug-in op `acme-cluster`. Elk
+   cluster-id gaat lokaal naar de sandbox, dus de installatie komt daar.
+3. Daarna als beheerder van het cluster, in `plugin-system--<naam>`, wat `plugin` anders zelf doet:
+   de Role `httproutes` voor ServiceAccount `plugin`, de uitzondering in `allowedRoutes` van Gateway
+   `web`, en met `TRUSTSTORE_SECRET` een kopie van `gateway-ca`. Die laatste is alleen lokaal nodig:
+   de diensten van de demo hebben een certificaat van de lokale CA. Op het fieldlab blijft
+   `TRUSTSTORE_SECRET` leeg. Zolang de kopie ontbreekt, start het magazijn niet
+   (`secret "gateway-ca" not found`); daarna vanzelf.

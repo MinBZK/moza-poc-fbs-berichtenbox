@@ -9,6 +9,7 @@
 #   TAG=main-<sha7> charts/fundament-testcluster.sh op        opzetten, installeren, controleren
 #   ... op --rol beheerder|projectlid|beide                    één rol, of beide na elkaar (default)
 #   TAG=main-<sha7> charts/fundament-testcluster.sh demo       daarna: de hele demo (charts/fbs-demo)
+#   charts/fundament-testcluster.sh plugin <repo> <commit> <config>  een eigen plug-in bouwen en installeren
 #   charts/fundament-testcluster.sh controleer                 alleen controleren
 #   charts/fundament-testcluster.sh af [--met-platform]        sandbox weg; het platform alleen op verzoek
 #
@@ -1051,6 +1052,192 @@ demo() {
     EXTRA_VALUES="$WERK/demo-values" "$CHARTS/demo-op-fundament.sh" op
 }
 
+# --- Een eigen plug-in ---------------------------------------------------------------------------
+
+# Publiceert een plug-in uit een eigen repo zoals plugin_publiceren de first-party plug-ins: met de
+# organisatie system, ingediend en goedgekeurd. Print "<versie> <hash>".
+plugin_publiceren_extern() {
+  local definitie=$1 image=$2 naam=$3 uitvoer
+
+  if ! uitvoer=$(fj functl plugin publish "$definitie" --image "$image" --submit 2>&1); then
+    case "$(functl_fout_soort "$uitvoer")" in
+      geen-listing)
+        uitvoer=$(fj functl plugin publish "$definitie" --image "$image" --submit --create 2>&1) ||
+          { echo "$uitvoer" >&2; stop 1 "publiceren van $naam faalde"; }
+        ;;
+      bestaat-al)
+        # Dezelfde commit eerder gepubliceerd: de versie in de catalogus geldt, met zijn eigen image.
+        uitvoer=$(plugin_hervatten "$naam" "$uitvoer") || exit $?
+        echo "$uitvoer"
+        return
+        ;;
+      *)
+        echo "$uitvoer" >&2
+        stop 1 "publiceren van $naam faalde"
+        ;;
+    esac
+  fi
+
+  local versie hash id
+  read -r versie hash < <(publicatie_lees "$uitvoer") || { echo "$uitvoer" >&2; stop 1 "geen versie en hash in de uitvoer van publish voor $naam"; }
+  id=$(publicatie_plugin_id "$uitvoer") || { echo "$uitvoer" >&2; stop 1 "geen plugin-id in de uitvoer van publish voor $naam"; }
+
+  fj funops plugin approve "$id" "$versie" --reviewer "$REVIEWER" >&2 || stop 1 "goedkeuren van $naam $versie faalde"
+  echo "$versie $hash"
+}
+
+# Een route uit de namespace van de plug-in aan de listener https van Gateway web laten hangen,
+# naast die van $NS. Wat op het fieldlab een beheerder regelt; `op` zet de Gateway terug op alleen
+# $NS, dus na `op` draait `plugin` opnieuw.
+gateway_routes_toelaten() {
+  local ns=$1 gateway index namen
+
+  gateway=$(kc -n "$NS" get gateway web -o json) || stop 1 "Gateway web in $NS niet te lezen"
+  index=$(jq -er '.spec.listeners | map(.name) | index("https")' <<<"$gateway") || stop 1 "Gateway web heeft geen listener https"
+  namen=$(jq -c --arg ns "$ns" --arg eigen "$NS" --argjson i "$index" '
+    .spec.listeners[$i].allowedRoutes.namespaces as $n
+    | ([$eigen, $ns] + (if $n.from == "Selector" then [$n.selector.matchExpressions[]? | select(.key == "kubernetes.io/metadata.name" and .operator == "In") | .values[]] else [] end))
+    | unique' <<<"$gateway")
+
+  kc -n "$NS" patch gateway web --type json -p "$(jq -nc --argjson i "$index" --argjson namen "$namen" '[{
+    op: "replace", path: "/spec/listeners/\($i)/allowedRoutes",
+    value: {namespaces: {from: "Selector", selector: {matchExpressions: [{key: "kubernetes.io/metadata.name", operator: "In", values: $namen}]}}}
+  }]')" >/dev/null || stop 1 "allowedRoutes van Gateway web niet aan te passen"
+  echo "OK: Gateway web laat routes toe uit $(jq -r 'join(", ")' <<<"$namen")"
+}
+
+# De rol admin omvat geen HTTPRoutes (de Envoy-plug-in voegt ze niet toe). Een nieuwe versie van
+# de plug-in maakt de namespace opnieuw, dus de Role moet er bij elke run in.
+httproute_rechten() {
+  local ns=$1
+
+  kc -n "$ns" create role httproutes --verb=get,create,update,delete \
+    --resource=httproutes.gateway.networking.k8s.io --dry-run=client -o yaml | kc apply -f - >/dev/null &&
+    kc -n "$ns" create rolebinding httproutes --role=httproutes --serviceaccount="$ns:plugin" \
+      --dry-run=client -o yaml | kc apply -f - >/dev/null || stop 1 "Role httproutes in $ns niet te zetten"
+}
+
+namespace_actief() { [ "$(kc get namespace "$1" -o jsonpath='{.status.phase}' 2>/dev/null)" = Active ]; }
+
+# Alleen een namespace die echt ontbreekt telt; een time-out of weigering niet. Niet via een pipe
+# naar grep: onder pipefail wint dan de exitcode van kubectl, en die is bij NotFound ook 1.
+namespace_weg() {
+  local uitvoer
+  uitvoer=$(kc get namespace "$1" 2>&1) && return 1
+  [[ $uitvoer == *NotFound* ]]
+}
+
+# Een pod mount geen Secret uit een andere namespace. De trust-store met de lokale CA (gateway-ca,
+# die `demo` maakt) gaat daarom als kopie naar de namespace van de plug-in.
+truststore_kopieren() {
+  local ns=$1 naam=$2 bron
+
+  bron=$(kc -n "$NS" get secret "$naam" -o json 2>/dev/null) ||
+    stop 2 "Secret $naam staat niet in $NS; draai eerst: $0 demo"
+  secret_kopie "$ns" jssecacerts <<<"$bron" | kc apply -f - >/dev/null ||
+    stop 1 "Secret $naam (sleutel jssecacerts) niet naar $ns te kopiëren"
+}
+
+# Wat op het fieldlab een beheerder in de namespace van de plug-in zet. Die namespace verdwijnt met
+# elke nieuwe versie, dus bij elke run.
+plugin_namespace_inrichten() {
+  local ns=$1 truststore=$2
+
+  httproute_rechten "$ns"
+  [ -z "$truststore" ] || truststore_kopieren "$ns" "$truststore"
+}
+
+# Bouwt, publiceert en installeert een plug-in uit een eigen repo op de sandbox. Uit een vaste
+# commit (git archive), niet uit de werkmap: daar kan iemand anders intussen aan werken. De versie
+# wordt <metadata.version>-<sha7>: versies zijn create-only, en zo publiceert elke commit zijn
+# eigen versie. Na een andere versie installeert de plugin-controller de plug-in opnieuw.
+plugin_testen() {
+  local repo=$1 commit=$2 configbestand=$3 sha config
+
+  stap "plug-in uit $repo"
+
+  sha=$(git -C "$repo" rev-parse --verify --quiet "$commit^{commit}") || stop 2 "commit $commit staat niet in $repo"
+  config=$(config_als_json "$configbestand") || stop 2 "de configuratie in $configbestand is ongeldig (melding hierboven)"
+
+  local bron=$WERK/plugin-bron naam versie
+  mkdir -p "$bron"
+  git -C "$repo" archive "$sha" | tar -x -C "$bron" || stop 1 "git archive van ${sha:0:7} faalde"
+  [ -f "$bron/definition.yaml" ] && [ -f "$bron/Dockerfile" ] ||
+    stop 2 "geen definition.yaml en Dockerfile in de root van $repo op ${sha:0:7}"
+
+  naam=$(definitie_veld "$bron/definition.yaml" name) || stop 2 "geen metadata.name in definition.yaml"
+  versie=$(definitie_veld "$bron/definition.yaml" version) || stop 2 "geen metadata.version in definition.yaml"
+  versie=${versie%%-*}-${sha:0:7}
+  definitie_met_versie "$bron/definition.yaml" "$versie" >"$WERK/definition.yaml" ||
+    stop 2 "versie $versie is niet in definition.yaml te zetten"
+  mv "$WERK/definition.yaml" "$bron/definition.yaml"
+  echo "OK: $naam ${sha:0:7} als versie $versie"
+
+  # Zonder attestaties: dan is de push één manifest en geen OCI-index, waarvan de digest per build
+  # verandert (zoals _image-push in Fundaments plugins/mod.just).
+  local image=localhost:5112/$naam-plugin digest
+  docker build --platform linux/amd64 --provenance=false --sbom=false -t "$image:${sha:0:7}" "$bron" >"$WERK/build.log" 2>&1 ||
+    { tail -30 "$WERK/build.log" >&2; stop 1 "bouwen van het image faalde"; }
+  digest=$(docker push "$image:${sha:0:7}" 2>&1 | grep -oE 'digest: sha256:[a-f0-9]{64}' | grep -oE 'sha256:[a-f0-9]{64}' | head -1)
+  [ -n "$digest" ] || stop 1 "geen digest na docker push van $image:${sha:0:7}"
+  echo "OK: image $image@$digest"
+
+  local uitvoer hash
+  uitvoer=$(plugin_publiceren_extern "$bron/definition.yaml" "$image@$digest" "$naam") || exit $?
+  read -r versie hash <<<"$uitvoer"
+  echo "OK: $naam $versie gepubliceerd en goedgekeurd"
+
+  local installatie=system--$naam ns=plugin-system--$naam oude_versie
+  oude_versie=$(kc get plugininstallation "$installatie" -o jsonpath='{.spec.definitionRef.pluginVersion}' 2>/dev/null || true)
+
+  # definitionRef is onveranderlijk: een andere versie is verwijderen en opnieuw installeren. De
+  # controller ruimt dan ook de namespace op, met alles wat de plug-in erin had (database,
+  # magazijn). Pas als die weg is, komt de nieuwe; Role en Secret horen in die nieuwe.
+  if [ -n "$oude_versie" ] && [ "$oude_versie" != "$versie" ]; then
+    kc delete plugininstallation "$installatie" --wait --timeout=10m >/dev/null ||
+      stop 1 "PluginInstallation $installatie (versie $oude_versie) niet te verwijderen"
+    wacht_tot 600 "versie $oude_versie verwijderd, namespace $ns weg" namespace_weg "$ns" ||
+      stop 1 "namespace $ns blijft staan na het verwijderen van versie $oude_versie"
+  fi
+
+  manifest_plugininstallatie_config "$naam" "$versie" "$hash" "$config" | kc apply -f - >/dev/null ||
+    stop 1 "PluginInstallation $installatie niet toe te passen"
+  echo "OK: PluginInstallation $installatie op $versie"
+
+  wacht_tot 300 "namespace $ns" namespace_actief "$ns" || stop 1 "namespace $ns komt niet"
+
+  local truststore
+  truststore=$(jq -r '.TRUSTSTORE_SECRET // ""' <<<"$config")
+  plugin_namespace_inrichten "$ns" "$truststore"
+
+  local gateway_naam gateway_ns
+  gateway_naam=$(jq -r '.GATEWAY_NAAM // ""' <<<"$config")
+  gateway_ns=$(jq -r '.GATEWAY_NAMESPACE // ""' <<<"$config")
+  if [ "$gateway_naam" = web ] && [ "$gateway_ns" = "$NS" ]; then
+    gateway_routes_toelaten "$ns"
+  else
+    echo "INFO: GATEWAY_NAAM/GATEWAY_NAMESPACE is niet web/$NS; allowedRoutes niet aangepast"
+  fi
+
+  if ! wacht_tot 900 "$installatie draait" installatie_klaar "$installatie"; then
+    kc get plugininstallation "$installatie" -o jsonpath='{.status.message}{"\n"}' >&2 || true
+    kc -n "$ns" logs deploy/plugin --tail=40 >&2 || true
+    stop 1 "$installatie draait niet; zie: $KC_SANDBOX get plugininstallation $installatie -o yaml"
+  fi
+  # Nog eens, en nu getoetst: wat in de nieuwe namespace hoort, staat er na het wachten nog.
+  plugin_namespace_inrichten "$ns" "$truststore"
+  kc auth can-i create httproutes.gateway.networking.k8s.io -n "$ns" --as "system:serviceaccount:$ns:plugin" >/dev/null ||
+    stop 1 "ServiceAccount plugin in $ns mag geen HTTPRoutes maken"
+  echo "OK: ServiceAccount plugin in $ns mag HTTPRoutes maken"
+  if [ -n "$truststore" ]; then
+    kc -n "$ns" get secret "$truststore" >/dev/null 2>&1 || stop 1 "Secret $truststore ontbreekt in $ns"
+    echo "OK: Secret $truststore staat in $ns"
+  fi
+
+  echo "INFO: status: $(kc get plugininstallation "$installatie" -o jsonpath='{.status.message}')"
+  echo "INFO: log:    $KC_SANDBOX -n $ns logs deploy/plugin"
+}
+
 # --- Subcommando's -------------------------------------------------------------------------------
 
 op() {
@@ -1127,6 +1314,18 @@ main() {
       werkmap
       demo
       ;;
+    plugin)
+      [ "$#" -eq 4 ] || stop 2 "gebruik: $0 plugin <repo> <commit> <configbestand>"
+      geen_test_vm
+      vereis_tools docker git mise jq curl mkcert
+      [ -f "$KUBECONFIG_LOKAAL" ] ||
+        stop 2 "geen opstelling op Fundament ${FUNDAMENT_REF:0:8} ($KUBECONFIG_LOKAAL ontbreekt); draai eerst op"
+      [ -d "$2" ] || stop 2 "repo $2 bestaat niet"
+      [ -f "$4" ] || stop 2 "configbestand $4 bestaat niet"
+      werkmap
+      functl_inloggen
+      plugin_testen "$2" "$3" "$4"
+      ;;
     controleer)
       [ "$#" -eq 1 ] || stop 2 "controleer kent geen argumenten"
       vereis_tools curl docker
@@ -1136,7 +1335,7 @@ main() {
       controleer
       ;;
     *)
-      echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | demo | controleer | af [--met-platform]" >&2
+      echo "gebruik: $0 op [--rol beheerder|projectlid|beide] | demo | plugin <repo> <commit> <configbestand> | controleer | af [--met-platform]" >&2
       exit 2
       ;;
   esac
