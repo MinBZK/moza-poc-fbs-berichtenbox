@@ -197,6 +197,9 @@ jobs:
 
           ./mvnw -B test -pl "$MODULES" -am
 
+          # Had Quinoa toch zelf Node gedownload, dan faalt de shard: zie het script.
+          .github/scripts/quinoa-zonder-download.sh
+
           # Een module zonder testbronnen levert BUILD SUCCESS met nul tests. Bij een
           # demo-only-run is dit de énige shard, dus de required check zou groen rapporteren
           # zonder dat er iets getoetst is.

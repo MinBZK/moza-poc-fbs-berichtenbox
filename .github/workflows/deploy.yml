@@ -517,6 +517,9 @@ jobs:
             -Dquarkus.container-image.tag="$TAG" \
             -Dquarkus.container-image.username="$GHCR_USER"
 
+          # Na de build: had Quinoa toch zelf Node gedownload, dan faalt de job (alle services).
+          .github/scripts/quinoa-zonder-download.sh
+
       # Het register zelf, en niet de exitcode van de build hierboven; het waarom staat in het script.
       - name: Controleer de publicatie
         env:

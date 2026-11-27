@@ -15,6 +15,13 @@ set -euo pipefail
 
 readonly BASIS_URL=https://nodejs.org/dist
 
+# De pin is die van linux-x64. Op een andere architectuur draait die Node niet, en faalt de build
+# pas later in `npm ci` met een onduidelijke fout.
+if [ "$(uname -m)" != x86_64 ]; then
+  echo "::error::Alleen linux-x64 heeft een pin; deze runner is $(uname -m)."
+  exit 1
+fi
+
 properties=${1:?application.properties ontbreekt}
 pinbestand=${2:?pinbestand ontbreekt}
 doelmap=${3:?doelmap ontbreekt}
@@ -37,7 +44,7 @@ fi
 werkmap=$(mktemp -d)
 trap 'rm -rf "$werkmap"' EXIT
 
-curl --proto '=https' --tlsv1.2 -fsSL --retry 3 -o "$werkmap/$bestand" "$BASIS_URL/v$versie/$bestand"
+curl --proto '=https' --tlsv1.2 -fsSL --connect-timeout 10 --max-time 300 --retry 3 --retry-connrefused -o "$werkmap/$bestand" "$BASIS_URL/v$versie/$bestand"
 
 if ! (cd "$werkmap" && sha256sum --check --strict --quiet <<<"$pin"); then
   echo "::error::Checksum van $bestand klopt niet met $pinbestand; Node wordt niet gebruikt."
@@ -49,8 +56,9 @@ tar -xJf "$werkmap/$bestand" -C "$doelmap"
 
 bin="$doelmap/node-v$versie-linux-x64/bin"
 
-if ! [ -x "$bin/node" ]; then
-  echo "::error::$bestand bevat geen bin/node."
+# Draait, en is de versie die de pin belooft.
+if [ "$("$bin/node" --version 2>/dev/null)" != "v$versie" ]; then
+  echo "::error::$bestand levert geen werkende node v$versie."
   exit 1
 fi
 
