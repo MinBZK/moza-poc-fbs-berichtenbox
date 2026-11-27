@@ -35,11 +35,14 @@ class StelseldocumentlezerTest {
 
         val gelezen = lezer().lees(Testketen.geldig.document(nu, organisaties = organisaties), nu)
 
+        val inhoud = requireNotNull(gelezen.inhoud)
+        val ondertekening = requireNotNull(gelezen.ondertekening)
+
         assertEquals(Uitkomst.Geldig, gelezen.uitkomst)
-        assertEquals(organisaties.map { it.first }, gelezen.inhoud!!.organisaties.map { it.oin })
-        assertEquals(nu.plusSeconds(3600), gelezen.inhoud!!.geldigTot)
-        assertEquals("test-kid", gelezen.ondertekening!!.kid)
-        assertEquals(Testketen.geldig.certificaat.notAfter.toInstant(), gelezen.ondertekening!!.certificaatGeldigTot)
+        assertEquals(organisaties.map { it.first }, inhoud.organisaties.map { it.oin })
+        assertEquals(nu.plusSeconds(3600), inhoud.geldigTot)
+        assertEquals("test-kid", ondertekening.kid)
+        assertEquals(Testketen.geldig.certificaat.notAfter.toInstant(), ondertekening.certificaatGeldigTot)
     }
 
     @Test
