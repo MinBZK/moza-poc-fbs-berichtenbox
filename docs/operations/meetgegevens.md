@@ -18,8 +18,8 @@ mogen beslist #1472.
   netwerk-namespace (podman-hostnet) niet. De `1` ervoor is al bezet door Toxiproxy. Dit werkt
   voor een applicatiepoort van 1000 tot en met 9999; daarbuiten zet je `QUARKUS_MANAGEMENT_PORT`.
 - De beheerpoort luistert op dezelfde interface als de applicatiepoort
-  (`quarkus.management.host=${quarkus.http.host}`). Zonder die regel bindt Quarkus hem op
-  `0.0.0.0`, ook waar de applicatie alleen op `127.0.0.1` luistert.
+  (`quarkus.management.host=${quarkus.http.host}`). Zonder die regel blijft hij in prod op
+  `0.0.0.0`, ook waar `QUARKUS_HTTP_HOST` de applicatie op `127.0.0.1` zet.
 - Op de applicatiepoort geeft `/q/metrics` een `404`. Er gaat geen route, Service-poort of
   ZAD-ingress naar de beheerpoort, dus van buiten is hij niet te bereiken.
 - `/q/health/*` en `/openapi.json` blijven op de applicatiepoort. De probes van ZAD, Kubernetes
@@ -39,8 +39,9 @@ Standaard uit Quarkus:
   endpoint-template zonder het root-pad `/api/v1`: `GET /api/v1/berichten/<id>` telt als
   `uri="/berichten/{berichtId}"`. Een antwoord zonder template telt onder een vaste waarde, zodat
   een aanroeper met willekeurige paden geen reeksen kan aanmaken: een `404` als `uri="NOT_FOUND"`,
-  andere `4xx` en `5xx` (zoals een `405`) als `uri="UNKNOWN"` (`suppress4xx-errors`), en een
-  CORS-preflight als `uri="CORS_PREFLIGHT"` (`Meetfilters`, per dienst). `/q/*` telt niet mee.
+  andere `4xx` en `5xx` (zoals een `405`) als `uri="UNKNOWN"` (`suppress4xx-errors`), en elk
+  `OPTIONS`-verzoek, ook een CORS-preflight, als `uri="OPTIONS"` (`Meetfilters`, per dienst).
+  `/q/*` telt niet mee.
 - `http_client_requests_seconds_*` voor de REST-clients, per `clientName`, `address`, `method`,
   `uri` (template) en `status`. De Profiel-service heet `profiel-service`; de magazijnclients
   bouwen hun client zelf en heten `none`, ze zijn te herkennen aan `address`.

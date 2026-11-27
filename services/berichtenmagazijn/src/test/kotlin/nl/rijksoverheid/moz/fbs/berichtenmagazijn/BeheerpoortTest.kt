@@ -95,25 +95,24 @@ class BeheerpoortTest {
         assertTrue(tekst.lines().any { "status=\"405\"" in it && "uri=\"UNKNOWN\"" in it }, "geen 405 onder UNKNOWN")
     }
 
-    // Een CORS-preflight krijgt antwoord vóór de routering; zonder filter wordt elk pad een reeks.
+    // RESTEasy beantwoordt OPTIONS op een bestaand pad zelf, vóór de meting het template kent.
     @Test
-    fun `een preflight telt niet onder zijn pad`() {
-        val pad = "/api/v1/preflight-" + UUID.randomUUID()
+    fun `een OPTIONS-verzoek telt niet onder zijn pad`() {
+        val id = UUID.randomUUID().toString()
 
-        given()
-            .header("Origin", "https://voorbeeld.nl")
-            .header("Access-Control-Request-Method", "GET")
-            .`when`().options(pad)
+        given().`when`().options("/api/v1/berichten/$id").then().statusCode(200)
 
         val tekst = given().`when`().get(meetgegevens).then().statusCode(200).extract().asString()
 
-        assertFalse(pad in tekst, "preflight-pad in de meetgegevens")
+        assertFalse(id in tekst, "ruw pad in de meetgegevens")
+        assertTrue(tekst.lines().any { "method=\"OPTIONS\"" in it && "uri=\"OPTIONS\"" in it }, "geen OPTIONS-reeks")
     }
 
     @Test
     fun `de beheerpoort luistert op dezelfde interface als de applicatiepoort`() {
         val regels = File("src/main/resources/application.properties").readLines()
 
-        assertEquals(listOf("quarkus.management.host=\${quarkus.http.host}"), regels.filter { it.startsWith("quarkus.management.host=") })
+        // Ook een profielregel (%prod.quarkus.management.host=...) zou de afleiding stil overschrijven.
+        assertEquals(listOf("quarkus.management.host=\${quarkus.http.host}"), regels.filter { "quarkus.management.host=" in it })
     }
 }
