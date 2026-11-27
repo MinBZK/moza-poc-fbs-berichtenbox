@@ -7,6 +7,7 @@ import io.mockk.verify
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 import java.time.Instant
 import java.time.Period
 import java.util.UUID
@@ -186,5 +187,20 @@ class HardDeleteServiceTest {
         service.run()
 
         assertEquals(5.0, gauge("fbs.retentie.wachtend"))
+    }
+
+    @Test
+    fun `een ronde die halverwege afbreekt, houdt wat al gewist was in de meting`() {
+        val a = kandidaat(1L)
+        val b = kandidaat(2L)
+        every { ops.deleteOne(any()) } returns 1
+        every { ldv.logHardDelete(b) } throws RuntimeException("LDV down")
+        every { ops.claim(any(), any(), any()) } returns listOf(a, b) andThenThrows IllegalStateException("database weg")
+
+        assertThrows<IllegalStateException> { service.run() }
+
+        assertEquals(2.0, teller("fbs.retentie.verwijderd"))
+        assertEquals(1.0, teller("fbs.retentie.fouten", "soort", "logboek"))
+        assertEquals(0.0, gauge("fbs.retentie.laatste.ronde"))
     }
 }

@@ -58,6 +58,9 @@ class HardDeleteJobIntegrationTest {
     @Inject
     lateinit var registry: MeterRegistry
 
+    @Inject
+    lateinit var meting: HardDeleteMeting
+
     private lateinit var ldvMock: HardDeleteLdvLogger
 
     @BeforeEach
@@ -254,16 +257,21 @@ class HardDeleteJobIntegrationTest {
         repeat(2) { saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000) }
         saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = null)
         saveBerichtMetLeeftijd(ontvangstOffsetDagen = -1, verwijderdOpOffsetDagen = -1)
+        // Ongelijke leeftijden: wie de twee drempels verwisselt, telt hier anders.
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -2000)
 
         val drempel = Instant.now().minus(2557, ChronoUnit.DAYS)
 
         assertEquals(2L, ops.telWachtend(drempel, drempel))
+        assertEquals(3L, ops.telWachtend(drempel, Instant.now().minus(1500, ChronoUnit.DAYS)))
         assertEquals(0L, ops.telWachtend(Instant.now().minus(4000, ChronoUnit.DAYS), drempel))
     }
 
     @Test
     fun `na een volledige ronde wacht er niets meer`() {
         repeat(3) { saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000) }
+        // Een stand boven nul, zodat een telling die niet gebeurt hier opvalt.
+        meting.ronde(HardDeleteService.RunResultaat(0, 0, 0, 0), Instant.now(), 7)
 
         service.run()
 

@@ -169,10 +169,6 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
         }
     }
 
-    /**
-     * Hard-delete van de bericht-rij op de surrogate PK. Caller MOET eerst de
-     * child-rijen (bijlagen, status) verwijderen — FK is RESTRICT.
-     */
     /** Hoeveel berichten aan beide drempels van [claimVoorHardDelete] voldoen, zonder ze te claimen. */
     fun telKandidatenVoorHardDelete(receiptDeadline: Instant, softDeleteDeadline: Instant): Long =
         (
@@ -191,6 +187,10 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
                 .singleResult as Number
             ).toLong()
 
+    /**
+     * Hard-delete van de bericht-rij op de surrogate PK. Caller MOET eerst de
+     * child-rijen (bijlagen, status) verwijderen — FK is RESTRICT.
+     */
     fun hardDeleteByDbId(berichtDbId: Long): Int =
         delete("id = ?1", berichtDbId).toInt()
 

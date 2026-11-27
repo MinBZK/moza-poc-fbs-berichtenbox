@@ -23,10 +23,12 @@ class HardDeleteJob(
         concurrentExecution = ConcurrentExecution.SKIP,
         identity = "hard-delete-soft-deleted-berichten",
     )
+    // Ook een Error telt als afgebroken ronde; er wordt alleen gemeten en doorgegooid.
+    @Suppress("TooGenericExceptionCaught")
     fun fire() {
         try {
             service.run()
-        } catch (ex: RuntimeException) {
+        } catch (ex: Throwable) {
             // Een ronde die als geheel afbreekt, hoort in de meting; de scheduler logt de exceptie zelf.
             meting.rondeAfgebroken()
             throw ex

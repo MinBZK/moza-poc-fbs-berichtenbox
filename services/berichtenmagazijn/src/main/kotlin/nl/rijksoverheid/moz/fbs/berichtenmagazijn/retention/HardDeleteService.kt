@@ -61,13 +61,21 @@ class HardDeleteService(
 
             for (candidate in candidates) {
                 when (verwijderEnLog(candidate)) {
-                    KandidaatUitkomst.VERWIJDERD -> totaal++
+                    KandidaatUitkomst.VERWIJDERD -> {
+                        totaal++
+                        meting.verwijderd()
+                    }
                     KandidaatUitkomst.VERWIJDERD_LDV_FOUT -> {
                         totaal++
                         ldvFouten++
+                        meting.verwijderd()
+                        meting.logboekfout()
                     }
                     KandidaatUitkomst.OVERGESLAGEN -> {}
-                    KandidaatUitkomst.FOUT -> fouten++
+                    KandidaatUitkomst.FOUT -> {
+                        fouten++
+                        meting.wisfout()
+                    }
                 }
 
                 if (totaal >= MAX_PER_RUN) {

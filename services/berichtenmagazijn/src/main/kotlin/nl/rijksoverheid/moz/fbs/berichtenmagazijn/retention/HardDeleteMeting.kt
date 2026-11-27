@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
+import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
 import java.time.Instant
 import java.util.concurrent.atomic.AtomicLong
@@ -13,7 +14,11 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Alleen tellingen en tijdstippen, geen labels met bericht- of ontvangergegevens. De gauges gelden
  * per pod; bij meerdere pods geeft `max()` over de pods het laatste moment van het magazijn.
+ *
+ * `@Startup`, zodat elke reeks vanaf de start op 0 staat. Anders ontstaat de bean pas bij de eerste
+ * ronde, en ziet `increase()` de fouten van die ronde niet.
  */
+@Startup
 @ApplicationScoped
 class HardDeleteMeting(registry: MeterRegistry) {
 
@@ -48,11 +53,16 @@ class HardDeleteMeting(registry: MeterRegistry) {
             .register(registry)
     }
 
+    // Per bericht en niet aan het eind van de ronde: breekt die halverwege af, dan blijft wat al
+    // gewist was, en welke logboekregistraties mislukten, toch in de meting.
+    fun verwijderd() = verwijderd.increment()
+
+    fun wisfout() = fouten.getValue(Fout.WISSEN).increment()
+
+    fun logboekfout() = fouten.getValue(Fout.LOGBOEK).increment()
+
     /** [wachtendNa] is `null` als de telling na de ronde zelf faalde; de vorige waarde blijft dan staan. */
     fun ronde(resultaat: HardDeleteService.RunResultaat, einde: Instant, wachtendNa: Long?) {
-        verwijderd.increment(resultaat.totaalVerwijderd.toDouble())
-        fouten.getValue(Fout.WISSEN).increment(resultaat.fouten.toDouble())
-        fouten.getValue(Fout.LOGBOEK).increment(resultaat.ldvFouten.toDouble())
         laatsteRonde.set(einde.epochSecond)
 
         if (resultaat.fouten == 0 && resultaat.ldvFouten == 0) laatsteGeslaagdeRonde.set(einde.epochSecond)
