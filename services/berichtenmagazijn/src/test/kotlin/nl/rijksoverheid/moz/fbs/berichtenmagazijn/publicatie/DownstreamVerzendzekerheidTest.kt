@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.OpenTelemetry
@@ -44,7 +45,7 @@ class DownstreamVerzendzekerheidTest {
     private val openTelemetry = mockk<Instance<OpenTelemetry>>().apply {
         every { isResolvable } returns false
     }
-    private val client = DownstreamClient(config, ObjectMapper(), openTelemetry, "prod")
+    private val client = DownstreamClient(config, ObjectMapper(), openTelemetry, "prod", SimpleMeterRegistry())
 
     @AfterEach
     fun stop() {

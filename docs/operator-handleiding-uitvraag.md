@@ -470,6 +470,8 @@ dezelfde bescherming te krijgen als de rest van Redis (TLS en authenticatie).
 
 ## Aandachtspunten in bedrijf
 
+- **Meetgegevens** staan op de beheerpoort (28086), niet via het publieke adres:
+  [`operations/meetgegevens.md`](operations/meetgegevens.md).
 - **Een 404 van de Profiel-service** heeft een eigen runbook:
   [`operations/profiel-404-alert.md`](operations/profiel-404-alert.md).
 - **Een RediSearch-schemawijziging** vraagt een gecontroleerde index-herbouw:

@@ -212,10 +212,15 @@ niet (Logius-standaarden/logboek-dataverwerkingen#314).
   worden gereduceerd tot lege string. (Zie `AanleverResource.leverBerichtAan`
   finally-blok + companion `TRACEPARENT_PROCESSOR_PATTERN`.)
 
+## Meetgegevens
+
+Op de beheerpoort (28090, de applicatiepoort met een `2` ervoor) staat `/q/metrics` in
+Prometheus-formaat, niet via het publieke adres. Wat erin zit, en de eigen meetwaarde
+`fbs_publicatie_aflevering_seconds_*` per downstream: [operations/meetgegevens.md](operations/meetgegevens.md).
+
 ## Bekende monitoring-follow-ups (vóór productie)
 
-Twee event-categorieën verdienen een eigen counter zodra Quarkus Micrometer
-toegevoegd wordt (out-of-scope voor publicatie-stream PoC):
+Twee event-categorieën verdienen nog een eigen counter:
 
 * **`traceparent_processor_rejections_total`** (geen labels). Telt elke
   whitelist-rejection in `AanleverResource.leverBerichtAan`, óók die de

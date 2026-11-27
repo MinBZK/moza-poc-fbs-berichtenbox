@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.OpenTelemetry
@@ -64,6 +65,8 @@ class DownstreamClientTest {
         com.fasterxml.jackson.datatype.jsr310.JavaTimeModule(),
     )
 
+    private val registry = SimpleMeterRegistry()
+
     private val openTelemetry = mockk<Instance<OpenTelemetry>>().apply {
         every { isResolvable } returns false
     }
@@ -100,7 +103,7 @@ class DownstreamClientTest {
         // De embedded server ís hier de outway: zonder deze koppeling valt elke downstream met een
         // grant-hash af op "wijst niet naar de eigen outway".
         stelOutwayIn(SERVER_HOST)
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
     }
 
     private fun stelOutwayIn(host: String?) {
@@ -127,7 +130,7 @@ class DownstreamClientTest {
         server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 500 } }
         server.start()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.HttpFout)
@@ -142,7 +145,7 @@ class DownstreamClientTest {
         server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 400 } }
         server.start()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.HttpFout)
@@ -155,6 +158,92 @@ class DownstreamClientTest {
         assertTrue(resultaat is DownstreamResultaat.ConfiguratieFout)
     }
 
+    private fun afleveringen(doel: String, uitkomst: String, status: String): Long =
+        registry.find(DownstreamClient.AFLEVERING_METER)
+            .tags("doel", doel, "uitkomst", uitkomst, "status", status)
+            .timer()
+            ?.count()
+            ?: 0
+
+    @Test
+    fun `elke poging telt een meting per doel en uitkomst`() {
+        client.lever(Publicatiedoel("aanmeld"), event)
+        client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertEquals(2, afleveringen("aanmeld", "geslaagd", "2xx"))
+        assertEquals(0, afleveringen("aanmeld", "http_fout", "5xx"))
+    }
+
+    @Test
+    fun `een foutantwoord telt met de statusklasse, niet de code`() {
+        server.close()
+        server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 503 } }
+        server.start()
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
+
+        client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertEquals(1, afleveringen("aanmeld", "http_fout", "5xx"))
+        assertNull(registry.find(DownstreamClient.AFLEVERING_METER).tag("status", "503").timer())
+    }
+
+    @Test
+    fun `een doel buiten de config telt als onbekend en niet onder zijn eigen key`() {
+        client.lever(Publicatiedoel("vervallen-doel"), event)
+
+        assertEquals(1, afleveringen(DownstreamClient.ONBEKEND_DOEL, "configuratiefout", "geen"))
+        assertNull(registry.find(DownstreamClient.AFLEVERING_METER).tag("doel", "vervallen-doel").timer())
+    }
+
+    // De waarden zijn een contract met dashboards en meldingsregels (docs/operations/meetgegevens.md).
+    @Test
+    fun `elke soort uitkomst heeft zijn vaste label`() {
+        val verwacht = mapOf(
+            DownstreamResultaat.Geslaagd to "geslaagd",
+            DownstreamResultaat.HttpFout(404, null, "x") to "http_fout",
+            DownstreamResultaat.Timeout.bijLezen("x") to "timeout",
+            DownstreamResultaat.NetwerkFout.onderweg("x") to "netwerkfout",
+            DownstreamResultaat.SerialisatieFout.voorVerzending("x") to "serialisatiefout",
+            DownstreamResultaat.OpbouwFout.voorVerzending("x") to "opbouwfout",
+            DownstreamResultaat.ConfiguratieFout.voorVerzending("x") to "configuratiefout",
+        )
+
+        assertEquals(verwacht.values.toList(), verwacht.keys.map { DownstreamClient.uitkomstLabel(it) })
+    }
+
+    @Test
+    fun `elk doel telt apart`() {
+        every { config.downstreams() } returns mapOf(
+            "aanmeld" to DownstreamStub(server.baseUrl),
+            "notificatie" to DownstreamStub(server.baseUrl),
+        )
+
+        client.lever(Publicatiedoel("notificatie"), event)
+
+        assertEquals(1, afleveringen("notificatie", "geslaagd", "2xx"))
+        assertEquals(0, afleveringen("aanmeld", "geslaagd", "2xx"))
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [301, 404, 429, 500, 599])
+    fun `de statusklasse volgt de eerste cijfer van de code`(code: Int) {
+        val label = DownstreamClient.statusLabel(DownstreamResultaat.HttpFout(code, null, "x"))
+
+        assertEquals("${code / 100}xx", label)
+    }
+
+    @Test
+    fun `geen bereikbare downstream telt als netwerkfout zonder status`() {
+        val poort = server.baseUrl.substringAfterLast(':').substringBefore('/')
+        server.close()
+        every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://$SERVER_HOST:$poort/"))
+
+        client.lever(Publicatiedoel("aanmeld"), event)
+
+        assertEquals(1, afleveringen("aanmeld", "netwerkfout", "geen"))
+    }
+
     @Test
     fun `mapDeliveryException SSLHandshakeException naar ConfiguratieFout (non-herstelbaar)`() {
         // Round 8 H2 + Round 9 M2 invariant: SSLHandshakeException = cert-config-fout.
@@ -163,7 +252,7 @@ class DownstreamClientTest {
         // (TCP-garbage server) is vervangen door deze deterministische unit-test
         // op de geëxtraheerde mapping-functie.
         every { config.downstreams() } returns emptyMap()
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.mapDeliveryException(
             javax.net.ssl.SSLHandshakeException("Unable to find valid certification path"),
@@ -192,7 +281,7 @@ class DownstreamClientTest {
         // herstelbaar = NetwerkFout. Mag NIET als ConfiguratieFout (eindeloos
         // retry-besluit) of als generieke IOException (mist TLS-context in log).
         every { config.downstreams() } returns emptyMap()
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.mapDeliveryException(
             javax.net.ssl.SSLProtocolException("Connection reset during handshake"),
@@ -219,7 +308,7 @@ class DownstreamClientTest {
         // Deze test mist als de mapping `is SSLException` vóór `is SSLHandshakeException`
         // zou plaatsen.
         every { config.downstreams() } returns emptyMap()
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val handshake = javax.net.ssl.SSLHandshakeException("test")
         // Bewijs class-hierarchy: SSLHandshakeException IS-A SSLException
@@ -241,7 +330,7 @@ class DownstreamClientTest {
         // catch'en zodat connect-timeout en read-timeout via verschillende
         // diagnostiek-paden kunnen lopen (DNS-faal vs. server-overload).
         every { config.downstreams() } returns emptyMap()
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val ct = java.net.http.HttpConnectTimeoutException("connect timed out")
         assertTrue(ct is java.net.http.HttpTimeoutException, "Java class-hierarchy assumption")
@@ -260,7 +349,7 @@ class DownstreamClientTest {
         // Vangnet voor connection-reset, broken-pipe, host-unreachable — alles
         // behalve TLS en timeouts. Mag GEEN TLS-context impliceren.
         every { config.downstreams() } returns emptyMap()
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.mapDeliveryException(
             java.io.IOException("Connection reset"),
@@ -290,7 +379,7 @@ class DownstreamClientTest {
     @Test
     fun `in dev mag plain http naar niet-loopback (geen TLS- of SSRF-afkeuring)`() {
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://demo.invalid/events"))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "dev")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "dev", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -308,7 +397,7 @@ class DownstreamClientTest {
         // loopback-URL's, die sowieso mogen; 'test' meenemen zou de validatie over de hele
         // QuarkusTest-oppervlakte uitschakelen zonder er iets voor terug te krijgen.
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("http://demo.invalid/events"))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "test")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "test", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -335,7 +424,7 @@ class DownstreamClientTest {
     fun `serialisatie-fout geeft SerialisatieFout`() {
         val kapotteMapper = mockk<ObjectMapper>()
         every { kapotteMapper.writeValueAsBytes(any()) } throws SimuleerdeJsonFout("ka-boom")
-        client = DownstreamClient(config, kapotteMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, kapotteMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
         assertTrue(resultaat is DownstreamResultaat.SerialisatieFout)
@@ -363,7 +452,7 @@ class DownstreamClientTest {
             every { config.downstreams() } returns mapOf(
                 "aanmeld" to DownstreamStub("http://127.0.0.1:${traag.address.port}/events"),
             )
-            client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+            client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
             val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -399,7 +488,7 @@ class DownstreamClientTest {
         // .invalid resolveert per RFC 6761 nooit. Met https, anders strandt de aanroep al op de
         // TLS-eis en komt de verzending zelf niet aan bod.
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub("https://aanmeld.invalid/events"))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -415,7 +504,7 @@ class DownstreamClientTest {
             every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
             every { requestTimeout() } returns java.time.Duration.ZERO
         }
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -431,7 +520,7 @@ class DownstreamClientTest {
             every { connectTimeout() } returns java.time.Duration.ofSeconds(5)
             every { requestTimeout() } throws NullPointerException("config niet geladen")
         }
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -453,6 +542,15 @@ class DownstreamClientTest {
     }
 
     @Test
+    fun `een meting die faalt laat het resultaat van de levering staan`() {
+        val kapotteRegistry = mockk<io.micrometer.core.instrument.MeterRegistry>(relaxed = true)
+        every { kapotteRegistry.config() } throws IllegalStateException("registry stuk")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", kapotteRegistry)
+
+        assertEquals(DownstreamResultaat.Geslaagd, client.lever(Publicatiedoel("aanmeld"), event))
+    }
+
+    @Test
     fun `een onderbroken levering is onzeker en behoudt de interrupt-flag`() {
         // Een server die de verbinding aanneemt maar niet antwoordt: de interrupt valt dan
         // na het opzetten van de verbinding. Een gesloten poort zou kunnen racen met de
@@ -460,7 +558,7 @@ class DownstreamClientTest {
         java.net.ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { socket ->
             every { config.downstreams() } returns
                 mapOf("aanmeld" to DownstreamStub("http://127.0.0.1:${socket.localPort}/events"))
-            client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+            client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
             Thread.currentThread().interrupt()
 
             val resultaat = try {
@@ -492,7 +590,7 @@ class DownstreamClientTest {
             every { config.downstreams() } returns mapOf(
                 "aanmeld" to DownstreamStub("http://127.0.0.1:${httpServer.address.port}/events"),
             )
-            client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+            client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
             val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
             assertTrue(resultaat is DownstreamResultaat.HttpFout)
@@ -786,7 +884,7 @@ class DownstreamClientTest {
         }
         server.start()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl, "hash"))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 
@@ -804,7 +902,7 @@ class DownstreamClientTest {
         server = DownstreamHttpServer().apply { statusVoorAanroep = { _ -> 500 } }
         server.start()
         every { config.downstreams() } returns mapOf("aanmeld" to DownstreamStub(server.baseUrl))
-        client = DownstreamClient(config, objectMapper, openTelemetry, "prod")
+        client = DownstreamClient(config, objectMapper, openTelemetry, "prod", registry)
 
         val resultaat = client.lever(Publicatiedoel("aanmeld"), event)
 

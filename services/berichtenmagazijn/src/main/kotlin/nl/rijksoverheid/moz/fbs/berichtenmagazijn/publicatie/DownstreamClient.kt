@@ -2,6 +2,8 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
 import com.fasterxml.jackson.core.JsonProcessingException
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.MeterRegistry
+import io.micrometer.core.instrument.Timer
 import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.context.Context
 import io.opentelemetry.context.propagation.TextMapSetter
@@ -47,6 +49,7 @@ class DownstreamClient(
     private val objectMapper: ObjectMapper,
     private val openTelemetryInstance: Instance<OpenTelemetry>,
     @param:ConfigProperty(name = "quarkus.profile") private val profiel: String,
+    private val meterRegistry: MeterRegistry,
 ) {
 
     private val log = Logger.getLogger(DownstreamClient::class.java)
@@ -127,6 +130,37 @@ class DownstreamClient(
      * worden naar de stream gerapporteerd zodat retry-besluit één plek heeft.
      */
     fun lever(doel: Publicatiedoel, event: CloudEvent): DownstreamResultaat {
+        val start = System.nanoTime()
+        val resultaat = probeerTeLeveren(doel, event)
+        val duur = Duration.ofNanos(System.nanoTime() - start)
+
+        meetAflevering(doel, uitkomstLabel(resultaat), statusLabel(resultaat), duur)
+
+        return resultaat
+    }
+
+    /**
+     * Eén meting per poging, met alleen begrensde labels. Een doel dat niet (meer) in de config
+     * staat telt als [ONBEKEND_DOEL]: anders maakt elke oude outbox-rij met een vervallen key een
+     * eigen reeks aan.
+     */
+    private fun meetAflevering(doel: Publicatiedoel, uitkomst: String, status: String, duur: Duration) {
+        try {
+            Timer.builder(AFLEVERING_METER)
+                .description("Pogingen om een CloudEvent bij een downstream af te leveren")
+                .tag("doel", if (config.downstreams().containsKey(doel.key)) doel.key else ONBEKEND_DOEL)
+                .tag("uitkomst", uitkomst)
+                .tag("status", status)
+                .register(meterRegistry)
+                .record(duur)
+        } catch (ex: RuntimeException) {
+            // De meting mag de uitkomst niet veranderen: [lever] belooft een resultaat en geen
+            // exceptie, en de claim-verwerking leunt daarop.
+            log.warnf(ex, "Meting van een aflevering mislukt: doel=%s", doel)
+        }
+    }
+
+    private fun probeerTeLeveren(doel: Publicatiedoel, event: CloudEvent): DownstreamResultaat {
         // Alles tot aan de verzending is opbouw uit config en event, en er is nog niets
         // verzonden. Een resultaat en geen exceptie: anders rolt de claim-transactie terug en
         // schrijft elke pollronde een nieuwe logregel voor een verstrekking die nooit vertrekt.
@@ -551,6 +585,32 @@ class DownstreamClient(
     }
 
     companion object {
+        /** Prometheus maakt hier `fbs_publicatie_aflevering_seconds_*` van. */
+        const val AFLEVERING_METER = "fbs.publicatie.aflevering"
+
+        private const val GEEN_STATUS = "geen"
+
+        /** Begint met een `_`, dus nooit gelijk aan een geldige [Publicatiedoel]-key. */
+        const val ONBEKEND_DOEL = "_onbekend"
+
+        // Geen else: een nieuw resultaat-subtype moet hier een eigen, begrensde waarde krijgen.
+        internal fun uitkomstLabel(resultaat: DownstreamResultaat): String = when (resultaat) {
+            DownstreamResultaat.Geslaagd -> "geslaagd"
+            is DownstreamResultaat.HttpFout -> "http_fout"
+            is DownstreamResultaat.Timeout -> "timeout"
+            is DownstreamResultaat.NetwerkFout -> "netwerkfout"
+            is DownstreamResultaat.SerialisatieFout -> "serialisatiefout"
+            is DownstreamResultaat.OpbouwFout -> "opbouwfout"
+            is DownstreamResultaat.ConfiguratieFout -> "configuratiefout"
+        }
+
+        /** De statusklasse (`2xx`, `5xx`) en niet de code: dat houdt de reeksen per doel klein. */
+        internal fun statusLabel(resultaat: DownstreamResultaat): String = when (resultaat) {
+            DownstreamResultaat.Geslaagd -> "2xx"
+            is DownstreamResultaat.HttpFout -> "${resultaat.statusCode / 100}xx"
+            is DownstreamResultaat.Mislukt -> GEEN_STATUS
+        }
+
         /**
          * Profielen waarin http naar niet-loopback én de SSRF-blocklist vervallen. Alleen `dev`:
          * de demo-stack draait haar downstreams over container-DNS (`http://toxiproxy:18086`),
