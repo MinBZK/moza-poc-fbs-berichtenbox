@@ -102,12 +102,17 @@ EOF
   fi
 }
 
-# De sessie uit het antwoord op POST /api/v1/sessies.
-sessie_uit_antwoord() {
-  jq -er '.sessieId | select(type == "string" and length > 0)' <<<"$1" 2>/dev/null || return 1
+# Het sessie-cookie (`keten-sessie=<waarde>`) uit de headers van POST /api/keten/sessies van het
+# portaal. Een leeg cookie wist de sessie juist, en telt dus niet.
+sessie_cookie_uit_kop() {
+  local cookie
+
+  cookie=$(tr -d '\r' <"$1" 2>/dev/null | sed -n 's/^[Ss]et-[Cc]ookie: *\(keten-sessie=[^;]*\).*/\1/p' | head -1)
+  [ -n "$cookie" ] && [ "$cookie" != "keten-sessie=" ] || return 1
+  printf '%s' "$cookie"
 }
 
-# Het oordeel over een ophaalronde, uit de SSE-stream van GET /api/v1/berichten/_ophalen: magazijn
+# Het oordeel over een ophaalronde, uit de SSE-stream van GET /api/keten/berichten/_ophalen: magazijn
 # A én B melden `magazijn-bevraging-voltooid` met status OK en berichten. Een lijst van berichten
 # zegt dat niet: daarin staan ook de gesimuleerde magazijnen, en een organisatie die niet leverde
 # staat er ook in (nietGeleverd). Zonder oordeel "in orde" print het de reden.

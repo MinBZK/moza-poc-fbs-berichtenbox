@@ -16,7 +16,7 @@ ruimt de opruiming een ánder project op en verifieert ze daar: zolang dat proje
 run groen en blijft de preview staan):**
 `berichtenuitvraag` = `mpfb-8wh` (`redis`, `uitvraag`, `toxiproxy-aanmeld`, `toxiproxy-redis`),
 `magazijnen` = `mpfm-w3h` (`magazijna`, `magazijnb`, `democonsole`, `demopersonas`,
-`magazijnsimulator`, `proeftuin`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
+`magazijnsimulator`, `portaal`), `externe-stubs` = `mpfpsm-lcl` (`profiel`, `notificatie`,
 `toxiproxy-profiel`, `toxiproxy-notificatie`), `stelselregister` = `mpfs-rab` (`stelselregister`).
 Deployment-namen: `test` (baseline, push→main) en `pr-<n>` (previews, clone-from `test`).
 Een draft-PR krijgt geen preview; die rolt uit zodra de PR ready for review is. Previews worden
@@ -129,10 +129,11 @@ anders gelezen: kopieer hem mee naar de werkmap van waaruit je de CLI gebruikt.
 
 **Niet elke log staat in dezelfde tijdzone.** Onze eigen diensten en demo-onderdelen draaien in
 `Europe/Amsterdam` en zetten de offset in elke logregel (`2026-09-10 11:15:30,123+02:00`), dus hun
-tijdstip is eenduidig. Componenten uit een extern image — `redis`, `proeftuin`, de FSC-componenten —
-loggen in UTC, en de WireMock-stubs in Nederlandse tijd; geen van drieën zet er een offset bij. Leg
-zo'n tijdstempel dus niet zomaar naast een regel van onze diensten of naast je klok. `--since 1h` is
-relatief en heeft er nergens last van.
+tijdstip is eenduidig. Componenten uit een extern image — `redis`, de FSC-componenten — loggen in
+UTC, en de WireMock-stubs in Nederlandse tijd; geen van drieën zet er een offset bij. Het `portaal`
+is ook een extern image en krijgt op ZAD geen `TZ` mee; ga er bij zijn log niet van uit dat een
+tijdstip in Nederlandse tijd staat. Leg zo'n tijdstempel dus niet zomaar naast een regel van onze
+diensten of naast je klok. `--since 1h` is relatief en heeft er nergens last van.
 
 Voor scripts en agents: `-o json` op elk commando (data naar stdout, diagnostiek naar
 stderr), `--dry-run` toont de request zonder te sturen (en bereikt OM dus niet: een verlopen

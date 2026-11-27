@@ -3,7 +3,7 @@
 De demo draait op de keten die al op ZAD staat: de bestaande uitvraag, de twee magazijnen en de
 externe stubs. Dit bestand beschrijft de **eenmalige creatie** van de componenten die daar in het
 magazijnen-project `mpfm-w3h` bijkomen — `democonsole`, vier Toxiproxy's verdeeld over `mpfb-8wh` en
-`mpfpsm-lcl`, en in §7 `demopersonas` en `proeftuin`. De doorlopende image-tag-updates lopen daarna
+`mpfpsm-lcl`, en in §7 `demopersonas` en `portaal`. De doorlopende image-tag-updates lopen daarna
 via `deploy-test-magazijnen` en `deploy-preview-magazijnen` in `.github/workflows/deploy.yml`, dat de
 componentenlijst per project bijhoudt.
 
@@ -24,7 +24,7 @@ alleen nog `name` + `image`.
 
 **Aliassen en omgevingsvariabelen zijn wél los bij te werken**, met `zadctl alias add`/`set` en
 `zadctl env add`/`set` op een bestaand component. Een vertypte alias kost dus geen hercreatie. Dit
-runbook doet dat op meerdere plekken, en `proeftuin-component.sh` is er helemaal op gebouwd.
+runbook doet dat op meerdere plekken, en `portaal-component.sh` is er helemaal op gebouwd.
 
 ### Als een component uitstaat
 
@@ -207,70 +207,27 @@ combinatie levert zichtbare knoppen op die elk een 401 geven.
 
 ## 4. CORS op de uitvraag
 
-De berichtenbox van de proeftuin hoort erop, al zet zijn nginx het API-verkeer server-side door.
-Een browser stuurt bij elke schrijf-request (PATCH, zoals een bericht uit zijn map halen) zijn eigen
-origin mee, de proxy geeft die door, en voor de uitvraag is dat een vreemde origin: zonder de
-proeftuin in de regex een `403 CORS Rejected - Invalid origin` zonder body. Lezen merkt er niets
-van, omdat een browser bij een GET naar zijn eigen origin geen `Origin` stuurt.
+Niet nodig. De Berichtenbox van het portaal praat server-side met de uitvraag, over
+`KETEN_BACKEND_URL` (hoofdstuk 7), en stuurt daarbij geen `Origin` mee. De console roept de
+uitvraag evenmin vanuit de browser aan, alleen server-side voor de ontdubbeling. CORS speelt pas
+als een browser zelf een andere origin aanroept, en dat doet hier niemand. Zet dus geen
+`QUARKUS_HTTP_CORS_*` op `uitvraag`.
 
-Hetzelfde geldt voor de previews van de proeftuin in hun eigen repository (`proef-pr<n>-…` in
-project `pm-5sj`): die wijzen naar de uitvraag van `test`, zodat hun werk tegen onze keten te
-bekijken is. Hun overige deployments (`poc`, `gebruikersonderzoek`, `release-…`) staan er bewust
-niet op.
-
-De console hoort er niet op: het paneel roept de uitvraag niet vanuit de browser aan, alleen
-server-side voor de ontdubbeling.
-
-Elke deployment heeft een eigen origin (`proeftuin-test-…`, `proeftuin-pr-<n>-…`), en previews
-komen en gaan. Eén regex dekt ze allemaal; Quarkus leest een waarde tussen schuine strepen als
-reguliere expressie. In het uitvraag-project:
+**Opruimen na de overstap.** De vorige Berichtenbox schreef vanuit de browser naar de uitvraag;
+daarvoor staat op `uitvraag` in `mpfb-8wh` mogelijk nog een allowlist met de hosts van het
+component `proeftuin`. Die hoort bij dat component en gaat pas weg nadat het verwijderd is
+(hoofdstuk 7): zolang het draait, faalt elke schrijfactie erin anders op
+`403 CORS Rejected - Invalid origin`. Dezelfde regex dekte ook de previews van de proeftuin in hun
+eigen project (`pm-5sj`), die naar de uitvraag van `test` wezen; vraag bij dat team na of ze die
+nog gebruiken voordat je hem weghaalt.
 
 ```bash
-zadctl -p mpfb-8wh env add -c uitvraag \
-  QUARKUS_HTTP_CORS_ENABLED=true \
-  'QUARKUS_HTTP_CORS_ORIGINS=/https://(proeftuin-[a-z0-9-]+-mpfm-w3h|proef-pr[0-9]+-pm-5sj)[.]rig[.]prd1[.]gn2[.]quattro[.]rijksapps[.]nl/'
+zadctl -p mpfb-8wh env list -c uitvraag | grep -i cors
+zadctl -p mpfb-8wh env unset -c uitvraag QUARKUS_HTTP_CORS_ENABLED QUARKUS_HTTP_CORS_ORIGINS
 ```
 
-Bestaat de waarde al, gebruik dan `env set` in plaats van `env add`.
-
-**Geen backslashes in die waarde.** Een geëscapete variant
-(`https:\/\/proeftuin-…\.rig\.…`) laat de SOPS-stap van Operations Manager falen op
-`uitvraag-user-secret.to-sops.yaml`, en dan blokkeert élke uitrol van dit project tot de waarde
-terug is. Een punt staat daarom als `[.]`: een kale punt matcht elk teken, en dan valt ook
-`proeftuin-x-mpfm-w3h-rig-prd1-gn2-quattro-rijksapps.nl` eronder, een domein dat iedereen kan
-registreren. Om dezelfde reden staat er `[a-z0-9-]+` en geen `.+`.
-
-Methods en headers blijven ongezet; Quarkus spiegelt die uit het preflight-verzoek, zoals compose
-het lokaal ook doet. De property heet `quarkus.http.cors.enabled` en niet `quarkus.http.cors`.
-
-Controleer het met een preflight, en toets meteen dat het géén wildcard werd: alleen de proeftuin
-krijgt een `access-control-allow-origin` terug, de console en `kwaadaardig.example` melden
-"geweigerd".
-
-Toets daarbij eerst de HTTP-status en pas daarna de header. Quarkus weigert een preflight met
-`403`; alleen díe status, zonder `access-control-allow-origin`, telt als geweigerd. Elke andere
-fout zegt niets: een dode uitvraag of een ingress die `502` geeft, zou anders lezen als de
-geslaagde weigering die je voor `kwaadaardig.example` wilt zien. De proeftuin vooraan is de
-controle dat de uitvraag leeft:
-
-```bash
-for o in https://proeftuin-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://democonsole-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl https://kwaadaardig.example; do
-  antwoord=$(curl -sS -o /dev/null -D - -w 'STATUS=%{http_code}\n' \
-    -X OPTIONS -H "Origin: $o" -H 'Access-Control-Request-Method: GET' \
-    https://uitvraag-test-mpfb-8wh.rig.prd1.gn2.quattro.rijksapps.nl/api/v1/berichten) || {
-      echo "geen antwoord van de uitvraag — deze toets zegt niets over CORS"; continue; }
-
-  case "$antwoord" in
-    *STATUS=200*|*STATUS=204*) ;;
-    *STATUS=403*)
-      printf '%s' "$antwoord" | grep -qi '^access-control-allow-origin:' \
-        || { echo "geweigerd: $o"; continue; } ;;
-    *) echo "onverwachte status voor $o; deze toets zegt niets:"; printf '%s\n' "$antwoord" | tail -2; continue ;;
-  esac
-
-  printf '%s' "$antwoord" | grep -i '^access-control-allow-origin:' || echo "geweigerd: $o"
-done
-```
+Zonder die twee waarden staat CORS op de uitvraag uit, en geeft een preflight geen
+`access-control-allow-origin` terug, voor welke origin ook. Dat is de bedoelde stand.
 
 ## 5. De sessiecache openzetten
 
@@ -701,38 +658,48 @@ Controleren: druk de Redis-knop op `uit` en daarna "Alles normaal (reset)". In h
 twee berichten van **FBS Demo**. Komt er niets, kijk dan in de log van `democonsole` naar
 `Storingsaankondiging niet geplaatst`; die regel noemt de statuscode of het soort fout, nooit de url.
 
-## 7. De berichtenbox naast het paneel
+## 7. De Berichtenbox naast het paneel
 
-Het paneel toont de berichtenbox van de proeftuin in een frame. Lokaal zet de demo-proxy beide
-achter één origin; hier bestaat die proxy niet, dus draait de proeftuin als eigen component in dít
-project. Dat is bewust niet het component uit hun eigen project: zo bepalen wij welke versie er
-onder een demo hangt, en volgt de berichtenbox onze previews in plaats van hun uitrolritme.
+Het paneel toont de Berichtenbox van het MOZa-portaal (MinBZK/moza-portaal, een Next.js-app) in
+een frame. Lokaal zet de demo-proxy beide achter één origin; hier bestaat die proxy niet, dus
+draait het portaal als eigen component `portaal` in dít project. Bewust niet een component uit een
+project van het portaalteam: zo bepalen wij welke versie er onder een demo hangt, en volgt de
+Berichtenbox onze previews in plaats van hun uitrolritme.
 
-**Deze stap gaat vóór de merge van de PR die `demopersonas` én `proeftuin` in `deploy.yml` zet.** Die
+**Deze stap gaat vóór de merge van de PR die `demopersonas` én `portaal` in `deploy.yml` zet.** Die
 workflow noemt beide componenten bij naam, en een `reference` naar een component dat nog niet in de
 projectspec staat laat de uitrol falen — één van de twee vergeten is dus genoeg. Andersom is
 onschuldig: staat een component er wel en noemt de workflow het nog niet, dan draait het alleen op
 `test`.
 
-De image is publiek (`ghcr.io/minbzk/moza-poc`) en komt binnen via de pull-through-mirror, net als
-onze eigen images. Welke versie dat is, staat op één plek: de `proeftuin`-regel in `compose.yaml`,
-gepind op digest. `deploy.yml` leest die regel en zet hem per deployment, en het script hieronder
-leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal de PR van `proeftuin-pin.yml`)
-werkt de demo op de eigen machine én die op ZAD bij. Om nog niet gemergd werk van hun kant te
-beproeven kan daar een preview-referentie staan (`ghcr.io/minbzk/moza-poc/preview:pr-<n>-<sha>`),
-maar alleen tijdelijk: hun opruiming verwijdert alle `pr-<n>-*`-versies zodra die PR sluit, en dan
-trekt een herstart een image dat er niet meer is. `pin-consistency.yml` waarschuwt zolang zo'n pin
-staat, en faalt zodra hij onvindbaar is geworden.
+De image is publiek (`ghcr.io/minbzk/moza-portaal`) en komt binnen via de pull-through-mirror, net
+als onze eigen images. Welke versie dat is, staat op één plek: de regel van de dienst `portaal` in
+`compose.yaml`, gepind op digest. `deploy.yml` leest die regel en zet hem per deployment, en het
+script hieronder leest hem voor de eenmalige creatie — dus een bump in `compose.yaml` (meestal de PR
+die de workflow Portaal-pin op branch `chore/portaal-pin` aanbiedt) werkt de demo op de eigen
+machine én die op ZAD bij.
+
+Het portaal publiceert zijn main-images onder `main-<sha7>` en `main`. Die bouwt het portaalteam
+met de hand, dus een nieuwe commit op hun main kan een tijd zonder image staan; de pin blijft dan
+waar hij is. Om nog niet gemergd werk van hun kant te beproeven kan er een preview-tag staan
+(`pr-<n>-<sha7>`, in hetzelfde repository), maar alleen tijdelijk: die verdwijnt zodra hun PR
+sluit, en dan trekt een herstart een image dat er niet meer is. `pin-consistency.yml` waarschuwt
+zolang zo'n pin staat, en faalt zodra hij onvindbaar is geworden.
+
+Zonder commit kan het ook: de variabele `PORTAAL_IMAGE` overschrijft de pin. Als repo-variabele
+geldt hij voor `test` en elke preview, op de environment `pr-<n>` alleen voor die preview. De run
+meldt het bovenaan met een notice; weghalen zet de pin terug bij de volgende uitrol.
 
 ```bash
-demo/environment/zad-demo/proeftuin-component.sh plan   # toont beide aanroepen, muteert niets
-demo/environment/zad-demo/proeftuin-component.sh apply
+demo/environment/zad-demo/portaal-component.sh plan   # toont alle aanroepen, muteert niets
+demo/environment/zad-demo/portaal-component.sh apply
 ```
 
-Het script doet drie dingen: `demopersonas` aanmaken, `proeftuin` aanmaken, en `BERICHTENBOX_URL`
-op `democonsole` zetten. De image van de proeftuin leest het uit `compose.yaml`, zodat er één waarde
-is die bepaalt wat er draait; de tag van de personadienst leest het af van de `democonsole` die al
-in dezelfde deployment draait — hetzelfde register, dezelfde tag.
+Het script maakt `demopersonas` (poort 8098) en `portaal` (poort 3000) aan, beide met de dienst
+`publish-on-web`, zet de aliassen van het portaal, en zet op `democonsole` `BERICHTENBOX_URL` en
+`BEREIKBAARHEID_PERSONADIENST_URL`. De image van het portaal leest het uit `compose.yaml`, zodat er
+één waarde is die bepaalt wat er draait; de tag van de personadienst leest het af van de
+`democonsole` die al in dezelfde deployment draait — hetzelfde register, dezelfde tag.
 
 Dat werkt pas ná de eerste uitrol van deze module. Vóór die tijd zit je klem: het component moet
 bestaan vóórdat `deploy.yml` het bij naam noemt, maar het image bestaat pas ná die uitrol. Geef
@@ -743,53 +710,73 @@ beide aanroepen en alle aliassen zonder iets te muteren, ook wanneer de componen
 bestaan. Poorten en diensten zijn wat je in één keer goed wilt hebben — die passen alleen bij het
 aanmaken; de aliassen trekt een tweede aanroep alsnog recht.
 
-**`demopersonas` krijgt geen `authorization-wall`, en dat is de hele reden dat hij bestaat.** De
-berichtenbox van de proeftuin vraagt bij het kiezen van een testaccount `/api/demo/personas` op. Dat
-verzoek loopt via de nginx van de proeftuin, die het server-side ophaalt en dus geen sessie heeft:
-achter een muur is het antwoord 403 en meldt de berichtenbox dat het ophalen van berichten is
-mislukt. De muur is daar niet gedeeltelijk voor open te zetten — hij is een sidecar in de pod van de
-console, de Service publiceert alleen de poort van die sidecar, en de dienst kent geen uitzonderingen
-per pad. Vandaar een eigen image dat niets anders kan dan die lijst teruggeven; het bedieningspaneel
-houdt zijn muur, want daar zit het legen achter.
+**De aliassen van het portaal.** Het portaal praat server-side met de keten, en de browser praat
+alleen met het portaal:
 
-Staat het `proeftuin`-component er al van vóór de splitsing, dan hoeft het niet opnieuw: aliassen
-zijn los bij te werken. Draai dan gewoon het script nog een keer. Het kiest per sleutel de vorm die
+- `KETEN_BACKEND_URL=https://uitvraag-$DEPLOYMENT_NAME-mpfb-8wh.<domein>` — de uitvraag;
+- `KETEN_PERSONAS_URL=https://demopersonas-$DEPLOYMENT_NAME-mpfm-w3h.<domein>` — de testaccounts;
+- `AUTH_SECRET` — het geheim waarmee next-auth de cookies van het portaal ondertekent.
+
+Publieke adressen en geen cluster-interne: de NetworkPolicy van ZAD laat verkeer tussen projecten
+alleen via de route toe, en de uitvraag staat in een ander project. `AUTH_SECRET` krijgt een
+willekeurige waarde van 32 bytes, en alleen als hij er nog niet staat: een nieuw geheim bij elke
+aanroep zou iedereen met een open Berichtenbox uitloggen. Het script toont de waarde nergens, ook
+niet in `plan`.
+
+Staat `portaal` er al, draai het script dan gewoon nog een keer. Het kiest per sleutel de vorm die
 past bij wat er staat — `add` weigert een bestaande sleutel en `set` een nieuwe, dus geen van beide
-is op zichzelf idempotent — en het zet alle zes de aliassen. Doe je het met de hand, dan mis je
-`BACKEND_KETEN`, en dan kapt de catch-all `/api/` de ophaalstream na zestig seconden af.
+is op zichzelf idempotent — en laat een bestaand `AUTH_SECRET` ongemoeid.
 
-`BACKEND_PERSONAS` en niet `BACKEND_DEMO`: de proeftuin kent sinds hun splitsing een eigen variabele
-voor de testaccountlijst, en `BACKEND_DEMO` blijft naar het bedieningspaneel wijzen. Er ís een
-terugval van de eerste op de tweede, maar daarop leunen zou het paneel onbereikbaar maken voor alles
-wat niet de personalijst is.
+**`demopersonas` krijgt geen `authorization-wall`, en dat is de hele reden dat hij bestaat.** Het
+portaal haalt de lijst testaccounts server-side op bij `KETEN_PERSONAS_URL`, en heeft daar dus geen
+sessie: achter een muur krijgt het een 403 in plaats van de lijst. De muur is daar niet gedeeltelijk
+voor open te zetten — hij is een sidecar in de pod van de console, de Service publiceert alleen de
+poort van die sidecar, en de dienst kent geen uitzonderingen per pad. Vandaar een eigen image dat
+niets anders kan dan die lijst teruggeven; het bedieningspaneel houdt zijn muur, want daar zit het
+legen achter.
 
-Waarom zes aliassen en niet drie: de nginx van de proeftuin proxyt `/api/v1/` naar de uitvraag,
-`/api/demo/personas` naar de personadienst en de rest van `/api/demo/` naar het paneel, en de
-ingress ervóór routeert op de Host-header. De browser-host
-doorgeven levert daar de verkeerde bestemming op, dus de `*_HOST`-variant zet de servernaam apart.
-
-Die twee paden hebben een eigen bestemming nodig omdat de catch-all `/api/` een leestijdslimiet van
-zestig seconden draagt. Een ophaalronde langs tientallen magazijnen is een SSE-stream die langer stil
-kan liggen dan dat, en wordt daar dus middenin afgekapt. Ontbreekt `BACKEND_KETEN`, dan antwoordt de
-proeftuin met een 502 die de variabelenaam noemt in plaats van stil naar een andere dienst te
-proxyen; `BACKEND_DEMO` valt bij afwezigheid terug op `BACKEND_KETEN`.
-
-**Richt de health-check niet op `/health`.** Dat pad proxyt in het proeftuin-image naar een
-chat-backend die in dit project niet bestaat; een probe erop faalt gegarandeerd en herstart de pod
-anderhalve minuut later. Een TCP-probe op de eerste poort volstaat — hoofdstuk 9 legt dat vast als
-`scheme=tcp`, zodat het een keuze is en niet een gevolg van de standaard.
+**Richt de health-check niet op een pagina.** Het portaal heeft geen health-endpoint, en elke
+pagina leunt op het persona-cookie en op de uitvraag: een httpGet meet dan de keten in plaats van
+het proces, en herstart de pod bij een storing die elders zit. Een TCP-probe op 3000 volstaat —
+hoofdstuk 9 legt dat vast als `scheme=tcp`, zodat het een keuze is en niet een gevolg van de
+standaard.
 
 **Geen `authorization-wall` op dit component.** De muur staat op het paneel, waar de legen-knop op
-zit. De berichtenbox zelf leest alleen, en leest bij de uitvraag die op deze omgeving toch al
-publiek bereikbaar moet zijn — de browser praat er rechtstreeks mee. Een muur zou hem bovendien
-onbruikbaar maken in het frame: de aanmeldpagina van Keycloak laat zich niet in een frame tonen.
+zit. Het portaal spreekt de uitvraag aan over haar publieke route, die op deze omgeving dus toch al
+open moet staan. Een muur zou de Berichtenbox bovendien onbruikbaar maken in het frame: de
+aanmeldpagina van Keycloak laat zich niet in een frame tonen.
 
-De aliassen gebruiken `$DEPLOYMENT_NAME`, zodat elke preview zijn eigen berichtenbox en zijn eigen
+De aliassen gebruiken `$DEPLOYMENT_NAME`, zodat elke preview zijn eigen Berichtenbox en zijn eigen
 keten aanspreekt.
 
-Blijft het frame leeg, dan is die variabele niet gezet of wijst hij mis: het paneel toetst het adres
+Blijft het frame leeg, dan is `BERICHTENBOX_URL` niet gezet of wijst hij mis. Hij hoort te staan
+op `https://portaal-$DEPLOYMENT_NAME-mpfm-w3h.<domein>/berichtenbox`. Het paneel toetst het adres
 niet vooraf, want een HEAD naar een ander component strandt op CORS en dat is niet van onbereikbaar
-te onderscheiden. Open het adres los in de browser om de twee gevallen uit elkaar te halen.
+te onderscheiden. Toets het daarom los:
+
+```bash
+curl -sS -o /dev/null -w '%{http_code} %{redirect_url}\n' \
+  "https://portaal-test-mpfm-w3h.rig.prd1.gn2.quattro.rijksapps.nl/berichtenbox"
+```
+
+Verwacht `307` naar de persona-keuze: zonder persona-cookie stuurt het portaal daarheen. Een `502`
+of `503` betekent meestal dat er geen pod draait; kijk dan eerst naar `replicas` in het gerenderde
+manifest (stap 0 van `verify-zad.md`), niet naar het image.
+
+### Het oude component opruimen
+
+Vóór het portaal draaide hier de Berichtenbox van de proeftuin, als component `proeftuin`. Dat
+component ruim je op **nadat** de PR die `portaal` in `deploy.yml` zet gemerged is; daarvoor noemt
+de workflow het nog bij naam:
+
+```bash
+zadctl --strict -p mpfm-w3h component remove proeftuin --deployment test
+```
+
+Alleen het component, **nooit de deployment**: een deployment verwijderen in `mpfm-w3h` wist de
+database die de magazijnen, de simulator en het paneel delen. Haal daarna de CORS-allowlist op de
+uitvraag weg (hoofdstuk 4), en zet de controle op het statusdashboard om naar `portaal`
+(`docs/operations/statusdashboard.md`).
 
 ## 8. Uitrollen en verifiëren
 
@@ -886,7 +873,7 @@ wanneer hij netjes staat te wachten — de controle maakt dan de storing die ze 
 | `toxiproxy-profiel`, `-notificatie` | `mpfpsm-lcl` | `http` | 8474 | `/version` · `/version` |
 | `profiel`, `notificatie` | `mpfpsm-lcl` | `tcp` | 8080 | — |
 | `redis` | `mpfb-8wh` | `tcp` | 6379 | — |
-| `proeftuin` | `mpfm-w3h` | `tcp` | 8080 | — |
+| `portaal` | `mpfm-w3h` | `tcp` | 3000 | — |
 | `logius-fscpg`, `magazijna-fscpg` | `mpfb-8wh` / `mpfm-w3h` | `tcp` | 5432 | — |
 | `logius-fscmgr`, `magazijna-fscmgr` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8080 | `/health/live` · `/health/ready` |
 | `logius-fsc{ctl,inway,txlog}`, `magazijna-fsc{ctl,inway,txlog}` | `mpfb-8wh` / `mpfm-w3h` | `http` | 8081 | `/health/live` · `/health/ready` |
@@ -916,7 +903,7 @@ daar 401, en omdat liveness hetzelfde pad had, herstart de pod dan in een lus.
 
 **Redis en de twee PostgreSQL'en** spreken geen HTTP. Een TCP-connect is daar een eerlijke probe:
 beide protocollen beginnen met een connect die het serverproces zelf accepteert, en geen van beide
-logt een afgebroken poging als fout. `proeftuin` staat om een andere reden in die rij — zie
+logt een afgebroken poging als fout. `portaal` staat om een andere reden in die rij — zie
 hoofdstuk 7.
 
 **De bootstrap-componenten** openen geen inbound poort en krijgen nu al geen probe gerenderd.
@@ -1184,7 +1171,7 @@ UI-handwerk dat een hercreatie niet overleeft.
 - De legen-knop op de console ín `test` wist de database van `test`, waar nieuwe previews van
   klonen. Op een preview raakt legen alleen die preview: elke deployment heeft zijn eigen database.
 - Elke openstaande PR draagt de hele set mee: de console (~250 Mi), vier Toxiproxy's (~32 Mi elk),
-  `demopersonas`, `proeftuin`, de magazijn-simulator (~450 MB met 98 magazijnen) en zeven ingressen.
+  `demopersonas`, `portaal`, de magazijn-simulator (~450 MB met 98 magazijnen) en zeven ingressen.
   `zadctl resource tune` stelt de aanvragen bij op werkelijk gebruik.
 - Het ketenverkeer loopt voortaan altijd door die proxies, ook als niemand demonstreert. Dat is een
   extra hop in het pad, bewust geaccepteerd omdat de knoppen anders niet bestaan.

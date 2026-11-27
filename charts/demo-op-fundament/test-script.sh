@@ -293,7 +293,8 @@ bevat "routes: de simulator met een gesimuleerd magazijn, en een 400 van de simu
   "CODE 400 simulator 400 simulator: berichten lezen bereikt de simulator https://simulator.fbs.x.nl:443/magazijn/00000009000000000001/api/v1/berichten" "$LOG"
 bevat "routes: aanleveren bij de simulator dicht" "/magazijn/00000009000000000001/api/v1/aanleveringen" "$(grep 'CODE 404' <<<"$LOG")"
 bevat "routes: het stelseldocument" "CODE 200 stelselregister 200 stelselregister: het stelseldocument https://stelselregister.fbs.x.nl:443/api/v1/stelseldocument" "$LOG"
-bevat "routes: de aanmeld-webhook dicht" "CODE 404 demo 404 aanmeld-webhook niet via de berichtenbox -X POST" "$LOG"
+bevat "routes: de aanmeld-webhook dicht" "CODE 404 demo 404 aanmeld-webhook niet via de Berichtenbox -X POST" "$LOG"
+bevat "routes: de Berichtenbox stuurt zonder persona naar de keuze" "CODE 307 demo 307 Berichtenbox van het portaal https://demo.fbs.x.nl:443/berichtenbox" "$LOG"
 bevat "routes: paneel met het wachtwoord" "CODE 200 demo 200 paneel met het wachtwoord" "$LOG"
 bevat_niet "routes: het wachtwoord niet als argument" "pw" "$(grep 'paneel met het wachtwoord' <<<"$LOG")"
 bevat "routes: paneel als gebruiker demo" "Authorization: Basic ZGVtbzpwdw==" "$LOG"
@@ -323,19 +324,23 @@ sse "$A" OK 3 >"$WERKMAP/keten-b-fout.sse"
 sse "$B" FOUT 0 >>"$WERKMAP/keten-b-fout.sse"
 : >"$WERKMAP/keten-leeg.sse"
 
-# Een gw_curl die sessie, ophaalrondes en beëindigen nadoet. $1 = antwoord op POST /sessies (body,
-# regelovergang, code), $2 = de rondes als "<code>:<sse-bestand>" na elkaar (de laatste herhaalt;
-# bestand - schrijft niets, zoals curl zonder antwoord),
+# Een gw_curl die sessie, ophaalrondes en beëindigen nadoet. $1 = antwoord op POST /sessies als
+# "<code>|<Set-Cookie-waarde>" (leeg: geen cookie), $2 = de rondes als "<code>:<sse-bestand>" na
+# elkaar (de laatste herhaalt; bestand - schrijft niets, zoals curl zonder antwoord),
 # $3 = code van DELETE, $4 = exitcode van curl bij _ophalen (standaard 0).
 stub_keten() {
   cat <<EOF
 echo 0 >"\$WERK/ronde"
 gw_curl() {
   echo "curl \$*" >>"\$LOG"
-  local uit="" a vorige=""
-  for a in "\$@"; do [ "\$vorige" = -o ] && uit=\$a; vorige=\$a; done
+  local uit="" kop="" a vorige=""
+  for a in "\$@"; do [ "\$vorige" = -o ] && uit=\$a; [ "\$vorige" = -D ] && kop=\$a; vorige=\$a; done
   case "\$*" in
-    *"-X POST"*sessies*) printf '%b' '$1' ;;
+    *"-X POST"*sessies*)
+      local antwoord='$1'
+      printf 'HTTP/1.1 %s\\r\\n' "\${antwoord%%|*}" >"\$kop"
+      [ -z "\${antwoord#*|}" ] || printf 'set-cookie: %s; Path=/api; HttpOnly\\r\\n' "\${antwoord#*|}" >>"\$kop"
+      printf '%s' "\${antwoord%%|*}" ;;
     *_ophalen*)
       local rondes=($2) n
       n=\$(cat "\$WERK/ronde"); echo \$((n + 1)) >"\$WERK/ronde"
@@ -347,15 +352,19 @@ gw_curl() {
 EOF
 }
 
-sessie_ok='{"sessieId":"s-1"}\n201'
+sessie_ok='201|keten-sessie=s-1'
 
 draai keten-ok "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
 gelijk "A en B leverden: in orde" 0 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 gelijk "één ophaalronde" 1 "$(grep -c '_ophalen' <<<"$LOG")"
 bevat "sessie beëindigd" "-X DELETE" "$LOG"
-bevat "sessie-id via een header-bestand" "-H @" "$(grep '_ophalen' <<<"$LOG")"
-gelijk "header-bestand met de sessie" "X-Sessie: s-1" "$(cat "$WERKMAP/keten-ok/sessie.hdr")"
+bevat "sessie-cookie via een header-bestand" "-H @" "$(grep '_ophalen' <<<"$LOG")"
+gelijk "header-bestand met persona en sessie" "Cookie: personaId=proeftuin-garage; keten-sessie=s-1" "$(cat "$WERKMAP/keten-ok/sessie.hdr")"
 bevat_niet "sessie-id niet als argument" "s-1" "$LOG"
+bevat "sessie starten via het portaal, als de persona" "-H Cookie: personaId=proeftuin-garage https://demo.fbs.x.nl:443/api/keten/sessies" "$LOG"
+bevat "ophalen via het portaal" "https://demo.fbs.x.nl:443/api/keten/berichten/_ophalen" "$LOG"
+bevat "beëindigen via het portaal" "https://demo.fbs.x.nl:443/api/keten/sessies/huidige" "$LOG"
+bevat_niet "geen X-Ontvanger: die zet het portaal" "X-Ontvanger" "$LOG"
 
 # Eerst een fout, dan in orde: dezelfde sessie, een tweede ronde.
 draai keten-tweede-ronde "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten "$sessie_ok" "200:$WERKMAP/keten-b-fout.sse 200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
@@ -400,11 +409,16 @@ draai keten-delete-401 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_kete
 bevat "DELETE gaf 401: zegt het" "niet beëindigd: DELETE gaf 401" "$UIT"
 gelijk "DELETE gaf 401: telt als fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
 
-draai keten-429 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten '{"detail":"te veel sessies"}\n429' "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
+draai keten-429 "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten '429|' "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
 gelijk "geen sessie: een fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
-bevat "geen sessie: met de statuscode" "POST /api/v1/sessies gaf 429" "$UIT"
-bevat "geen sessie: met de reden" "te veel sessies" "$UIT"
+bevat "geen sessie: met de statuscode" "POST /api/keten/sessies gaf 429" "$UIT"
 bevat_niet "geen sessie: geen ophaalronde" "_ophalen" "$LOG"
+
+# 201 zonder cookie: het portaal startte niets bruikbaars, en zonder cookie valt er niets op te halen.
+draai keten-geen-cookie "NS=ns; KUBE_CONTEXT=x; BASISDOMEIN=fbs.x.nl; $(stub_keten '201|' "200:$WERKMAP/keten-ok.sse" 204); controleer_keten; echo FOUTEN=\$fouten"
+gelijk "201 zonder cookie: een fout" 1 "$(sed -n 's/^FOUTEN=//p' <<<"$UIT")"
+bevat "201 zonder cookie: zegt het" "gaf 201 zonder sessie-cookie" "$UIT"
+bevat_niet "201 zonder cookie: geen ophaalronde" "_ophalen" "$LOG"
 
 echo "== aanmelden =="
 

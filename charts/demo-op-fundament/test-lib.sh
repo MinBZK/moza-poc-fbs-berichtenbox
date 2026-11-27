@@ -124,13 +124,21 @@ gelijk "een ander event na de fout telt niet" "magazijn $B: FOUT, 0 berichten" "
 gelijk "de laatste uitkomst van B telt" "magazijn $B: FOUT, 0 berichten" "$(keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" OK 2; voltooid "$B" FOUT 0)" || true)"
 faalt "B faalde: geen oordeel in orde" keten_oordeel "$(voltooid "$A" OK 3; voltooid "$B" TIMEOUT 0)"
 
-# --- sessie_uit_antwoord ---
+# --- sessie_cookie_uit_kop ---
 
-gelijk "sessie uit het antwoord" "s-123" "$(sessie_uit_antwoord '{"sessieId": "s-123", "geldigTot": "x"}')"
+kop=$(mktemp)
+printf 'HTTP/1.1 201 Created\r\nSet-Cookie: keten-sessie=%%7B%%22s%%22%%3A1%%7D; Path=/api; HttpOnly\r\n\r\n' >"$kop"
+gelijk "sessie-cookie uit de headers" "keten-sessie=%7B%22s%22%3A1%7D" "$(sessie_cookie_uit_kop "$kop")"
+printf 'HTTP/2 201\r\nset-cookie: personaId=x; Path=/\r\nset-cookie: keten-sessie=abc; Path=/api\r\n' >"$kop"
+gelijk "naast een ander cookie, in kleine letters" "keten-sessie=abc" "$(sessie_cookie_uit_kop "$kop")"
 
-for antwoord in '' '{}' '{"sessieId": ""}' '{"sessieId": null}' '{"sessieId": 5}' '{"type": "about:blank", "status": 429}'; do
-  faalt "geen sessie in '$antwoord'" sessie_uit_antwoord "$antwoord"
+for inhoud in '' 'HTTP/1.1 201\r\n' 'HTTP/1.1 201\r\nSet-Cookie: personaId=x\r\n' 'HTTP/1.1 201\r\nSet-Cookie: keten-sessie=; Max-Age=0\r\n'; do
+  printf '%b' "$inhoud" >"$kop"
+  faalt "geen sessie-cookie in '$inhoud'" sessie_cookie_uit_kop "$kop"
 done
+
+faalt "geen headerbestand" sessie_cookie_uit_kop "$kop.bestaat-niet"
+rm -f "$kop"
 
 # --- vaste lijsten ---
 
