@@ -15,6 +15,7 @@ import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.trace.Span
 import io.quarkus.test.common.QuarkusTestResource
+import io.quarkus.test.common.http.TestHTTPResource
 import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
@@ -44,6 +45,7 @@ import org.hamcrest.Matchers.hasKey
 import org.hamcrest.Matchers.not
 import org.junit.jupiter.api.fail
 import java.net.URI
+import java.net.URL
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse.BodyHandlers
@@ -317,6 +319,48 @@ class UitvraagKetenE2eTest {
             .then()
             .statusCode(404)
             .body("type", equalTo("urn:fbs:fout:bericht-onbekend"))
+    }
+
+    @TestHTTPResource(value = "/metrics", management = true)
+    lateinit var meetgegevens: URL
+
+    @Test
+    fun `uitgaande aanroepen zijn per bestemming te zien`() {
+        val bsn = "999990019"
+        val berichtId = "33333333-3333-3333-3333-333333333333"
+        stubProfielOptIn(bsn, OIN_A)
+        stubMagazijnBericht(magazijnA, berichtId, bsn, "magazijn-a", OIN_A)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/_ophalen")
+            .then()
+            .statusCode(200)
+
+        given()
+            .header("X-Ontvanger", "BSN:$bsn")
+            .header("X-Sessie", sessie(bsn))
+            .`when`().get("/api/v1/berichten/$berichtId?magazijnId=$OIN_A")
+            .then()
+            .statusCode(200)
+
+        val tekst = given().`when`().get(meetgegevens).then().statusCode(200).extract().asString()
+        val uitgaand = tekst.lines().filter { it.startsWith("http_client_requests_seconds_count{") }
+        val magazijnAdres = "address=\"localhost:${magazijnA.port()}\""
+        val profielAdres = "address=\"localhost:${profiel.port()}\""
+
+        // Elke bestemming apart, met het endpoint-template en niet het bericht-id als pad.
+        assertTrue(uitgaand.any { magazijnAdres in it && "uri=\"/api/v1/berichten/{berichtId}\"" in it }, uitgaand.toString())
+        assertTrue(uitgaand.any { magazijnAdres in it && "uri=\"/api/v1/berichten\"" in it }, uitgaand.toString())
+        assertTrue(uitgaand.any { profielAdres in it && "clientName=\"profiel-service\"" in it }, uitgaand.toString())
+
+        // Geen ontvanger, geen bericht-id: alleen begrensde labels.
+        assertFalse(berichtId in tekst, "bericht-id in de meetgegevens")
+        assertFalse(bsn in tekst, "BSN in de meetgegevens")
+
+        // De tijdelijke opslag levert zijn eigen meetwaarden.
+        assertTrue(tekst.lines().any { it.startsWith("redis_") }, "geen Redis-meetwaarden")
     }
 
     @Test

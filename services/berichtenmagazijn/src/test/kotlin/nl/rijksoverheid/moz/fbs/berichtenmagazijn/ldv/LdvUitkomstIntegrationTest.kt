@@ -1,6 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.opentelemetry.api.OpenTelemetry
@@ -417,7 +418,7 @@ class LdvUitkomstIntegrationTest {
         }
         val geenOpenTelemetry = mockk<Instance<OpenTelemetry>> { every { isResolvable } returns false }
 
-        val client = DownstreamClient(config, objectMapper, geenOpenTelemetry, "test")
+        val client = DownstreamClient(config, objectMapper, geenOpenTelemetry, "test", SimpleMeterRegistry())
         stubClient = client
         QuarkusMock.installMockForType(client, DownstreamClient::class.java)
 

@@ -1,0 +1,80 @@
+package nl.rijksoverheid.moz.fbs.berichtenmagazijn
+
+import io.quarkus.test.common.http.TestHTTPResource
+import io.quarkus.test.junit.QuarkusTest
+import io.restassured.RestAssured.given
+import org.eclipse.microprofile.config.ConfigProvider
+import org.hamcrest.MatcherAssert.assertThat
+import org.hamcrest.Matchers.containsString
+import org.hamcrest.Matchers.not
+import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
+import java.net.URL
+import java.util.UUID
+
+/**
+ * De meetgegevens horen niet via het publieke adres op te vragen; health en de spec juist wel,
+ * want de probes en de ADR-toets lezen ze daar.
+ */
+@QuarkusTest
+class BeheerpoortTest {
+
+    // Relatief aan het beheer-root-pad (`/q`), dus `/q/metrics`.
+    @TestHTTPResource(value = "/metrics", management = true)
+    lateinit var meetgegevens: URL
+
+    private fun meetgegevens(): String = given().`when`().get(meetgegevens).then().statusCode(200).extract().asString()
+
+    @ParameterizedTest
+    @ValueSource(strings = ["/q/metrics", "/metrics", "/api/v1/metrics"])
+    fun `de applicatiepoort geeft geen meetgegevens`(pad: String) {
+        given().`when`().get(pad).then().statusCode(404)
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["/q/health/live", "/q/health/ready", "/openapi.json", "/api/v1/openapi.json"])
+    fun `health en de spec blijven op de applicatiepoort`(pad: String) {
+        given().`when`().get(pad).then().statusCode(200)
+    }
+
+    @Test
+    fun `verzoeken die alleen in het bericht-id verschillen vallen in een reeks`() {
+        val ids = List(3) { UUID.randomUUID().toString() }
+
+        ids.forEach { given().`when`().get("/api/v1/berichten/$it") }
+
+        val tekst = meetgegevens()
+
+        assertBevat(tekst, "uri=\"/berichten/{berichtId}\"")
+        ids.forEach { assertBevatNiet(tekst, it) }
+    }
+
+    @Test
+    fun `een onbekend pad levert geen eigen reeks op`() {
+        given().`when`().get("/api/v1/bestaat-niet-7f3a").then().statusCode(404)
+
+        assertBevatNiet(meetgegevens(), "bestaat-niet-7f3a")
+    }
+
+    @Test
+    fun `de database en de JVM leveren hun standaardmeetwaarden`() {
+        val tekst = meetgegevens()
+
+        listOf("agroal_active_count", "agroal_max_used_count", "jvm_memory_used_bytes").forEach { assertBevat(tekst, it) }
+    }
+
+    private fun assertBevat(tekst: String, deel: String) = assertThat(tekst, containsString(deel))
+
+    private fun assertBevatNiet(tekst: String, deel: String) = assertThat(tekst, not(containsString(deel)))
+
+    // Een vaste poort (de Quarkus-default 9000) botst zodra twee diensten een netns delen.
+    @Test
+    fun `de beheerpoort is de applicatiepoort met een 2 ervoor`() {
+        val config = ConfigProvider.getConfig()
+        val applicatiepoort = config.getValue("quarkus.http.port", String::class.java)
+
+        assertEquals("2$applicatiepoort", config.getValue("quarkus.management.port", String::class.java))
+    }
+}
