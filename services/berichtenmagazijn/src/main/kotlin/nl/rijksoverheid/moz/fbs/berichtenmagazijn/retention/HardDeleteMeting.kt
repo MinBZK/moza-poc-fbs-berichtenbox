@@ -13,7 +13,8 @@ import java.util.concurrent.atomic.AtomicLong
  * blijven verwijderde berichten langer staan dan de bewaartermijn, en merkt niemand het.
  *
  * Alleen tellingen en tijdstippen, geen labels met bericht- of ontvangergegevens. De gauges gelden
- * per pod; bij meerdere pods geeft `max()` over de pods het laatste moment van het magazijn.
+ * per pod: voor de tijdstippen geeft `max()` over de pods het laatste moment van het magazijn, voor
+ * `wachtend` geeft `min()` de stand zonder rijen die een andere pod nog aan het wissen was.
  *
  * `@Startup`, zodat elke reeks vanaf de start op 0 staat. Anders ontstaat de bean pas bij de eerste
  * ronde, en ziet `increase()` de fouten van die ronde niet.

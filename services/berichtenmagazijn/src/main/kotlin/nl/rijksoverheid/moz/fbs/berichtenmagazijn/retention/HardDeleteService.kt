@@ -65,13 +65,16 @@ class HardDeleteService(
                         totaal++
                         meting.verwijderd()
                     }
+
                     KandidaatUitkomst.VERWIJDERD_LDV_FOUT -> {
                         totaal++
                         ldvFouten++
                         meting.verwijderd()
                         meting.logboekfout()
                     }
+
                     KandidaatUitkomst.OVERGESLAGEN -> {}
+
                     KandidaatUitkomst.FOUT -> {
                         fouten++
                         meting.wisfout()
