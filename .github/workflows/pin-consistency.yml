@@ -143,7 +143,7 @@ jobs:
             ontbreekt)
               # Hun main-images worden met de hand gebouwd; tot dat gebeurt valt er niets te kiezen.
               # De volgende run stelt vanzelf vast wat het werd.
-              echo "::warning::Voor de huidige main-commit van het portaal ($TAG) staat nog geen image in ghcr; dat bouwt het portaalteam met de hand (workflow_dispatch op hun deploy.yml)."
+              echo "::warning::Geen van de laatste main-commits van het portaal (nieuwste: $TAG) heeft een image in ghcr; dat bouwt het portaalteam met de hand (workflow_dispatch op hun deploy.yml)."
               ;;
             oncontroleerbaar)
               echo "::warning::De portaal-pin is deze run NIET gecontroleerd (GitHub of ghcr niet te bevragen)."

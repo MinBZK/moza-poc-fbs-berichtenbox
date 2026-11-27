@@ -86,11 +86,19 @@ verwacht_image "een preview-referentie uit hun repository" \
   "ghcr.io/minbzk/moza-portaal:pr-142-41c83e3"
 
 # Tags die met elke bouw verschuiven: op ZAD verandert het manifest dan niet en rolt er niets uit.
-for tag in main latest ux-fork pr-303; do
-  verwacht_fout "de meebewegende tag :$tag" \
+for tag in main latest ux-fork pr-303 edge Main pr- main-123456 main-1234567x pr-1-abc; do
+  verwacht_fout "de tag :$tag zonder digest" \
     "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:$tag")" \
-    "met elke bouw verschuift"
+    "kan verschuiven"
 done
+
+verwacht_image "een releasenummer zonder digest" \
+  "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:v1.4.0")" \
+  "ghcr.io/minbzk/moza-portaal:v1.4.0"
+
+verwacht_image "een meebewegende tag mét digest" \
+  "$(compose_met "    image: ghcr.io/minbzk/moza-portaal:main@sha256:$(printf 'b%.0s' {1..64})")" \
+  "ghcr.io/minbzk/moza-portaal:main@sha256:$(printf 'b%.0s' {1..64})"
 
 # Een commit-tag lijkt op een meebewegende, maar verschuift niet.
 verwacht_image "een preview-commit-tag is geen meebewegende tag" \
@@ -178,9 +186,9 @@ fi
 # De melding hoort naar stderr te gaan en niet in de referentie te belanden: wat hier op stdout komt
 # wordt ongewijzigd het image van een ZAD-component.
 STATUS=0
-ALLEEN_STDOUT=$(COMPOSE="$geldig" PORTAAL_IMAGE="ghcr.io/minbzk/moza-portaal:vast" "$GUARD" 2>/dev/null) || STATUS=$?
+ALLEEN_STDOUT=$(COMPOSE="$geldig" PORTAAL_IMAGE="ghcr.io/minbzk/moza-portaal:main-1234567" "$GUARD" 2>/dev/null) || STATUS=$?
 
-if [ "$STATUS" -eq 0 ] && [ "$ALLEEN_STDOUT" = "ghcr.io/minbzk/moza-portaal:vast" ]; then
+if [ "$STATUS" -eq 0 ] && [ "$ALLEEN_STDOUT" = "ghcr.io/minbzk/moza-portaal:main-1234567" ]; then
   ok "de waarschuwing over de override gaat naar stderr, niet naar stdout"
 else
   fout "de waarschuwing over de override gaat naar stderr — exit $STATUS, stdout: $ALLEEN_STDOUT"
@@ -196,9 +204,9 @@ fi
 
 # Een override is er juist om een demo te draaien zonder de repo aan te passen; dan mag een
 # compose-bestand dat deze draai niet gebruikt wordt, hem niet blokkeren.
-draai_met_override "$WERKMAP/bestaat-niet.yaml" "ghcr.io/minbzk/moza-portaal:vast"
+draai_met_override "$WERKMAP/bestaat-niet.yaml" "ghcr.io/minbzk/moza-portaal:main-1234567"
 
-if [ "$STATUS" -eq 0 ] && [[ "$UITVOER" == *"ghcr.io/minbzk/moza-portaal:vast"* ]]; then
+if [ "$STATUS" -eq 0 ] && [[ "$UITVOER" == *"ghcr.io/minbzk/moza-portaal:main-1234567"* ]]; then
   ok "een override werkt ook zonder leesbare compose.yaml"
 else
   fout "een override werkt ook zonder leesbare compose.yaml — exit $STATUS, uitvoer: $UITVOER"

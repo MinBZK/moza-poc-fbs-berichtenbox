@@ -12,7 +12,6 @@
 # en geen tweede regel in compose.yaml: zo blijft er één gepinde waarde die bijgehouden wordt, en is
 # de afwijking zichtbaar op de plek waar hij gezet wordt in plaats van in de repo te blijven staan.
 set -euo pipefail
-shopt -s extglob
 
 REPO_ROOT=${REPO_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 COMPOSE=${COMPOSE:-$REPO_ROOT/compose.yaml}
@@ -22,21 +21,27 @@ COMPOSE_PAD=${COMPOSE_PAD:-ghcr.io/minbzk/moza-portaal}
 # stilzwijgend `latest` en zet een demo op een andere versie dan het repo denkt; een lege tag
 # (`...moza-portaal:`) is bovendien geen geldige referentie, maar passeert wél `docker compose config`
 # zodra de waarde geciteerd is. Het `?` in de patronen eist dus minstens één teken ná de scheiding.
+# Zonder digest alleen een tag die niet verschuift: een commit-tag of een releasenummer. Een tag als
+# `main` of `pr-303` wijst na elke bouw naar iets anders; op ZAD verandert het gerenderde manifest
+# dan niet, dus rolt er niets uit terwijl de deploy groen is.
 toets() {
+  local tag
+
   case "$1" in
-    *@sha256:?*) ;;
-    # Tags die met elke bouw verschuiven. Op ZAD verandert het gerenderde manifest dan niet, dus rolt
-    # er niets uit terwijl de deploy groen is; een commit-tag of een digest wél.
-    *:main | *:latest | *:ux-fork | *:pr-+([0-9]))
-      echo "'$1' is een tag die met elke bouw verschuift; neem een commit-tag (main-<sha7>, pr-<n>-<sha7>) of een digest" >&2
-      exit 1
-      ;;
+    */*@sha256:?*) return 0 ;;
     */*:?*) ;;
     *)
       echo "'$1' ziet er niet uit als een image met een tag of digest" >&2
       exit 1
       ;;
   esac
+
+  tag=${1##*:}
+
+  if ! [[ $tag =~ ^(main-[0-9a-f]{7}|pr-[0-9]+-[0-9a-f]{7}|v?[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "'$1' heeft geen digest en een tag die kan verschuiven; neem een commit-tag (main-<sha7>, pr-<n>-<sha7>), een releasenummer of een digest" >&2
+    exit 1
+  fi
 }
 
 # Apart van de treffer-telling hieronder: een onleesbaar of ontbrekend bestand levert nul regels op,

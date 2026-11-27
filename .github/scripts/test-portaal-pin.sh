@@ -441,6 +441,27 @@ uitvoeren
 verwacht "de pin op de nieuwste commit met image" \
   ok "$OUDERE_TAG" "" "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_MAIN"
 
+# Kop én oudere commit hebben een image: de kop telt, en verder terugkijken hoeft niet. Zonder dit
+# geval bleef onopgemerkt dat de oudste treffer won, of dat de lijst achterstevoren werd gelezen.
+nieuw_geval kop-en-oudere-met-image
+pin "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_ANDERS"
+manifest "$PAD" "$VERWACHTE_TAG" 200 "$DIGEST_MAIN"
+manifest "$PAD" "$OUDERE_TAG" 200 "$DIGEST_ANDERS"
+uitvoeren
+verwacht "kop en oudere commit allebei met image: de kop telt" \
+  verouderd "$VERWACHTE_TAG" "    image: ghcr.io/$PAD:$VERWACHTE_TAG@$DIGEST_MAIN" \
+  "ghcr.io/$PAD:$OUDERE_TAG@$DIGEST_ANDERS"
+niet_aangeroepen_exact "na de eerste treffer niet verder terug" "https://ghcr.io/v2/$PAD/manifests/$OUDERE_TAG"
+
+# Een lege sha halverwege zou de tag `main-` opleveren, een 404, en dan `ontbreekt`: een oorzaak die
+# niemand heeft vastgesteld.
+nieuw_geval lege-sha-halverwege
+pin "ghcr.io/$PAD:main@$DIGEST_PIN"
+COMMIT_JSON="[{\"sha\":\"$KOP\"},{\"sha\":\"\"},{\"sha\":\"$OUDER\"}]"
+uitvoeren
+verwacht "een lege sha halverwege de lijst" \
+  oncontroleerbaar "$VERWACHTE_TAG" "" "ghcr.io/$PAD:main@$DIGEST_PIN"
+
 # Eén commit, en de lijst is verder leeg: dat is wat de API bij een vers repository geeft.
 nieuw_geval een-commit
 pin "ghcr.io/$PAD:main@$DIGEST_PIN"
@@ -473,6 +494,14 @@ manifest "$PAD-fork" main-1234567 200 "$DIGEST_PREVIEW"
 uitvoeren
 verwacht "een pin buiten hun main-repository" \
   preview "" "" "ghcr.io/$PAD-fork:main-1234567"
+
+# Een digest-pin buiten hun main-repository wordt in zijn eigen repository opgezocht, niet onder het
+# main-pad; anders heette elke fork-pin `pin-onvindbaar`.
+nieuw_geval fork-met-digest
+pin "ghcr.io/$PAD-fork:main-1234567@$DIGEST_PREVIEW"
+uitvoeren
+verwacht "een digest-pin buiten hun main-repository" \
+  preview "" "" "ghcr.io/$PAD-fork:main-1234567@$DIGEST_PREVIEW"
 
 # `pr` als begin van een tag zonder streepje is geen preview: alleen het patroon `pr-*` is dat.
 nieuw_geval geen-preview-zonder-streep

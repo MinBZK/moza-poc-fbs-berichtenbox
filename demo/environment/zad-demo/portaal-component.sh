@@ -217,36 +217,47 @@ alias_zet() {
 
 # Het portaal praat server-side met de uitvraag en de personadienst, over hun publieke adres: de
 # NetworkPolicy van ZAD laat verkeer tussen projecten alleen via de route toe.
-# HOSTNAME expliciet: het image zet 0.0.0.0, maar de container-runtime zet de variabele op de
-# podnaam, en dan luistert Next.js alleen op het adres van de pod.
 alias_zet portaal \
     "KETEN_BACKEND_URL=https://${UITVRAAG_HOST}" \
-    "KETEN_PERSONAS_URL=https://${PERSONAS_HOST}" \
-    "HOSTNAME=0.0.0.0"
+    "KETEN_PERSONAS_URL=https://${PERSONAS_HOST}"
 
-# next-auth ondertekent zijn cookies met dit geheim. Alleen zetten als het er nog niet is: een nieuw
-# geheim bij elke aanroep zou iedereen met een open Berichtenbox uitloggen. De waarde komt niet in
-# de uitvoer, ook niet in plan-modus. Het staat wel kort in de argumenten van zadctl, en is daar via
-# ps te lezen zolang die aanroep loopt. Dat korte venster is bewust geaccepteerd.
-geheim_zet() {
-    local component="$1" naam="$2"
+# Wat alleen het portaal aangaat, gaat op de env-laag van dát component en niet als alias: ZAD voegt
+# alle aliassen van een deployment samen tot één secret, en elk component krijgt dat hele secret als
+# env. Een ondertekengeheim van het portaal hoort niet in de env van de magazijnen, en een
+# HOSTNAME-alias zou op elk component landen.
+env_zet() {
+    local component="$1" paar="$2" alleen_als_nieuw="${3:-}" naam="${2%%=*}"
 
-    if component_bestaat "$component" && "${ZAD[@]}" alias get "$naam" -c "$component" >/dev/null; then
-        echo "alias '$naam' op '$component' bestaat al; ongewijzigd gelaten." >&2
-
-        return 0
-    fi
-
-    if [ "$MODE" = plan ]; then
-        echo "plan: '$naam' krijgt op '$component' een willekeurig geheim van 32 bytes." >&2
+    if [ "$MODE" = plan ] && ! component_bestaat "$component"; then
+        echo "plan: '$component' bestaat nog niet; '$naam' komt er na het aanmaken op." >&2
 
         return 0
     fi
 
-    "${ZAD[@]}" alias add --component "$component" "${naam}=$(openssl rand -base64 32)"
+    if [ -n "$alleen_als_nieuw" ] && component_bestaat "$component" &&
+        "${ZAD[@]}" env list -c "$component" | grep -qw -- "$naam"; then
+        echo "'$naam' staat al op '$component'; ongewijzigd gelaten." >&2
+
+        return 0
+    fi
+
+    "${ZAD[@]}" env set -c "$component" "$paar" "${DROOG[@]}"
 }
 
-geheim_zet portaal AUTH_SECRET
+# HOSTNAME expliciet: het image zet 0.0.0.0, maar de container-runtime zet de variabele op de
+# podnaam, en dan luistert Next.js alleen op het adres van de pod.
+env_zet portaal "HOSTNAME=0.0.0.0"
+
+# next-auth ondertekent zijn cookies met dit geheim. Alleen zetten als het er nog niet is: een nieuw
+# geheim bij elke aanroep zou iedereen met een open Berichtenbox uitloggen. In plan-modus wordt geen
+# geheim gemaakt, en de waarde komt niet in de uitvoer. Hij staat wel kort in de argumenten van
+# zadctl en is daar via ps te lezen zolang die aanroep loopt; dat korte venster is bewust
+# geaccepteerd.
+if [ "$MODE" = plan ]; then
+    echo "plan: 'AUTH_SECRET' krijgt op 'portaal' een willekeurig geheim van 32 bytes, als het er nog niet staat." >&2
+else
+    env_zet portaal "AUTH_SECRET=$(openssl rand -base64 32)" alleen-als-nieuw
+fi
 
 # Het paneel toetst dit adres niet vooraf: een HEAD naar een ander component strandt op CORS, en
 # die uitkomst is niet van onbereikbaar te onderscheiden. Staat de alias fout, dan blijft het frame

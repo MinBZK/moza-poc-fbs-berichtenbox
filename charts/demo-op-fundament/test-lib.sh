@@ -132,6 +132,8 @@ gelijk "sessie-cookie uit de headers" "keten-sessie=%7B%22s%22%3A1%7D" "$(sessie
 printf 'HTTP/2 201\r\nset-cookie: personaId=x; Path=/\r\nset-cookie: keten-sessie=abc; Path=/api\r\n' >"$kop"
 gelijk "naast een ander cookie, in kleine letters" "keten-sessie=abc" "$(sessie_cookie_uit_kop "$kop")"
 
+printf 'HTTP/1.1 201\r\nSet-Cookie:keten-sessie=x; Path=/api\r\n' >"$kop"
+gelijk "zonder spatie na de dubbele punt" "keten-sessie=x" "$(sessie_cookie_uit_kop "$kop")"
 printf 'HTTP/1.1 201\r\nSet-Cookie: keten-sessie=; Max-Age=0\r\nSet-Cookie: keten-sessie=nieuw\r\n' >"$kop"
 gelijk "een gewist en daarna een nieuw cookie: het laatste telt" "keten-sessie=nieuw" "$(sessie_cookie_uit_kop "$kop")"
 

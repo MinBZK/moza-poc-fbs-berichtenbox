@@ -166,7 +166,7 @@ fi
 # naar de kop kijken zou de bump laten wachten op een dag waarop hun bouw toevallig precies de kop
 # raakt, en elke merge zonder bouw zet hem weer terug.
 if ! commits=$(curl -fsS "${gh_auth[@]}" \
-  "https://api.github.com/repos/${BRON_REPO}/commits?sha=${standaardtak}&per_page=${COMMITS_TERUG:-30}" |
+  "https://api.github.com/repos/${BRON_REPO}/commits?sha=${standaardtak}&per_page=${COMMITS_TERUG:-100}" |
   jq -er '[.[].sha] | select(length > 0) | .[]'); then
   meld oncontroleerbaar "" "" "$image"
 fi
