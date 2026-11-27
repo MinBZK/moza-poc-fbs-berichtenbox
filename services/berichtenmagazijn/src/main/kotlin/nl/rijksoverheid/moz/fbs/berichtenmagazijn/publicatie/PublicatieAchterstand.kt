@@ -12,6 +12,7 @@ import jakarta.persistence.EntityManager
 import jakarta.persistence.PersistenceException
 import org.jboss.logging.Logger
 import java.time.Clock
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -48,6 +49,8 @@ class PublicatieAchterstand(
 
     private val gemetenOp = AtomicLong()
 
+    private val mislukkingenOpRij = AtomicInteger()
+
     fun registreer(@Observes start: StartupEvent) {
         for ((sleutel, waarde) in aantal) {
             Gauge.builder("fbs.publicatie.achterstand", waarde) { it.get().toDouble() }
@@ -74,11 +77,14 @@ class PublicatieAchterstand(
         every = "{magazijn.publicatie.achterstand.interval}",
         concurrentExecution = Scheduled.ConcurrentExecution.SKIP,
     )
-    fun tel() {
+    fun tel() = tel { QuarkusTransaction.requiringNew().call { telRijen() } }
+
+    internal fun tel(teller: () -> List<Rij>) {
         // Een mislukte telling laat de vorige waarden staan; `gemeten.op` loopt dan achter, en
         // dat is het signaal. Een gesloten EntityManager bij het afsluiten valt onder dezelfde regel.
         try {
-            zet(QuarkusTransaction.requiringNew().call { telRijen() })
+            zet(teller())
+            mislukkingenOpRij.set(0)
         } catch (ex: PersistenceException) {
             meldMislukt(ex)
         } catch (ex: QuarkusTransactionException) {
@@ -88,11 +94,20 @@ class PublicatieAchterstand(
         }
     }
 
+    /** De eerste mislukking op rij met de volledige oorzaak; daarna, elke minuut per pod, alleen de kern. */
     private fun meldMislukt(ex: RuntimeException) {
-        log.warnf("Telling van de publicatie-achterstand mislukt (%s); vorige waarden blijven staan", ex.javaClass.name)
+        if (mislukkingenOpRij.getAndIncrement() == 0) {
+            log.warnf(ex, "Telling van de publicatie-achterstand mislukt; vorige waarden blijven staan")
+        } else {
+            log.warnf("Telling van de publicatie-achterstand opnieuw mislukt: %s: %s", ex.javaClass.name, ex.message)
+        }
     }
 
-    /** Leeftijd met de klok van de database, dus geen verschil tussen pods en database. */
+    /**
+     * De query bevat geen parameters en geen persoonsgegevens. `now()` is de klok van de database;
+     * `aangemaakt_op` komt van de pod die de rij plande, dus een klokverschil kan een leeftijd onder
+     * nul geven. `GREATEST(0, ...)` vangt dat af.
+     */
     internal fun telRijen(): List<Rij> {
         @Suppress("UNCHECKED_CAST")
         val rijen = entityManager

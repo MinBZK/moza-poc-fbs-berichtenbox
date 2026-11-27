@@ -3,13 +3,18 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
+import io.quarkus.narayana.jta.QuarkusTransactionException
 import io.quarkus.runtime.StartupEvent
 import jakarta.persistence.EntityManager
+import jakarta.persistence.PersistenceException
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
+import org.junit.jupiter.api.assertThrows
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.MethodSource
 
 class PublicatieAchterstandTest {
 
@@ -97,5 +102,31 @@ class PublicatieAchterstandTest {
 
         assertEquals(0.0, aantal("te_publiceren", "aanmeld"))
         assertEquals(0.0, oudste("te_publiceren", "aanmeld"))
+    }
+
+    @ParameterizedTest
+    @MethodSource("fouten")
+    fun `een mislukte telling laat de vorige waarden staan`(fout: RuntimeException) {
+        achterstand.tel { listOf(rij(DeliveryStatus.TE_PUBLICEREN, "aanmeld", 3, 120)) }
+        val gemeten = gemetenOp()
+
+        achterstand.tel { throw fout }
+
+        assertEquals(3.0, aantal("te_publiceren", "aanmeld"))
+        assertEquals(gemeten, gemetenOp())
+    }
+
+    @Test
+    fun `een andere fout gaat door naar de scheduler`() {
+        assertThrows<IllegalArgumentException> { achterstand.tel { throw IllegalArgumentException("programmeerfout") } }
+    }
+
+    companion object {
+        @JvmStatic
+        fun fouten(): List<RuntimeException> = listOf(
+            PersistenceException("database weg"),
+            QuarkusTransactionException(IllegalStateException("rollback")),
+            IllegalStateException("EntityManager gesloten"),
+        )
     }
 }

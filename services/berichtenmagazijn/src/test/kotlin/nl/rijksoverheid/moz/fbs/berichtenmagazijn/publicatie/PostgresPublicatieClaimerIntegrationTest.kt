@@ -184,25 +184,54 @@ class PostgresPublicatieClaimerIntegrationTest {
         )
     }
 
+    private fun zetAangemaaktOp(berichtId: UUID, secondenGeleden: Long) {
+        deliveries.getEntityManager()
+            .createNativeQuery(
+                "UPDATE publicatie_deliveries SET aangemaakt_op = now() - make_interval(secs => :s) " +
+                    "WHERE bericht_db_id = (SELECT id FROM berichten WHERE bericht_id = :id)",
+            )
+            .setParameter("s", secondenGeleden)
+            .setParameter("id", berichtId)
+            .executeUpdate()
+    }
+
     // Echte Postgres: de JOIN, de filters, de klok van de database en de typen die pgjdbc teruggeeft.
+    // Elk bericht krijgt een rij per geconfigureerd doel (het profiel voegt aanmeld toe aan de
+    // globale default); de test kijkt naar aanmeld.
     @Test
     @Transactional
     fun `de telling van de achterstand telt alleen wat gepubliceerd had mogen zijn, per status en doel`() {
         val nu = Instant.now()
         val ids = List(4) { maakBericht(nu.minusSeconds(60)) }
         maakBericht(nu.plusSeconds(86_400))
-        val claims = claimer.claimNuVerwerkbaar(maxBatch = 10).associateBy { it.berichtId }
+        val claims = claimer.claimNuVerwerkbaar(maxBatch = 100).filter { it.doel.key == AANMELD }.associateBy { it.berichtId }
 
         claimer.markeerGeslaagd(claims.getValue(ids[0]).claimId, nu)
         claimer.markeerMislukt(claims.getValue(ids[1]).claimId, "test", volgendePoging = null)
 
         val rijen = achterstand.telRijen().associateBy { it.status to it.doel }
-        val doel = claims.getValue(ids[2]).doel.key
+        val anderen = config.downstreams().keys - AANMELD
 
-        assertEquals(setOf(DeliveryStatus.TE_PUBLICEREN to doel, DeliveryStatus.MISLUKT to doel), rijen.keys)
-        assertEquals(2L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to doel).aantal, "het bericht van morgen telt niet")
-        assertEquals(1L, rijen.getValue(DeliveryStatus.MISLUKT to doel).aantal)
-        assertTrue(rijen.values.all { it.oudsteSeconden in 0..60 }, rijen.toString())
+        assertEquals(2L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to AANMELD).aantal, "het bericht van morgen telt niet")
+        assertEquals(1L, rijen.getValue(DeliveryStatus.MISLUKT to AANMELD).aantal)
+        anderen.forEach { assertEquals(4L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to it).aantal, it) }
+        assertEquals(2 + anderen.size, rijen.size, rijen.keys.toString())
+    }
+
+    // De leeftijd loopt vanaf het latere van aanmelding en publicatietijdstip.
+    @Test
+    @Transactional
+    fun `de leeftijd loopt vanaf het moment dat de aanmelding mocht gaan`() {
+        val nu = Instant.now()
+        val lang = maakBericht(nu.minusSeconds(3_600))
+        zetAangemaaktOp(lang, 600)
+        val kort = maakBericht(nu.minusSeconds(120))
+        zetAangemaaktOp(kort, 3_000)
+
+        val oudste = achterstand.telRijen().single { it.status == DeliveryStatus.TE_PUBLICEREN && it.doel == AANMELD }.oudsteSeconden
+
+        // lang: aangemaakt 600 s geleden, mocht al eerder; kort: aangemaakt eerder, mocht pas 120 s geleden
+        assertTrue(oudste in 595..700, "verwacht ongeveer 600, kreeg $oudste")
     }
 
     @Test
@@ -215,7 +244,6 @@ class PostgresPublicatieClaimerIntegrationTest {
     // in productie. Een rij met een vervallen bestemming komt onder _onbekend.
     @Test
     fun `de geplande telling zet de meetwaarden uit gecommitte rijen`() {
-        val doel = config.downstreams().keys.single()
         val verleden = Instant.now().minusSeconds(600)
 
         QuarkusTransaction.requiringNew().run {
@@ -225,22 +253,24 @@ class PostgresPublicatieClaimerIntegrationTest {
             deliveries.getEntityManager()
                 .createNativeQuery(
                     "UPDATE publicatie_deliveries SET doel = 'vervallen' " +
-                        "WHERE bericht_db_id = (SELECT id FROM berichten WHERE bericht_id = :id)",
+                        "WHERE doel = :doel AND bericht_db_id = (SELECT id FROM berichten WHERE bericht_id = :id)",
                 )
+                .setParameter("doel", AANMELD)
                 .setParameter("id", vervallen)
                 .executeUpdate()
         }
 
         try {
+            // Rechtstreeks eerst: een kapotte query moet hier met haar eigen fout falen, niet als 0 ≠ 2.
+            QuarkusTransaction.requiringNew().call { achterstand.telRijen() }
             achterstand.tel()
 
-            val waarde = { naam: String, d: String ->
-                registry.get(naam).tags("status", "te_publiceren", "doel", d).gauge().value()
+            val waarde = { d: String ->
+                registry.get("fbs.publicatie.achterstand").tags("status", "te_publiceren", "doel", d).gauge().value()
             }
 
-            assertEquals(2.0, waarde("fbs.publicatie.achterstand", doel))
-            assertEquals(1.0, waarde("fbs.publicatie.achterstand", DownstreamClient.ONBEKEND_DOEL))
-            assertTrue(waarde("fbs.publicatie.achterstand.oudste", doel) >= 0.0)
+            assertEquals(2.0, waarde(AANMELD))
+            assertEquals(1.0, waarde(DownstreamClient.ONBEKEND_DOEL))
             assertTrue(registry.get("fbs.publicatie.achterstand.gemeten.op").gauge().value() > 0.0)
         } finally {
             QuarkusTransaction.requiringNew().run {
@@ -248,5 +278,9 @@ class PostgresPublicatieClaimerIntegrationTest {
                 berichten.deleteAll()
             }
         }
+    }
+
+    private companion object {
+        const val AANMELD = "aanmeld"
     }
 }
