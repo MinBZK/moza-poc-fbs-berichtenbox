@@ -116,12 +116,17 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 
 ## Outbox-monitoring
 
-* **`publicatie_deliveries.status = TE_PUBLICEREN` met oude `volgende_poging`**:
-  poller-stilstand of poison-pill (zie ERROR-log "MAX_OPEENVOLGENDE_FOUTEN").
-* **`status = MISLUKT` met `volgende_poging IS NULL`**: definitief mislukt
-  (hetzij na `max-pogingen` retries, hetzij niet-herstelbare fout zoals 4xx).
-  Forensisch onderzoek vereist behoud — opschoner verwijdert deze rijen
-  niet.
+De meetwaarden staan in [operations/meetgegevens.md](operations/meetgegevens.md): de achterstand
+per status en bestemming, en de leeftijd van de oudste aanmelding die al had mogen gaan.
+
+* **`fbs_publicatie_achterstand_oudste_seconds` loopt op**: poller-stilstand of poison-pill. In de
+  log staat dan `Onverwachte fout in pollronde (opeenvolgendeFouten=…)` (ERROR), en na
+  `magazijn.publicatie.polling.max-opeenvolgende-fouten` keer op rij
+  `Pollronde overgeslagen na … opeenvolgende fouten` (WARN).
+* **`status = MISLUKT` met `volgende_poging IS NULL`** (`fbs_publicatie_achterstand{status="mislukt"}`):
+  definitief mislukt, na `max-pogingen` retries of door een niet-herstelbare fout zoals een 4xx.
+  Forensisch onderzoek vereist behoud: de opschoner verwijdert deze rijen niet. Ze verdwijnen pas
+  met het bericht zelf, als de retentie dat definitief wist (de FK cascadeert).
 * **`status = GEPUBLICEERD` ouder dan retentie-interval**: `PublicatieDeliveriesOpschoner`
   ruimt deze elke `magazijn.publicatie.opschonen.interval`. Bij DB-uitval
   ziet de operator `ERROR Outbox-opschoning faalde (persistence|transactie)
