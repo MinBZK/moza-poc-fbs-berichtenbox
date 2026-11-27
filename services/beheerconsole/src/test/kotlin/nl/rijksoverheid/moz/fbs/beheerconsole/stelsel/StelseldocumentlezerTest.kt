@@ -7,22 +7,26 @@ import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
 import java.time.Instant
+import java.time.temporal.ChronoUnit
 import java.util.Base64
 import java.util.Optional
 
 /** De zes verificatiestappen uit de spec van het stelselregister, telkens met de stap die faalt. */
 class StelseldocumentlezerTest {
 
-    private val nu = Instant.parse("2026-11-27T12:00:00Z")
+    // De klok van de run: de testketens gaan in op "gisteren", gerekend vanaf de run.
+    private val nu = Instant.now().truncatedTo(ChronoUnit.SECONDS)
 
     private fun lezer(root: String? = Testketen.geldig.rootPem) = Stelseldocumentlezer(
         object : StelseldocumentConfig {
             override fun root(): Optional<String> = Optional.ofNullable(root)
             override fun uitgever(): String = Testketen.OIN
             override fun omgeving(): String = Testketen.OMGEVING
-        },
+            override fun unsafeZonderRoot(): Boolean = false
+                    },
     )
 
     private fun reden(gelezen: Stelseldocumentlezer.Gelezen): String =
@@ -80,7 +84,8 @@ class StelseldocumentlezerTest {
                 override fun root(): Optional<String> = Optional.of(Testketen.andereUitgever.rootPem)
                 override fun uitgever(): String = Testketen.OIN
                 override fun omgeving(): String = Testketen.OMGEVING
-            },
+                override fun unsafeZonderRoot(): Boolean = false
+                            },
         ).lees(Testketen.andereUitgever.document(nu), nu)
 
         assertTrue("stelselbeheerder" in reden(gelezen))
@@ -96,15 +101,73 @@ class StelseldocumentlezerTest {
         assertTrue("omgeving" in reden(lezer().lees(Testketen.geldig.document(nu, omgeving = "productie"), nu)))
     }
 
-    @Test
-    fun `stap 6, verlopen, in de toekomst, te lang geldig en teruggedraaid`() {
-        val lezer = lezer()
+    // Grenzen van stap 6, elk met een verse lezer: de rollback-toestand speelt hier niet mee.
+    @ParameterizedTest
+    @CsvSource(
+        "60, 3600, ",
+        "61, 3600, toekomst",
+        "0, 86400, ",
+        "0, 86401, 24 uur",
+        "-3600, 3600, verlopen",
+        "-3599, 3600, ",
+        "0, 0, 24 uur",
+    )
+    fun `stap 6, de grenzen van tijd en geldigheid`(verschuiving: Long, geldigheid: Long, verwacht: String?) {
+        val gelezen = lezer().lees(Testketen.geldig.document(nu.plusSeconds(verschuiving), geldigheidSeconden = geldigheid), nu)
 
-        assertTrue("verlopen" in reden(lezer.lees(Testketen.geldig.document(nu.minusSeconds(7200)), nu)))
-        assertTrue("toekomst" in reden(lezer.lees(Testketen.geldig.document(nu.plusSeconds(120)), nu)))
-        assertTrue("24 uur" in reden(lezer.lees(Testketen.geldig.document(nu, geldigheidSeconden = 25 * 3600), nu)))
-        assertEquals(Uitkomst.Geldig, lezer.lees(Testketen.geldig.document(nu), nu).uitkomst)
-        assertTrue("ouder" in reden(lezer.lees(Testketen.geldig.document(nu.minusSeconds(10)), nu)))
+        if (verwacht == null) {
+            assertEquals(Uitkomst.Geldig, gelezen.uitkomst)
+        } else {
+            assertTrue(verwacht in reden(gelezen), reden(gelezen))
+        }
+    }
+
+    @Test
+    fun `stap 6, hetzelfde exemplaar opnieuw lezen blijft geldig, een ouder niet`() {
+        val lezer = lezer()
+        val document = Testketen.geldig.document(nu)
+
+        assertEquals(Uitkomst.Geldig, lezer.lees(document, nu).uitkomst)
+        assertEquals(Uitkomst.Geldig, lezer.lees(document, nu).uitkomst)
+        assertTrue("ouder" in reden(lezer.lees(Testketen.geldig.document(nu.minusSeconds(1)), nu)))
+    }
+
+    @Test
+    fun `witruimte om het document verandert niets`() {
+        assertEquals(Uitkomst.Geldig, lezer().lees("  " + Testketen.geldig.document(nu) + "\n", nu).uitkomst)
+    }
+
+    // PKIX controleert het sleutelgebruik van het laatste certificaat niet; dat doet stap 2 zelf.
+    @Test
+    fun `stap 2, het eerste certificaat moet een ondertekencertificaat zijn`() {
+        listOf(Testketen.leafIsCa, Testketen.zonderSleutelgebruik, Testketen.alleenSleutelafspraak).forEach { keten ->
+            val gelezen = Stelseldocumentlezer(
+                object : StelseldocumentConfig {
+                    override fun root(): Optional<String> = Optional.of(keten.rootPem)
+                    override fun uitgever(): String = Testketen.OIN
+                    override fun omgeving(): String = Testketen.OMGEVING
+                    override fun unsafeZonderRoot(): Boolean = false
+                                    },
+            ).lees(keten.document(nu), nu)
+
+            assertEquals("het eerste certificaat is geen ondertekencertificaat", reden(gelezen))
+        }
+    }
+
+    // De header komt vóór de root: ook zonder root is een header met de verkeerde vorm ongeldig.
+    @ParameterizedTest
+    @ValueSource(strings = ["\"alg\":\"HS256\"", "\"alg\":\"none\"", "\"typ\":\"JWT\"", "\"x5c\":[]", "\"x5c\":[\"bm9wZQ\"]"])
+    fun `stap 1, een header met de verkeerde vorm`(vervanging: String) {
+        val delen = Testketen.geldig.document(nu).split('.')
+        val header = String(Base64.getUrlDecoder().decode(delen[0]))
+        val sleutel = vervanging.substringBefore(':')
+        val aangepast = header.replace(Regex("$sleutel:(\\[[^]]*]|\"[^\"]*\")"), vervanging)
+        val document = listOf(Base64.getUrlEncoder().withoutPadding().encodeToString(aangepast.toByteArray()), delen[1], delen[2])
+            .joinToString(".")
+
+        listOf(lezer(), lezer(root = null)).forEach { lezer ->
+            assertTrue(lezer.lees(document, nu).uitkomst is Uitkomst.Ongeldig, "$vervanging: $header")
+        }
     }
 
     @ParameterizedTest

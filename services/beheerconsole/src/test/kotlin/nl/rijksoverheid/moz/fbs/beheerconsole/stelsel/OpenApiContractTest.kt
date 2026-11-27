@@ -56,6 +56,21 @@ class OpenApiContractTest {
         given().filter(filter).`when`().get("/api/v1/stelsel").then().statusCode(502)
     }
 
+    // Een ongeldig document wordt getoond zoals het is, ook met een OIN of adres van een andere vorm.
+    @Test
+    fun `een ongeldig document met afwijkende inhoud volgt de spec`() {
+        StubStelselregister.antwoord = { Testketen.ander.document(Instant.now(), organisaties = listOf(Triple("123", "X", "http://a b"))) }
+
+        given().filter(filter).`when`().get("/api/v1/stelsel").then().statusCode(200)
+    }
+
+    @Test
+    fun `een onverwachte fout volgt de spec`() {
+        StubStelselregister.antwoord = { throw IllegalStateException("onverwacht") }
+
+        given().filter(filter).`when`().get("/api/v1/stelsel").then().statusCode(500).contentType("application/problem+json")
+    }
+
     @Test
     fun `een verkeerd mediatype volgt de spec`() {
         given().filter(alleenAntwoord).accept("application/xml").`when`().get("/api/v1/stelsel").then().statusCode(406)

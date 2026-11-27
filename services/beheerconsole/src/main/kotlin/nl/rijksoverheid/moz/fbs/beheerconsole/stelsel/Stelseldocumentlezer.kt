@@ -2,6 +2,7 @@ package nl.rijksoverheid.moz.fbs.beheerconsole.stelsel
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import io.quarkus.runtime.Startup
 import jakarta.enterprise.context.ApplicationScoped
 import org.jose4j.jwa.AlgorithmConstraints
 import org.jose4j.jws.JsonWebSignature
@@ -28,7 +29,10 @@ import javax.security.auth.x500.X500Principal
  * Anders dan een app weigert de console een ongeldig document niet: hij toont wat er gepubliceerd
  * staat, met de uitkomst erbij. Een beheerder wil juist dan zien wat er staat. Een document dat
  * niet eens te ontleden is, levert alleen de reden op.
+ *
+ * `@Startup`: een onleesbare root laat zo de start falen, en niet pas elk verzoek met een 500.
  */
+@Startup
 @ApplicationScoped
 class Stelseldocumentlezer(config: StelseldocumentConfig) {
 
@@ -64,10 +68,12 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
 
     data class Gelezen(val uitkomst: Uitkomst, val inhoud: Inhoud?, val ondertekening: Ondertekening?)
 
-    private class Afgekeurd(reden: String, cause: Throwable? = null) : Exception(reden, cause)
+    private class Afgekeurd(reden: String, oorzaak: Throwable? = null) : Exception(reden, oorzaak)
 
-    fun lees(jws: String, nu: Instant): Gelezen {
-        val delen = jws.trim().split('.')
+    fun lees(ruw: String, nu: Instant): Gelezen {
+        // Getrimd, ook voor de handtekening: witruimte om het document verandert de signing input.
+        val jws = ruw.trim()
+        val delen = jws.split('.')
 
         if (delen.size != DELEN_IN_JWS) return Gelezen(Uitkomst.Ongeldig("geen JWS in compacte vorm"), null, null)
 
@@ -75,6 +81,7 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
         val payload = json(delen[1]) ?: return Gelezen(Uitkomst.Ongeldig("de payload is geen JSON"), null, null)
         val keten = runCatching { header.path("x5c").map { certificaatUitDer(it.asText()) } }.getOrDefault(emptyList())
         val inhoud = runCatching { inhoud(payload) }.getOrNull()
+
         val ondertekening = keten.firstOrNull()?.let { eerste ->
             Ondertekening(
                 kid = header.path("kid").asText(),
@@ -101,8 +108,11 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
     ): Uitkomst {
         // Stap 1
         if (header.fieldNames().asSequence().toSet() != HEADERVELDEN) throw Afgekeurd("de header heeft andere velden dan alg, typ, kid en x5c")
+
         if (header.path("alg").asText() != "ES256") throw Afgekeurd("alg is niet ES256")
+
         if (header.path("typ").asText() != "stelseldocument+jwt") throw Afgekeurd("typ is niet stelseldocument+jwt")
+
         if (keten.isEmpty()) throw Afgekeurd("x5c ontbreekt of is niet te lezen")
 
         // Zonder root bewijzen stap 2 en 3 niets: het document levert zijn eigen sleutel aan.
@@ -116,13 +126,14 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
 
         // Stap 4
         if (oinUit(keten.first()) != uitgever) throw Afgekeurd("het ondertekencertificaat is niet van de verwachte stelselbeheerder")
+
         if (payload.path("iss").asText() != uitgever) throw Afgekeurd("iss is niet de verwachte stelselbeheerder")
 
         // Stap 5
         if (payload.path("environment").asText() != omgeving) throw Afgekeurd("het document is voor een andere omgeving")
 
         // Stap 6
-        controleerTijd(payload.path("iat").asLong(), payload.path("exp").asLong(), nu)
+        controleerTijd(tijdstip(payload, "iat"), tijdstip(payload, "exp"), nu)
 
         return Uitkomst.Geldig
     }
@@ -160,9 +171,21 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
         if (!geldig) throw Afgekeurd("de handtekening klopt niet")
     }
 
+    /** Een geheel aantal seconden na 1970; tekst, een breuk of een negatief getal telt niet. */
+    private fun tijdstip(payload: JsonNode, veld: String): Long {
+        val waarde = payload.path(veld)
+
+        if (!waarde.isIntegralNumber || !waarde.canConvertToLong() || waarde.asLong() <= 0) throw Afgekeurd("$veld is geen tijdstip")
+
+        return waarde.asLong()
+    }
+
     private fun controleerTijd(iat: Long, exp: Long, nu: Instant) {
         if (iat > nu.epochSecond + KLOKVERSCHIL.seconds) throw Afgekeurd("uitgegeven in de toekomst")
-        if (exp - iat > GELDIGHEID.seconds) throw Afgekeurd("geldig langer dan 24 uur")
+
+        // Als vergelijking en niet als verschil: wie de sleutel heeft kiest exp zelf, en exp - iat kan overlopen.
+        if (exp <= iat || exp > iat + GELDIGHEID.seconds) throw Afgekeurd("niet tussen nul en 24 uur geldig")
+
         if (exp <= nu.epochSecond) throw Afgekeurd("het document is verlopen")
 
         val vorige = laatsteIat.getAndAccumulate(iat) { oud, nieuw -> maxOf(oud, nieuw) }
@@ -214,6 +237,7 @@ class Stelseldocumentlezer(config: StelseldocumentConfig) {
          */
         fun oinUit(certificaat: X509Certificate): String? {
             val subject = certificaat.subjectX500Principal.getName(X500Principal.RFC2253, mapOf(OID_SERIALNUMBER to SERIALNUMBER))
+
             val dragers = LdapName(subject).rdns.filter { rdn ->
                 rdn.toAttributes().iDs.asSequence().any { it.equals(SERIALNUMBER, ignoreCase = true) }
             }

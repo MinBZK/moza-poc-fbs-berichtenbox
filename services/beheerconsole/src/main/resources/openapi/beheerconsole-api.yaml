@@ -22,7 +22,7 @@ info:
     | `type` | Status | Betekenis |
     |---|---|---|
     | `urn:fbs:fout:niet-gevonden` | 404 | Het opgevraagde pad onder `/api/v1` bestaat niet |
-    | `urn:fbs:fout:ongeldig-verzoek` | 400, 405, 406 | Een verzoek dat niet aan het contract voldoet |
+    | `urn:fbs:fout:ongeldig-verzoek` | 405, 406 | Een andere methode dan `GET`, of een `Accept` die `application/json` uitsluit |
     | `urn:fbs:fout:keten-fout` | 502 | Het stelselregister gaf geen document |
     | `urn:fbs:fout:interne-fout` | 500 | Onverwachte fout; `instance` draagt de correlatie-id |
   contact:
@@ -76,6 +76,7 @@ components:
   headers:
     API-Version:
       description: De volledige versie van deze API (semver)
+      required: true
       schema:
         type: string
         example: 0.1.0
@@ -152,16 +153,19 @@ components:
 
     Organisatie:
       type: object
+      description: |
+        Zoals gepubliceerd. Bij `ONGELDIG` of `NIET_GETOETST` is niets gecontroleerd, ook de vorm niet:
+        een OIN of adres kan dan afwijken.
       required: [oin, naam, magazijnUrl]
       properties:
         oin:
           type: string
-          pattern: '^[0-9]{20}$'
+          description: Twintig cijfers in een geldig document
         naam:
           type: string
         magazijnUrl:
           type: string
-          format: uri
+          description: Het adres van het magazijn; in een geldig document een https-URL
 
     Links:
       type: object

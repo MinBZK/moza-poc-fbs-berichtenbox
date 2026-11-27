@@ -15,7 +15,6 @@ import nl.rijksoverheid.moz.fbs.common.exception.FbsFoutException
 import nl.rijksoverheid.moz.fbs.common.exception.Foutcode
 import org.eclipse.microprofile.rest.client.inject.RestClient
 import org.jboss.logging.Logger
-import java.net.URI
 import java.time.Clock
 
 class StelselResource(
@@ -37,8 +36,9 @@ class StelselResource(
 
         val gelezen = lezer.lees(jws, klok.instant())
 
-        if (gelezen.uitkomst !is Stelseldocumentlezer.Uitkomst.Geldig) {
-            log.warnf("Stelseldocument niet geldig: %s", gelezen.uitkomst)
+        // NIET_GETOETST is een instelling, geen gebeurtenis; die meldt de start al.
+        if (gelezen.uitkomst is Stelseldocumentlezer.Uitkomst.Ongeldig) {
+            log.warnf("Stelseldocument niet geldig: %s", gelezen.uitkomst.reden)
         }
 
         val organisaties = gelezen.inhoud?.organisaties.orEmpty().map(::organisatie)
@@ -71,7 +71,7 @@ class StelselResource(
     private fun ondertekening(o: Stelseldocumentlezer.Ondertekening) =
         Ondertekening(o.kid, o.onderwerp, o.certificaatGeldigTot)
 
-    private fun organisatie(o: Stelseldocumentlezer.Organisatie) = Organisatie(o.oin, o.naam, URI.create(o.magazijnUrl))
+    private fun organisatie(o: Stelseldocumentlezer.Organisatie) = Organisatie(o.oin, o.naam, o.magazijnUrl)
 
     private companion object {
         /** Relatief, zonder schema en host: die verschillen per omgeving achter de gateway. */

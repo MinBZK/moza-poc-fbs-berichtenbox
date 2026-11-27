@@ -9,7 +9,9 @@ export interface Stelseloverzicht {
 export async function haalStelseloverzicht(): Promise<Stelseloverzicht> {
   const antwoord = await fetch(import.meta.env.BASE_URL + "api/v1/stelsel", { headers: { Accept: "application/json" } });
 
-  if (!antwoord.ok) throw new Error(`het stelselregister gaf geen document (${antwoord.status})`);
+  if (antwoord.status === 502) throw new Error("het stelselregister gaf geen document");
+
+  if (!antwoord.ok) throw new Error(`de console kon het overzicht niet maken (${antwoord.status})`);
 
   return antwoord.json();
 }

@@ -22,7 +22,7 @@ class Testketen private constructor(val root: X509Certificate, val certificaat: 
             Base64.getMimeEncoder(64, "\n".toByteArray()).encodeToString(root.encoded) +
             "\n-----END CERTIFICATE-----\n"
 
-    /** Een stelseldocument, ondertekend met deze keten; [header] en [payload] overschrijven velden. */
+    /** Een stelseldocument, ondertekend met deze keten; elke parameter wijkt af van een geldig document, [extraHeader] voegt headervelden toe. */
     fun document(
         uitgegeven: Instant,
         geldigheidSeconden: Long = 3600,
@@ -59,27 +59,36 @@ class Testketen private constructor(val root: X509Certificate, val certificaat: 
 
         val andereUitgever: Testketen by lazy { maak("uitgever", "00000000000000007777") }
 
+        /** Het ondertekencertificaat is zelf een CA: zo ziet een uitgegeven tussencertificaat eruit. */
+        val leafIsCa: Testketen by lazy {
+            maak("leafca", OIN, listOf("-ext", "bc:c=ca:true", "-ext", "ku:c=digitalSignature,keyCertSign"))
+        }
+
+        val zonderSleutelgebruik: Testketen by lazy { maak("geenku", OIN, emptyList()) }
+
+        val alleenSleutelafspraak: Testketen by lazy { maak("anderku", OIN, listOf("-ext", "ku:c=keyAgreement")) }
+
         /**
          * Eén bestand per keten per JVM. Een `QuarkusTestProfile` en de test zelf laden deze klasse in
          * verschillende classloaders; met een keten per classloader vertrouwt de dienst een andere
          * root dan waarmee de test ondertekent.
          */
-        private fun maak(naam: String, oin: String): Testketen {
+        private fun maak(naam: String, oin: String, leafExtensies: List<String> = listOf("-ext", "ku:c=digitalSignature")): Testketen {
             val pad = Path.of(System.getProperty("java.io.tmpdir"), "beheerconsole-testketen-$naam-${ProcessHandle.current().pid()}.p12")
             val wachtwoord = "wachtwoord-$naam"
 
-            if (Files.notExists(pad)) bouw(pad, wachtwoord, naam, oin)
+            if (Files.notExists(pad)) bouw(pad, wachtwoord, naam, oin, leafExtensies)
 
             val keystore = KeyStore.getInstance("PKCS12").apply { Files.newInputStream(pad).use { load(it, wachtwoord.toCharArray()) } }
 
             return Testketen(
                 keystore.getCertificate("root") as X509Certificate,
-                keystore.getCertificate("blad") as X509Certificate,
-                keystore.getKey("blad", wachtwoord.toCharArray()) as PrivateKey,
+                keystore.getCertificate("leaf") as X509Certificate,
+                keystore.getKey("leaf", wachtwoord.toCharArray()) as PrivateKey,
             )
         }
 
-        private fun bouw(pad: Path, wachtwoord: String, naam: String, oin: String) {
+        private fun bouw(pad: Path, wachtwoord: String, naam: String, oin: String, leafExtensies: List<String>) {
             pad.toFile().deleteOnExit()
             val opslag = listOf("-keystore", pad.toString(), "-storetype", "PKCS12", "-storepass", wachtwoord)
             val p256 = listOf("-keyalg", "EC", "-groupname", "secp256r1")
@@ -89,8 +98,8 @@ class Testketen private constructor(val root: X509Certificate, val certificaat: 
                     p256 + listOf("-ext", "bc:c=ca:true", "-ext", "ku:c=keyCertSign") + opslag,
             )
             keytool(
-                listOf("-genkeypair", "-alias", "blad", "-signer", "root", "-dname", "CN=Test-ondertekenaar, SERIALNUMBER=$oin") +
-                    listOf("-validity", "20", "-startdate", "-1d") + p256 + listOf("-ext", "ku:c=digitalSignature") + opslag,
+                listOf("-genkeypair", "-alias", "leaf", "-signer", "root", "-dname", "CN=Test-ondertekenaar, SERIALNUMBER=$oin") +
+                    listOf("-validity", "20", "-startdate", "-1d") + p256 + leafExtensies + opslag,
             )
         }
 
