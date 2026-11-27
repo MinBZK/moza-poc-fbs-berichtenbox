@@ -14,7 +14,7 @@ STELSEL_RELEASES=(berichtenuitvraag berichtenmagazijn-a berichtenmagazijn-b stel
 # release. De rollout-controle eist ze allemaal, zodat een ontbrekende niet als "niets te meten"
 # leest.
 # shellcheck disable=SC2034 # idem
-DEMO_DEPLOYMENTS=(fbs-demo-console fbs-demo-demo-proxy fbs-demo-notificatie fbs-demo-personas fbs-demo-proeftuin
+DEMO_DEPLOYMENTS=(fbs-demo-console fbs-demo-demo-proxy fbs-demo-notificatie fbs-demo-personas fbs-demo-portaal
   fbs-demo-profiel fbs-demo-redis fbs-demo-simulator fbs-demo-toxiproxy)
 
 # De images die de keten per commit publiceert; de demo draait ze allemaal op dezelfde tag.

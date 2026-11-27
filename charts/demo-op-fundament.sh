@@ -23,7 +23,7 @@
 #   BASISDOMEIN     standaard fbs.<adres-met-streepjes>.sslip.io uit het adres van de Gateway
 #   ISSUER          een Issuer in de namespace; dan maakt het script het Certificate GATEWAY_SECRET
 #   GATEWAY_SECRET  het Secret van het certificaat op de listener (web-tls)
-#   PROEFTUIN       de berichtenbox; standaard de pin uit compose.yaml
+#   PORTAAL_IMAGE   de Berichtenbox; standaard de pin uit compose.yaml
 #   GATEWAY_ADRES, HTTPS_POORT, CA_BESTAND
 #                   voor de controle als het basisdomein niet naar de Gateway wijst (de sandbox)
 #   EXTRA_VALUES    een map met <release>.yaml, als laatste values-bestand per release
@@ -262,6 +262,11 @@ geheimen() {
   secret_eenmalig fbs-demo-geheimen --from-file=REDIS_PASSWORD="$WERK/redis-wachtwoord" \
     --from-file=BEHEER_TOKEN="$WERK/beheer-token"
 
+  # Eigen Secret, zodat een installatie van vóór het portaal hem er alsnog bij krijgt: een key
+  # toevoegen aan fbs-demo-geheimen doet secret_eenmalig niet.
+  (umask 077 && openssl rand -base64 32 | tr -d '\n' >"$WERK/auth-geheim")
+  secret_eenmalig fbs-demo-portaal --from-file=AUTH_SECRET="$WERK/auth-geheim"
+
   # Het wachtwoord van het paneel staat naast het htpasswd in het Secret, zodat het team het terug
   # kan lezen. Op het fieldlab kan iedereen in de organisatie dat ook; het is een demo-wachtwoord.
   if ! secret_bestaat fbs-demo-bediening; then
@@ -332,8 +337,9 @@ aanmeldingen_behouden() {
 }
 
 installeren() {
-  local proeftuin args
-  proeftuin=${PROEFTUIN:-$("$REPO/.github/scripts/proeftuin-image.sh")} || stop 2 "proeftuin-image.sh faalde"
+  local portaal args
+  # portaal-image.sh leest PORTAAL_IMAGE zelf, met dezelfde vormcontrole als voor de pin.
+  portaal=$("$REPO/.github/scripts/portaal-image.sh") || stop 2 "portaal-image.sh faalde"
 
   register
   aanmeldingen_behouden
@@ -344,7 +350,7 @@ installeren() {
   mapfile -t -O "${#args[@]}" args < <(extra fbs-demo)
   hm upgrade --install fbs-demo "$CHARTS/fbs-demo" --wait --timeout 10m \
     --set "basisdomein=$BASISDOMEIN" --set "cluster.gateway.name=$GATEWAY" \
-    --set "images.tag=$TAG" --set "images.proeftuin=$proeftuin" \
+    --set "images.tag=$TAG" --set "images.portaal=$portaal" \
     --set-file "magazijnenregister=$REGISTER" --set-file "simulatorSet=$SIMULATOR_SET" "${args[@]}" >/dev/null ||
     stop 1 "installeren van fbs-demo faalde; zie: kubectl --context $KUBE_CONTEXT -n $NS get pods -l app.kubernetes.io/instance=fbs-demo"
   echo "OK: fbs-demo"

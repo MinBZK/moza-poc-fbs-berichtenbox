@@ -2,7 +2,7 @@
 apiVersion: v2
 name: fbs-demo
 description: >-
-  De demo van het Federatief Berichtenstelsel: de berichtenbox van de proeftuin, het
+  De demo van het Federatief Berichtenstelsel: de Berichtenbox van het MOZa-portaal, het
   bedieningspaneel, de demo-identiteiten, de magazijn-simulator, de stubs, Toxiproxy en Redis.
   Hoort bij vier releases van fbs-dienst met de values onder stelsel/. Draait nooit in productie.
 type: application

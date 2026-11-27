@@ -17,7 +17,7 @@ Uitvraag, magazijnen en stelselregister krijgen hun route van fbs-dienst (stelse
 {{- $profiel := include "fbs-demo.naam" (dict "context" . "onderdeel" "profiel") }}
 {{- $routes := list
   (dict "naam" "demo" "backend" (include "fbs-demo.naam" (dict "context" . "onderdeel" "demo-proxy")) "poort" 8080 "pad" "/"
-        "streams" (list "/api/v1/berichten/_ophalen" "/api/v1/berichten/_volgen") "timeout" "5m"
+        "streams" (list "/api/keten/berichten/_ophalen" "/api/keten/berichten/_volgen") "timeout" "5m"
         "zonderQ" "de demo-proxy (nginx) heeft geen /q; die van het paneel staat onder /bediening/, achter een wachtwoord")
   (dict "naam" "simulator" "backend" (include "fbs-demo.naam" (dict "context" . "onderdeel" "simulator")) "poort" 8092 "pad" "/magazijn/"
         "methoden" (list "GET" "PATCH" "DELETE") "timeout" "5m")

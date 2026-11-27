@@ -8,7 +8,7 @@ cluster:
     name: web
 images:
   tag: main-410b239
-  proeftuin: ghcr.io/minbzk/moza-poc:latest@sha256:66d5f28d4d3114ec6ca460ca25d5d491f7eb418f681da95921da26e0d711403e
+  portaal: ghcr.io/minbzk/moza-portaal:main-0213834@sha256:dfd11283a029a0e77ebbf32f711a7ff9337a4fe63a470bc74f291f93a40a17fa
 magazijnenregister: |
   magazijnen."00000009000000000001".url=${MAGAZIJN_SIMULATOR_URL}/magazijn/00000009000000000001
   magazijnen."00000009000000000001".naam=Centraal Justitieel Incassobureau

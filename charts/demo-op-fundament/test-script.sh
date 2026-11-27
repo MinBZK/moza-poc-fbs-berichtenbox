@@ -59,7 +59,7 @@ trap 'rm -rf "$WERKMAP"' EXIT
 
 # Wat het script uit de omgeving leest; een geëxporteerde waarde op de machine mag geen geval
 # veranderen.
-OMGEVING=(TAG NS KUBE_CONTEXT BASISDOMEIN EXTRA_VALUES PROEFTUIN GATEWAY GATEWAY_SECRET ISSUER GATEWAY_ADRES
+OMGEVING=(TAG NS KUBE_CONTEXT BASISDOMEIN EXTRA_VALUES PORTAAL_IMAGE GATEWAY GATEWAY_SECRET ISSUER GATEWAY_ADRES
   HTTPS_POORT CA_BESTAND KETEN_ONTVANGER KETEN_SECONDEN)
 
 # Draait $2 (bash) met het script gesourcet, in een eigen map met een log. Zet UIT (uitvoer), CODE
@@ -195,6 +195,7 @@ bevat_niet "geheimen bestaan: niets nieuw" "create secret" "$LOG"
 draai geheimen-nieuw 'NS=ns; KUBE_CONTEXT=x; stub_kc() { case "$*" in "get secret stelselregister-"*" -o name --ignore-not-found") echo "secret/$3" ;; esac; }; geheimen'
 gelijk "nieuwe geheimen: in orde" 0 "$CODE"
 bevat "nieuwe geheimen: Redis en beheer" "create secret generic fbs-demo-geheimen --from-file=REDIS_PASSWORD=" "$LOG"
+bevat "nieuw geheim: cookies van het portaal" "create secret generic fbs-demo-portaal --from-file=AUTH_SECRET=" "$LOG"
 gelijk "Redis-wachtwoord zonder regelovergang" 64 "$(wc -c <"$WERKMAP/geheimen-nieuw/redis-wachtwoord")"
 [[ $(cat "$WERKMAP/geheimen-nieuw/htpasswd") =~ ^demo:\$6\$ ]] && ok "htpasswd: gebruiker demo met SHA-512" || faal "htpasswd: $(cat "$WERKMAP/geheimen-nieuw/htpasswd")"
 bevat_niet "bestaande keystore blijft" "delete secret" "$LOG"
@@ -221,7 +222,7 @@ echo "== installeren =="
 
 mkdir -p "$WERKMAP/extra"
 echo "dienst: {}" >"$WERKMAP/extra/berichtenuitvraag.yaml"
-draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; installeren"
+draai installeren "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PORTAAL_IMAGE=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; installeren"
 gelijk "installeren: in orde" 0 "$CODE"
 gelijk "vijf releases" 5 "$(grep -c '^hm upgrade --install' <<<"$LOG")"
 uitvraag=$(grep '^hm upgrade --install berichtenuitvraag ' <<<"$LOG")
@@ -244,7 +245,7 @@ gelijk "precies één extra values-bestand" 1 "$(grep -o "$WERKMAP/extra/[a-z-]*
 bevat "register herstart na de installatie" "rollout restart deployment/berichtenuitvraag deployment/stelselregister" "$LOG"
 bevat "register uit een kopie, niet uit demo/generated" "magazijnenregister=$WERKMAP/installeren/repo/demo/generated/" "$LOG"
 
-draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
+draai installeren-faalt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PORTAAL_IMAGE=p@sha256:0; hm() { echo \"hm \$*\" >>\"\$LOG\"; case \"\$*\" in *'install berichtenmagazijn-b '*) return 1 ;; esac; }; installeren"
 gelijk "magazijn B faalt: exit 1" 1 "$CODE"
 bevat "magazijn B faalt: noemt hem" "installeren van berichtenmagazijn-b faalde" "$UIT"
 bevat_niet "magazijn B faalt: geen herstart" "rollout restart" "$LOG"
@@ -545,7 +546,7 @@ bevat "op, eerste installatie: geen aanmeldingen" "ARGS=[]" "$UIT"
 draai behouden-fout "$(stub_aanmelden); hm() { echo 'Error: Kubernetes cluster unreachable' >&2; return 1; }; aanmeldingen_behouden"
 gelijk "op, values niet te lezen: exit 1" 1 "$CODE"
 bevat "op, values niet te lezen: zegt waarom" "cluster unreachable" "$UIT"
-draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PROEFTUIN=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
+draai installeren-behoudt "NS=ns; KUBE_CONTEXT=x; TAG=main-0123abc; BASISDOMEIN=fbs.x.nl; PORTAAL_IMAGE=p@sha256:0; EXTRA_VALUES='$WERKMAP/extra'; $(stub_aanmelden "$VALUES_C" | grep -v '^NS='); mkdir -p '$WERKMAP/extra'; echo '{}' >'$WERKMAP/extra/fbs-demo.yaml'; installeren"
 demo=$(grep '^hm upgrade --install fbs-demo ' <<<"$LOG" || true)
 bevat "op: aanmeldingen vóór EXTRA_VALUES" "-f $WERKMAP/installeren-behoudt/aanmeldingen.json -f $WERKMAP/extra/fbs-demo.yaml" "$demo"
 rm -f "$WERKMAP/extra/fbs-demo.yaml"

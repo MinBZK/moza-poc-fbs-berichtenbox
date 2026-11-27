@@ -27,7 +27,7 @@ Alles draait met één replica: het paneel, de simulator en Toxiproxy houden toe
 {{- $personas := include "fbs-demo.naam" (dict "context" . "onderdeel" "personas") -}}
 {{- $console := include "fbs-demo.naam" (dict "context" . "onderdeel" "console") -}}
 {{- $simulator := include "fbs-demo.naam" (dict "context" . "onderdeel" "simulator") -}}
-{{- $proeftuin := include "fbs-demo.naam" (dict "context" . "onderdeel" "proeftuin") -}}
+{{- $portaal := include "fbs-demo.naam" (dict "context" . "onderdeel" "portaal") -}}
 {{- $profiel := include "fbs-demo.naam" (dict "context" . "onderdeel" "profiel") -}}
 {{- $notificatie := include "fbs-demo.naam" (dict "context" . "onderdeel" "notificatie") -}}
 {{- $toxiproxy := include "fbs-demo.naam" (dict "context" . "onderdeel" "toxiproxy") -}}
@@ -56,9 +56,8 @@ console:
     - {naam: db-ca, pad: /etc/fbs/db-ca, secret: {{ $v.database.caSecret }}, key: ca.crt, bestand: ca.crt}
   env:
     {{- include "fbs-demo.dbEnv" . | nindent 4 }}
-    # Wat de browser ziet: de demo-proxy zet paneel, berichtenbox en uitvraag achter één origin.
-    - {name: UITVRAAG_BASIS, value: "https://{{ $demoHost }}/api/v1"}
-    - {name: BERICHTENBOX_URL, value: "https://{{ $demoHost }}/moza/berichtenbox/"}
+    # Wat de browser ziet: de demo-proxy zet paneel en Berichtenbox achter één origin.
+    - {name: BERICHTENBOX_URL, value: "https://{{ $demoHost }}/berichtenbox"}
     - {name: UITVRAAG_URL, value: "http://{{ $s.uitvraag }}:{{ $s.servicePoort }}"}
     - {name: MAGAZIJN_A_URL, value: "http://{{ $s.magazijnA }}:{{ $s.servicePoort }}"}
     - {name: MAGAZIJN_B_URL, value: "http://{{ $s.magazijnB }}:{{ $s.servicePoort }}"}
@@ -115,27 +114,30 @@ simulator:
     - {gateway: true, poorten: [8092]}
   uitgaand: [5432]
 
-proeftuin:
-  image: {{ $v.images.proeftuin }}
-  uid: 101
-  poorten: [{naam: http, poort: 8080}]
-  # TCP, zoals op ZAD: een HTTP-pad in het image van een ander team kan bij een nieuwe versie
-  # verdwijnen, en dan herstart de pod in een lus.
+portaal:
+  image: {{ $v.images.portaal }}
+  # De gebruiker `nextjs` uit het image.
+  uid: 100
+  poorten: [{naam: http, poort: 3000}]
+  # TCP, zoals op ZAD: het portaal heeft geen health-endpoint, en elke pagina leunt op het
+  # persona-cookie en op de uitvraag.
   probe: {tcp: http}
-  # Het entrypoint van nginx schrijft de config bij het starten in conf.d.
-  schrijfbaar: [/tmp, /etc/nginx/conf.d]
+  # Next.js schrijft zijn cache bij de server, de rest van /app blijft read-only.
+  schrijfbaar: [/tmp, /app/.next/cache]
   env:
-    # De standaardwaarden in het image wijzen naar de testomgeving op ZAD. De demo-proxy vangt
-    # /api/v1 en /api/demo al af; deze adressen gelden alleen als er toch iets hier aankomt.
-    - {name: BACKEND_KETEN, value: "http://{{ $uitvraagFqdn }}:{{ $s.servicePoort }}"}
-    - {name: BACKEND_KETEN_HOST, value: {{ $uitvraagFqdn | quote }}}
-    - {name: BACKEND_PERSONAS, value: "http://{{ $personasFqdn }}:8098"}
-    - {name: BACKEND_PERSONAS_HOST, value: {{ $personasFqdn | quote }}}
+    # Het portaal praat server-side met de keten; zonder deze adressen gebruikt het de testomgeving
+    # op ZAD.
+    - {name: KETEN_BACKEND_URL, value: "http://{{ $uitvraagFqdn }}:{{ $s.servicePoort }}"}
+    - {name: KETEN_PERSONAS_URL, value: "http://{{ $personasFqdn }}:8098"}
+    # Kubernetes zet HOSTNAME op de podnaam, en daar zou Next.js dan op luisteren.
+    - {name: HOSTNAME, value: "0.0.0.0"}
+    # next-auth ondertekent er zijn cookies mee; zonder geheim meldt hij bij elk verzoek een fout.
+    - name: AUTH_SECRET
+      valueFrom: {secretKeyRef: {name: {{ $v.geheimen.portaal }}, key: AUTH_SECRET}}
   roeptAan: [{{ $s.uitvraag }}, {{ $personas }}]
   inkomend:
-    - {label: {{ $proeftuin }}, poorten: [8080]}
-  # 443: /api/profielservice/ gaat naar de profielservice van de proeftuin zelf, buiten het cluster.
-  uitgaand: [{{ $s.uitvraagPoort }}, 8098, 443]
+    - {label: {{ $portaal }}, poorten: [3000]}
+  uitgaand: [{{ $s.uitvraagPoort }}, 8098]
 
 demo-proxy:
   image: {{ $v.images.nginx }}
@@ -151,10 +153,10 @@ demo-proxy:
     # van nginx zelf laat staan.
     - {name: NGINX_ENTRYPOINT_LOCAL_RESOLVERS, value: "1"}
     - {name: NGINX_ENVSUBST_FILTER, value: "^NGINX_LOCAL_RESOLVERS$"}
-  roeptAan: [{{ $proeftuin }}, {{ $console }}, {{ $personas }}, {{ $s.uitvraag }}]
+  roeptAan: [{{ $portaal }}, {{ $console }}, {{ $personas }}]
   inkomend:
     - {gateway: true, poorten: [8080]}
-  uitgaand: [8080, 8095, 8098, {{ $s.uitvraagPoort }}]
+  uitgaand: [3000, 8095, 8098]
 
 profiel:
   image: {{ include "fbs-demo.eigenImage" (dict "context" . "repository" $v.images.profiel) }}

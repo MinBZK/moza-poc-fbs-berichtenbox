@@ -49,18 +49,16 @@ data:
 {{- end -}}
 
 {{- /*
-De demo-proxy: één origin voor berichtenbox, paneel, personalijst en uitvraag, zoals
-demo/proxy/demo.conf.template lokaal. Twee verschillen: het paneel staat achter een wachtwoord,
-en de bestemmingen staan in variabelen met een resolver. Zo start nginx ook als een bestemming
-(de uitvraag, een andere release) nog niet bestaat, en volgt hij een nieuw adres van een Service.
+De demo-proxy: één origin voor het portaal met zijn Berichtenbox, het paneel en de personalijst,
+zoals demo/proxy/demo.conf.template lokaal. Twee verschillen: het paneel staat achter een
+wachtwoord, en de bestemmingen staan in variabelen met een resolver. Zo start nginx ook als een
+bestemming nog niet bestaat, en volgt hij een nieuw adres van een Service.
 ${NGINX_LOCAL_RESOLVERS} vult het entrypoint van nginx in; de rest laat envsubst staan.
 */}}
 {{- define "fbs-demo.proxyConfig" -}}
-{{- $s := .Values.stelsel -}}
-{{- $proeftuin := include "fbs-demo.fqdn" (dict "context" . "naam" (include "fbs-demo.naam" (dict "context" . "onderdeel" "proeftuin"))) -}}
+{{- $portaal := include "fbs-demo.fqdn" (dict "context" . "naam" (include "fbs-demo.naam" (dict "context" . "onderdeel" "portaal"))) -}}
 {{- $console := include "fbs-demo.fqdn" (dict "context" . "naam" (include "fbs-demo.naam" (dict "context" . "onderdeel" "console"))) -}}
 {{- $personas := include "fbs-demo.fqdn" (dict "context" . "naam" (include "fbs-demo.naam" (dict "context" . "onderdeel" "personas"))) -}}
-{{- $uitvraag := include "fbs-demo.fqdn" (dict "context" . "naam" $s.uitvraag) -}}
 # Het paneel en zijn gereedschap tegen CSRF. De browser stuurt een opgeslagen wachtwoord ook mee
 # bij een verzoek dat een andere site veroorzaakt. Twee signalen, want een oude browser stuurt het
 # eerste niet:
@@ -94,17 +92,16 @@ server {
 
     resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
 
-    set $proeftuin http://{{ $proeftuin }}:8080;
+    set $portaal http://{{ $portaal }}:3000;
     set $console http://{{ $console }}:8095;
     set $personas http://{{ $personas }}:8098;
-    set $uitvraag http://{{ $uitvraag }}:{{ $s.servicePoort }};
 
     # Niets bewaren: de onderdelen worden tijdens het werken eraan vervangen.
     add_header Cache-Control "no-store" always;
 
-    # Alleen over https; de Gateway luistert voor Let's Encrypt ook op 80. De uitvraag zet zelf HSTS
-    # met includeSubDomains en preload. Dat hoort niet op een basisdomein van sslip.io, en zonder
-    # proxy_hide_header kreeg dat antwoord de header twee keer. Eén eigen waarde voor elk pad.
+    # Alleen over https; de Gateway luistert voor Let's Encrypt ook op 80. Zonder includeSubDomains
+    # of preload: dat hoort niet op een basisdomein van sslip.io. proxy_hide_header houdt het bij
+    # één eigen waarde voor elk pad, ook als een bestemming de header zelf zet.
     add_header Strict-Transport-Security "max-age=31536000" always;
     proxy_hide_header Strict-Transport-Security;
 
@@ -119,8 +116,27 @@ server {
         return 200 "ok\n";
     }
 
+    # Het portaal, inclusief /berichtenbox. Next.js vergelijkt bij een Server Action de Origin van
+    # de browser met X-Forwarded-Host, en weigert de action met een 500 als ze verschillen; zonder
+    # die header vergelijkt hij met de upstream-host. Een location met een eigen proxy_set_header
+    # erft niets van het serverblok, dus ook Authorization staat hier opnieuw.
     location / {
-        proxy_pass $proeftuin;
+        proxy_pass $portaal;
+        proxy_set_header Authorization "";
+        proxy_set_header X-Forwarded-Host $http_host;
+    }
+
+    # De keten via het portaal. Ophalen en volgen zijn SSE-streams: zonder buffering, en met een
+    # lange read-timeout. Het portaal zet X-Ontvanger zelf uit het persona-cookie en stuurt geen
+    # Origin naar de uitvraag; naar de uitvraag gaat vanaf hier geen route.
+    location /api/keten/ {
+        proxy_pass $portaal;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+        proxy_set_header Authorization "";
+        proxy_set_header X-Forwarded-Host $http_host;
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
     }
 
     # Het paneel kan de magazijnen legen; op een publieke Gateway hoort het achter een wachtwoord.
@@ -137,8 +153,7 @@ server {
         proxy_pass $console;
     }
 
-    # De testaccounts voor de berichtenbox: het enige pad onder /api/demo dat die gebruikt, en
-    # daarom zonder wachtwoord. Een exacte match; nginx normaliseert het pad vóór het matchen.
+    # De testaccounts van de demo: een leeslijst, en daarom zonder wachtwoord. Een exacte match; nginx normaliseert het pad vóór het matchen.
     location = /api/demo/personas {
         proxy_pass $personas;
     }
@@ -154,40 +169,6 @@ server {
         auth_basic "Bedieningspaneel FBS-demo";
         auth_basic_user_file /etc/nginx/bediening/htpasswd;
         proxy_pass $console;
-    }
-
-    # Een bijlage opent de berichtenbox met een gewone link, zonder eigen header: ontvanger en
-    # sessie komen uit de cookies. HTTP/1.1, anders is een afgebroken download niet van een
-    # volledige te onderscheiden.
-    location ~ ^/api/v1/berichten/[^/]+/bijlagen/[^/]+$ {
-        proxy_pass $uitvraag;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Authorization "";
-        proxy_set_header Origin "";
-        proxy_set_header X-Ontvanger $cookie_ontvanger;
-        proxy_set_header X-Sessie $cookie_sessie;
-    }
-
-    # De webhook waarmee een magazijn een nieuw bericht aanmeldt. Hij vraagt geen sessie, dus wie
-    # hem bereikt, zet een bericht in de sessiecache. De browser gebruikt hem nooit; de magazijnen
-    # komen via de route `aanmelding`. Een prefix met ^~: de uitvraag leest ook
-    # aanmeldingen;x en aanmeldingen/ als dit pad.
-    location ^~ /api/v1/aanmeldingen {
-        return 404;
-    }
-
-    # De ophaalronde is een SSE-stream: zonder buffering, en met een lange read-timeout.
-    location /api/v1/ {
-        proxy_pass $uitvraag;
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Authorization "";
-        # Geen Origin naar de uitvraag, zoals de proeftuin: de browser deed de same-origin-toets hier
-        # al, en zo hoeft deze origin niet op een CORS-lijst als CORS op de uitvraag aanstaat.
-        proxy_set_header Origin "";
-        proxy_buffering off;
-        proxy_read_timeout 3600s;
     }
 }
 {{- end -}}
