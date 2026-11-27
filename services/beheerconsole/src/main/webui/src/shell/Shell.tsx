@@ -36,8 +36,8 @@ export function Shell({ titel, ondertitel, onderdelen, children }: ShellProps) {
   return (
     <nldd-page sticky-header>
       <nldd-skip-link slot="header" href="#inhoud" />
-      <nldd-top-navigation-bar slot="header" logo-title={titel} logo-subtitle={ondertitel}>
-        <nldd-menu-bar accessible-label="Hoofdmenu">
+      <nldd-top-navigation-bar slot="header" logo-title={titel} logo-subtitle={ondertitel} website-title={titel}>
+        <nldd-menu-bar slot="global" accessible-label="Hoofdmenu">
           {schermen.map((scherm) => (
             <nldd-menu-bar-item
               key={scherm.pad}

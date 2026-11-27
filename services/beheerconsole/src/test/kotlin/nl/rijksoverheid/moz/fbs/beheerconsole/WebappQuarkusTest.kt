@@ -4,6 +4,7 @@ import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
 import org.hamcrest.Matchers.containsString
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
@@ -67,5 +68,31 @@ class WebappQuarkusTest {
     @ValueSource(strings = ["X-Frame-Options", "X-Content-Type-Options", "Strict-Transport-Security", "Referrer-Policy"])
     fun `de app draagt de vaste set headers`(naam: String) {
         assertEquals(1, given().`when`().get("/").then().extract().headers().getValues(naam).size, naam)
+    }
+
+    private fun cacheControl(pad: String): List<String> =
+        given().`when`().get(pad).then().extract().headers().getValues("Cache-Control")
+
+    // Een dag een oude index.html in de browser betekent een dag een app die verdwenen assets opvraagt.
+    @ParameterizedTest
+    @ValueSource(strings = ["/", "/index.html", "/stelsel"])
+    fun `het app-document wordt elke keer gevalideerd`(pad: String) {
+        assertEquals(listOf("no-cache"), cacheControl(pad))
+    }
+
+    // In productie zet Quinoa op een asset `public, immutable, max-age=86400`; in een test niet.
+    // Wat hier telt: de versmalling naar no-cache raakt alleen het document.
+    @Test
+    fun `een gehasht asset valt buiten de document-regel`() {
+        val index = given().`when`().get("/").then().extract().asString()
+        val script = Regex("src=\"(/assets/[^\"]+\\.js)\"").find(index)?.groupValues?.get(1)
+            ?: error("geen los script in index.html: $index")
+
+        assertNotEquals(listOf("no-cache"), cacheControl(script))
+    }
+
+    @Test
+    fun `de API houdt no-store`() {
+        assertEquals(listOf("no-store"), cacheControl("/api/v1/bestaat-niet"))
     }
 }

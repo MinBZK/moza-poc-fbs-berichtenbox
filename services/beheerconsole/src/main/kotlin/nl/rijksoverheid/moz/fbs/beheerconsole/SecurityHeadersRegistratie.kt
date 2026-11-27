@@ -18,9 +18,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  */
 @ApplicationScoped
 class SecurityHeadersRegistratie(
-    @param:ConfigProperty(name = "quarkus.http.root-path", defaultValue = STANDAARD_ROOT_PAD)
+    @ConfigProperty(name = "quarkus.http.root-path", defaultValue = STANDAARD_ROOT_PAD)
     rootPad: String,
-    @param:ConfigProperty(name = "quarkus.http.non-application-root-path", defaultValue = STANDAARD_BEHEERPAD)
+    @ConfigProperty(name = "quarkus.http.non-application-root-path", defaultValue = STANDAARD_BEHEERPAD)
     nonApplicationRootPad: String,
 ) {
 
@@ -44,14 +44,28 @@ class SecurityHeadersRegistratie(
         context.addHeadersEndHandler {
             val headers = context.response().headers()
 
-            SecurityHeaders.voorWebapp(context.normalizedPath(), beheerpadRoot, API_PADEN)
-                .forEach { (naam, waarde) -> headers.set(naam, waarde) }
+            val pad = context.normalizedPath()
+            val voorPad = SecurityHeaders.voorWebapp(pad, beheerpadRoot, API_PADEN)
+
+            voorPad.forEach { (naam, waarde) -> headers.set(naam, waarde) }
+
+            // Quinoa serveert index.html als `public, immutable, max-age=86400`. Dan houdt een
+            // browser na een uitrol een dag de oude app vast, en die vraagt assets op die er niet
+            // meer zijn. Het document moet elke keer gevalideerd worden; de assets onder /assets/
+            // dragen een hash in hun naam en mogen blijven zoals Quinoa ze zet.
+            if (isAppDocument(pad, voorPad)) {
+                headers.set(SecurityHeaders.CACHE_CONTROL, APP_DOCUMENT_CACHE)
+            }
 
             if (headers.get(SecurityHeaders.CACHE_CONTROL) == null) {
                 headers.set(SecurityHeaders.CACHE_CONTROL, SecurityHeaders.CACHE_CONTROL_DEFAULT)
             }
         }
     }
+
+    /** Een app-pad buiten /assets/: daar staat index.html, onder welk scherm-pad dan ook. */
+    private fun isAppDocument(pad: String, voorPad: Map<String, String>): Boolean =
+        !pad.startsWith(ASSETS) && voorPad != SecurityHeaders.voorPad(pad, beheerpadRoot)
 
     private companion object {
 
@@ -60,6 +74,11 @@ class SecurityHeadersRegistratie(
 
         /** De paden met de strenge API-policy; de rest is app. */
         private val API_PADEN = listOf("/api", "/openapi.json")
+
+        /** Waar Vite de gebouwde bestanden zet, met een hash in de naam. */
+        private const val ASSETS = "/assets/"
+
+        private const val APP_DOCUMENT_CACHE = "no-cache"
     }
 }
 
