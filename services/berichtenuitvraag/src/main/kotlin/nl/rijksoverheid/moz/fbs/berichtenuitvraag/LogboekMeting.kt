@@ -10,6 +10,7 @@ import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
+import nl.mijnoverheidzakelijk.ldv.repository.SpanStorageException
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie.SessieLogboek
 import nl.rijksoverheid.moz.fbs.berichtenuitvraag.uitvraag.OphaalUitkomst
 import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
@@ -66,6 +67,9 @@ class LogboekMetingStart {
  *
  * Niet elk geval is een weigering: de wrapper schrijft bij een `@Logboek`-methode pas ná de methode.
  * Bij een wijzigend verzoek is de wijziging dan al doorgevoerd, zonder logregel.
+ *
+ * Twee types, want de wrapper meldt een schrijffout op twee manieren: als [LogboekWriteException] bij
+ * de bevestiging, en als [SpanStorageException] als de opslag al bij het afsluiten van de span faalt.
  */
 @Provider
 class LogboekSchrijffoutMapper : ExceptionMapper<LogboekWriteException> {
@@ -73,6 +77,19 @@ class LogboekSchrijffoutMapper : ExceptionMapper<LogboekWriteException> {
     private val vangnet = UncaughtExceptionMapper()
 
     override fun toResponse(exception: LogboekWriteException): Response {
+        LogboekMeting.geweigerd()
+
+        return vangnet.toResponse(exception)
+    }
+}
+
+/** Zie [LogboekSchrijffoutMapper]. */
+@Provider
+class LogboekOpslagfoutMapper : ExceptionMapper<SpanStorageException> {
+
+    private val vangnet = UncaughtExceptionMapper()
+
+    override fun toResponse(exception: SpanStorageException): Response {
         LogboekMeting.geweigerd()
 
         return vangnet.toResponse(exception)
