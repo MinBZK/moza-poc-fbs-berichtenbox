@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.UriInfo
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.Foutspoor
@@ -25,6 +27,10 @@ import java.util.UUID
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
+
+    /** Alleen nodig voor de `Allow` van een 405; leeg als de mapper buiten een verzoek draait. */
+    @field:Context
+    var uriInfo: UriInfo? = null
 
     override fun toResponse(exception: WebApplicationException): Response {
         val status = exception.response?.status ?: 500
@@ -79,7 +85,10 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
             )
             metAllow(
                 exception,
-                metRetryAfter(
+                // Het volledige pad: `uriInfo.path` is relatief aan de applicatieroot (`/api/v1`),
+                // en de spec noemt het pad inclusief zijn `servers`-basis.
+                pad = { uriInfo?.requestUri?.path },
+                respons = metRetryAfter(
                     exception,
                     problemResponse(
                         status = status,
@@ -148,18 +157,21 @@ private fun metRetryAfter(exception: WebApplicationException, respons: Response)
 }
 
 /**
- * Een 405 noemt de methodes die wel mogen (RFC 9110 §15.5.6). Het Problem-antwoord wordt opnieuw
- * opgebouwd, dus zonder deze stap viel de `Allow` van de framework-exceptie weg. Alleen methode-tokens
- * gaan mee: de header komt van het framework, maar een eigen throw-site mag er geen tekst in smokkelen.
+ * Een 405 noemt de methodes die wel mogen (RFC 9110 §15.5.6). Draagt de exceptie al een `Allow`,
+ * dan gaat die mee (alleen methode-tokens: een eigen throw-site mag er geen tekst in smokkelen).
+ * Quarkus REST zet hem bij een ontbrekende methode niet; dan komt hij uit de spec van de dienst.
  */
-private fun metAllow(exception: WebApplicationException, respons: Response): Response {
+private fun metAllow(exception: WebApplicationException, respons: Response, pad: () -> String?): Response {
     if (respons.status != Response.Status.METHOD_NOT_ALLOWED.statusCode) return respons
 
-    val methodes = exception.response?.getHeaderString("Allow")
+    val vanExceptie = exception.response?.getHeaderString("Allow")
         ?.split(',')
         ?.map(String::trim)
         ?.filter { it.matches(METHODE_TOKEN) }
         .orEmpty()
+    val methodes = vanExceptie.ifEmpty {
+        pad()?.let { ToegestaneMethodes.vanDienst?.voor(it) }.orEmpty().sorted()
+    }
 
     if (methodes.isEmpty()) return respons
 

@@ -53,6 +53,14 @@
             <artifactId>jackson-databind</artifactId>
             <scope>provided</scope>
         </dependency>
+        <!-- Leest de OpenAPI-spec voor de Allow-header van een 405 (ToegestaneMethodes). Provided:
+             elke dienst met een spec heeft hem via SmallRye OpenAPI al; zonder spec wordt de klasse
+             nooit geladen. -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <dependency>
             <groupId>org.jboss.logging</groupId>
             <artifactId>jboss-logging</artifactId>
