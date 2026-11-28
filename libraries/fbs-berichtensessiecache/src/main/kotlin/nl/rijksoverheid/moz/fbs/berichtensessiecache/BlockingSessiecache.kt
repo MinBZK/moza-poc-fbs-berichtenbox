@@ -360,6 +360,7 @@ internal class BlockingSessiecache(
                 wat,
                 e.javaClass.name,
             )
+            SessiecacheMeting.opruimenNaSchrijven()
         }
     }
 

@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever
 
+import io.micrometer.core.instrument.Metrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.justRun
 import io.mockk.mockk
@@ -453,7 +455,9 @@ class AanleverResourceLdvTest {
             override fun close() = Unit
         }
         val logger = Logger.getLogger(AanleverResource::class.java.name)
+        val meting = SimpleMeterRegistry()
         logger.addHandler(handler)
+        Metrics.globalRegistry.add(meting)
 
         try {
             stubBaseline()
@@ -465,7 +469,13 @@ class AanleverResourceLdvTest {
             assertThrows<RollbackException> { resource.leverBerichtAan(request) }
         } finally {
             logger.removeHandler(handler)
+            Metrics.globalRegistry.remove(meting)
         }
+
+        assertEquals(
+            1.0,
+            meting.get("fbs.logboek.waarschuwing").tag("code", AanleverResource.OPSLAG_ONZEKER_ALERT_TOKEN).counter().count(),
+        )
 
         val melding = records.single { it.level == Level.WARNING }.message
         assertTrue(melding.startsWith(AanleverResource.OPSLAG_ONZEKER_ALERT_TOKEN), melding)

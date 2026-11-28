@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtensessiecache
 
 import com.fasterxml.jackson.core.JsonParseException
+import io.micrometer.core.instrument.Metrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
@@ -8,6 +10,7 @@ import io.mockk.verifyOrder
 import io.smallrye.mutiny.Multi
 import io.smallrye.mutiny.Uni
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheMeting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.AggregationStatus
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.Bericht
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.BerichtSleutel
@@ -1132,13 +1135,26 @@ class BlockingSessiecacheTest {
             override fun close() = Unit
         }
 
+        val meting = SimpleMeterRegistry()
+
         logger.addHandler(vanger)
+        Metrics.globalRegistry.add(meting)
 
         try {
             blok()
         } finally {
             logger.removeHandler(vanger)
+            Metrics.globalRegistry.remove(meting)
         }
+
+        // Elke alertregel telt één keer mee.
+        val geteld = meting.find("fbs.logboek.waarschuwing").tag("code", SessiecacheMeting.OPRUIMEN_NA_SCHRIJVEN).counter()?.count() ?: 0.0
+
+        org.junit.jupiter.api.Assertions.assertEquals(
+            regels.count { it.contains("[ALERT opruimen_na_schrijven]") }.toDouble(),
+            geteld,
+            "alertregels en teller lopen uiteen",
+        )
 
         return regels
     }

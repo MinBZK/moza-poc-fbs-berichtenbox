@@ -10,6 +10,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
 import jakarta.ws.rs.ProcessingException
 import jakarta.ws.rs.WebApplicationException
+import nl.rijksoverheid.moz.fbs.berichtensessiecache.SessiecacheMeting
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.CircuitActie
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.GepagineerdeBerichten
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.magazijn.IngeschrevenMagazijn
@@ -262,6 +263,7 @@ internal class BerichtensessiecacheService(
                     ALERT_OPRUIMEN_NA_SCHRIJVEN,
                     e.javaClass.name,
                 )
+                SessiecacheMeting.opruimenNaSchrijven()
             }
             .onFailure().recoverWithNull()
             .replaceWithVoid()
@@ -282,6 +284,7 @@ internal class BerichtensessiecacheService(
                     opruimFout.javaClass.name,
                     e.javaClass.name,
                 )
+                SessiecacheMeting.opruimenNaSchrijven()
             }
             .onFailure().recoverWithNull()
             .replaceWithVoid()

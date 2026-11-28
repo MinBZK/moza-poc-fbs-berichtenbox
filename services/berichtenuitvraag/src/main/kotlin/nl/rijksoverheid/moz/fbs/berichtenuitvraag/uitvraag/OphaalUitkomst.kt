@@ -9,6 +9,7 @@ import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnBevraging
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.MagazijnEvent
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenFout
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.berichten.OphalenGereed
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.LogboekMeting
 import org.jboss.logging.Logger
 import java.util.concurrent.Executor
 import java.util.concurrent.RejectedExecutionException
@@ -70,6 +71,7 @@ class OphaalUitkomst(
             executor.execute { schrijf(logregel, mislukking, kenmerken) }
         } catch (ex: RejectedExecutionException) {
             log.errorf("%s: vastleggen niet ingepland, %s (%s)", ALERT_TOKEN, ex.javaClass.name, kenmerken)
+            LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.UITKOMST_ONTBREEKT)
         }
     }
 
@@ -83,6 +85,7 @@ class OphaalUitkomst(
             // en zonder persoonsgegevens. Andere messages kunnen die wel bevatten.
             val detail = if (ex is LinkageError) " (${ex.message})" else ""
             log.errorf("%s: vastleggen gaf %s%s (%s)", ALERT_TOKEN, ex.javaClass.name, detail, kenmerken)
+            LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.UITKOMST_ONTBREEKT)
 
             return
         }
@@ -96,6 +99,7 @@ class OphaalUitkomst(
             kenmerken,
             verloren.joinToString { "${it.spanContext.traceId}:${it.spanContext.spanId}" },
         )
+        LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.UITKOMST_ONTBREEKT)
     }
 
     companion object {
