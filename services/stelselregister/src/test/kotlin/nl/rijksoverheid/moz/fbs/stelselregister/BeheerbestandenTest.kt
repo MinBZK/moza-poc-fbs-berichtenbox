@@ -119,7 +119,7 @@ class BeheerbestandenTest {
         for (blok in blokken) {
             val naam = blok.lineSequence().first().trim()
 
-            // De standaardwaarden van Prometheus en Alertmanager: daarop routeert elke voorziening.
+            // De gangbare waarden (kube-prometheus, Grafana), waarop routeringsregels meestal kiezen.
             assertTrue(Regex("""(?m)^\s+severity: (critical|warning)$""").containsMatchIn(blok), "$naam: severity")
             assertTrue(Regex("""(?m)^\s+summary: \S""").containsMatchIn(blok), "$naam: summary")
             assertTrue(Regex("""(?m)^\s+runbook_url: \S*docs/operator-handleiding""").containsMatchIn(blok), "$naam: runbook_url")
@@ -156,12 +156,16 @@ class BeheerbestandenTest {
         return uitDashboard + regelExpressies()
     }
 
-    // Eén tekstregel per expressie, zonder aanhalingstekens eromheen: een `expr: |`-blok of een
-    // YAML-string met `\"` erin zou deze lezer anders missen.
+    // Eén tekstregel per expressie, zonder aanhalingstekens eromheen: een `expr: |`-blok, een YAML-string
+    // met `\"` erin of een kale expr die op de volgende regel doorloopt, zou deze lezer anders missen.
     private fun regelExpressies(): List<String> {
         val tekst = regels.readText()
 
         assertTrue(!Regex("""(?m)^\s+expr:\s*[|>"']""").containsMatchIn(tekst), "$regels: expr hoort kaal op één regel")
+        assertTrue(
+            !Regex("""(?m)^\s+expr:.*\n(?!\s+(?:for|labels|annotations):)\s+\S""").containsMatchIn(tekst),
+            "$regels: na een expr hoort for, labels of annotations; een vervolgregel ontsnapt aan de toets",
+        )
 
         val uitRegels = Regex("""(?m)^\s+expr:\s*(.+)$""").findAll(tekst).map { it.groupValues[1] }.toList()
 
@@ -195,14 +199,11 @@ class BeheerbestandenTest {
 
         const val OPWARMEN = "/api/v1/stelseldocument"
 
-        /**
-         * De labels van de dienst op elke reeks, als patroon. Het magazijn: een OIN, niet die uit dit profiel,
-         * want de registry houdt in één test-JVM ook de meters van eerdere starts met een ander profiel.
-         */
+        /** De labels van de dienst op elke reeks, als patroon. */
         val EIGEN_LABELS = mapOf("dienst" to DIENST, "omgeving" to "lokaal")
 
         private val SELECTOR = Regex("""([a-zA-Z_:][a-zA-Z0-9_:]*)\s*\{([^}]*)}""")
-        private val MATCHER = Regex("""([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*"([^"]*)"""")
+        private val MATCHER = Regex("""([a-zA-Z_][a-zA-Z0-9_]*)\s*(=~|!~|!=|=)\s*(?:"([^"]*)"|'([^']*)')""")
         private val LABEL = Regex("""([a-zA-Z_][a-zA-Z0-9_]*)="((?:[^"\\]|\\.)*)"""")
 
         /** De bekende voorvoegsels, voor de toets dat een meetwaarde nooit zonder selector staat. */
@@ -212,7 +213,7 @@ class BeheerbestandenTest {
 
         fun selectors(expressie: String): List<Selector> =
             SELECTOR.findAll(expressie).map { s ->
-                Selector(s.groupValues[1], MATCHER.findAll(s.groupValues[2]).map { Matcher(it.groupValues[1], it.groupValues[2], it.groupValues[3]) }.toList())
+                Selector(s.groupValues[1], MATCHER.findAll(s.groupValues[2]).map { Matcher(it.groupValues[1], it.groupValues[2], it.groupValues[3] + it.groupValues[4]) }.toList())
             }.toList()
 
         /** Wat Prometheus zelf per target maakt; de dienst levert het niet. */
