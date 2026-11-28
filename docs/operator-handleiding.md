@@ -239,6 +239,12 @@ Op de beheerpoort (28090, de applicatiepoort met een `2` ervoor) staat `/q/metri
 Prometheus-formaat, niet via het publieke adres. Wat erin zit, en de eigen meetwaarde
 `fbs_publicatie_aflevering_seconds_*` per downstream: [operations/meetgegevens.md](operations/meetgegevens.md).
 
+De poort eist het bearer-token uit `METRICS_AUTH_TOKEN`; zonder dat token weigert hij buiten
+dev/test elk verzoek en logt de dienst bij de start `BEHEERPOORT_ZONDER_TOKEN`, en een verzoek met
+een ontbrekend of verkeerd token logt `BEHEERPOORT_GEWEIGERD`. Wat te doen: het token controleren
+dat het platform levert (op ZAD de dienst `metrics-scraper`), zie
+[operations/meetgegevens.md](operations/meetgegevens.md#wie-mag-lezen).
+
 ## Bekende monitoring-follow-ups (vóór productie)
 
 Twee event-categorieën verdienen nog een eigen counter:
