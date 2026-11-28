@@ -35,23 +35,22 @@
         },
         "query": "label_values(process_uptime_seconds{dienst=\"berichtenmagazijn\"}, omgeving)",
         "refresh": 2,
-        "includeAll": true,
-        "multi": true,
+        "includeAll": false,
+        "multi": false,
         "current": {
-          "text": "All",
-          "value": "$__all"
-        },
-        "allValue": ".*"
+          "text": "test",
+          "value": "test"
+        }
       },
       {
-        "name": "instance",
+        "name": "magazijn",
         "label": "Magazijn",
         "type": "query",
         "datasource": {
           "type": "prometheus",
           "uid": "${datasource}"
         },
-        "query": "label_values(process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\"}, instance)",
+        "query": "label_values(process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\"}, magazijn)",
         "refresh": 2,
         "includeAll": true,
         "multi": true,
@@ -83,7 +82,7 @@
     {
       "type": "stat",
       "title": "Draaiende instanties",
-      "description": "Instanties die meetgegevens leveren. Valt een instantie weg, dan verdwijnt hij hier; bij 0 is de dienst niet bereikbaar (zie ook `up` per target).",
+      "description": "Instanties die nu meetgegevens leveren; bij 0 levert de dienst niets meer, en is hij niet bereikbaar of niet te scrapen.",
       "id": 2,
       "datasource": {
         "type": "prometheus",
@@ -133,17 +132,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count by (instance) (process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
-          "legendFormat": "{{instance}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "up{dienst=\"berichtenmagazijn\", instance=~\"$instance\"}",
-          "legendFormat": "up {{instance}}"
+          "expr": "count(process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}) or vector(0)",
+          "legendFormat": "instanties"
         }
       ]
     },
@@ -182,7 +172,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (method, uri) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (method, uri) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
           "legendFormat": "{{method}} {{uri}}"
         }
       ]
@@ -190,7 +180,7 @@
     {
       "type": "timeseries",
       "title": "Foutpercentage (5xx)",
-      "description": "Aandeel verzoeken met een 5xx. Een 429 (een bovengrens tegen overbelasting) telt hier bewust niet mee: dat is begrenzing, geen fout.",
+      "description": "Aandeel verzoeken met een 5xx. Een 429 telt in teller noch noemer: dat is begrenzing, geen fout, en een vloed ervan mag een falende dienst niet verdunnen.",
       "id": 4,
       "datasource": {
         "type": "prometheus",
@@ -222,7 +212,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status!=\"429\"}[$__rate_interval]))",
           "legendFormat": "5xx"
         }
       ]
@@ -262,7 +252,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (status) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
           "legendFormat": "{{status}}"
         }
       ]
@@ -302,7 +292,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (uri) (rate(http_server_requests_seconds_sum{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval])) / sum by (uri) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_sum{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval])) / sum by (uri) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
           "legendFormat": "gem {{uri}}"
         },
         {
@@ -311,7 +301,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (uri) (http_server_requests_seconds_max{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "expr": "max by (uri) (http_server_requests_seconds_max{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
           "legendFormat": "max {{uri}}"
         }
       ]
@@ -332,7 +322,7 @@
     {
       "type": "timeseries",
       "title": "Wachtende en mislukte aanmeldingen",
-      "description": "Aanmeldingen in de outbox die niet gepubliceerd zijn, per status en bestemming. Elke instantie telt dezelfde tabel: daarom max, niet sum.",
+      "description": "Aanmeldingen in de outbox die niet gepubliceerd zijn, per magazijn, status en bestemming. De pods van één magazijn tellen dezelfde tabel: daarom max per magazijn, niet sum.",
       "id": 8,
       "datasource": {
         "type": "prometheus",
@@ -364,8 +354,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (status, doel) (fbs_publicatie_achterstand{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
-          "legendFormat": "{{status}} {{doel}}"
+          "expr": "max by (magazijn, status, doel) (fbs_publicatie_achterstand{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}} {{status}} {{doel}}"
         }
       ]
     },
@@ -404,15 +394,15 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (doel) (fbs_publicatie_achterstand_oudste_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=\"te_publiceren\"})",
-          "legendFormat": "{{doel}}"
+          "expr": "max by (magazijn, doel) (fbs_publicatie_achterstand_oudste_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status=\"te_publiceren\"})",
+          "legendFormat": "{{magazijn}} {{doel}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Definitief mislukt",
-      "description": "Aanmeldingen waarvoor alle pogingen op zijn, per bestemming.",
+      "description": "Aanmeldingen waarvoor alle pogingen op zijn of waarvan de fout geen retry krijgt, per magazijn en bestemming.",
       "id": 10,
       "datasource": {
         "type": "prometheus",
@@ -444,8 +434,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (doel) (increase(fbs_publicatie_mislukt_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "{{doel}}"
+          "expr": "sum by (magazijn, doel) (increase(fbs_publicatie_mislukt_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{magazijn}} {{doel}}"
         }
       ]
     },
@@ -484,7 +474,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (doel, uitkomst) (rate(fbs_publicatie_aflevering_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (doel, uitkomst) (rate(fbs_publicatie_aflevering_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
           "legendFormat": "{{doel}} {{uitkomst}}"
         }
       ]
@@ -492,7 +482,7 @@
     {
       "type": "timeseries",
       "title": "Ouderdom van de telling",
-      "description": "Hoe lang de laatste geslaagde telling geleden is. Loopt hij op, dan zijn de twee panelen hierboven verouderd.",
+      "description": "Hoe lang de laatste geslaagde telling geleden is, per magazijn. Loopt hij op, dan zijn de twee panelen hierboven verouderd; geen lijn betekent nog geen geslaagde telling sinds de start.",
       "id": 12,
       "datasource": {
         "type": "prometheus",
@@ -524,8 +514,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "time() - max(fbs_publicatie_achterstand_gemeten_op_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
-          "legendFormat": "telling"
+          "expr": "time() - max by (magazijn) (fbs_publicatie_achterstand_gemeten_op_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"} > 0)",
+          "legendFormat": "{{magazijn}}"
         }
       ]
     },
@@ -577,15 +567,15 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "min(fbs_retentie_achterstand_oudste_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
-          "legendFormat": "oudste"
+          "expr": "min by (magazijn) (fbs_retentie_achterstand_oudste_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Wachtend na de laatste ronde",
-      "description": "Hoort na een ronde 0 te zijn. Neem min over de instanties.",
+      "description": "Hoort na een ronde 0 te zijn. Het paneel neemt per magazijn het minimum over de pods: een andere pod kan nog rijen aan het wissen zijn.",
       "id": 15,
       "datasource": {
         "type": "prometheus",
@@ -617,15 +607,15 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "min(fbs_retentie_wachtend{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
-          "legendFormat": "wachtend"
+          "expr": "min by (magazijn) (fbs_retentie_wachtend{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}}"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Laatste geslaagde ronde",
-      "description": "Hoe lang de laatste ronde zonder fouten geleden is; 0 betekent nog geen ronde sinds de start.",
+      "title": "Laatste ronde",
+      "description": "Hoe lang de laatste ronde zonder fouten (geslaagd) en de laatste ronde überhaupt geleden zijn, per magazijn. Geen lijn betekent nog geen ronde sinds de start.",
       "id": 16,
       "datasource": {
         "type": "prometheus",
@@ -657,8 +647,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "time() - max(fbs_retentie_laatste_geslaagde_ronde_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"} > 0)",
-          "legendFormat": "geslaagd"
+          "expr": "time() - max by (magazijn) (fbs_retentie_laatste_geslaagde_ronde_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"} > 0)",
+          "legendFormat": "geslaagd {{magazijn}}"
         },
         {
           "refId": "B",
@@ -666,8 +656,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "time() - max(fbs_retentie_laatste_ronde_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"} > 0)",
-          "legendFormat": "laatste"
+          "expr": "time() - max by (magazijn) (fbs_retentie_laatste_ronde_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"} > 0)",
+          "legendFormat": "laatste {{magazijn}}"
         }
       ]
     },
@@ -706,8 +696,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(increase(fbs_retentie_verwijderd_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "gewist"
+          "expr": "sum by (magazijn) (increase(fbs_retentie_verwijderd_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "gewist {{magazijn}}"
         },
         {
           "refId": "B",
@@ -715,8 +705,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (soort) (increase(fbs_retentie_fouten_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "fout {{soort}}"
+          "expr": "sum by (magazijn, soort) (increase(fbs_retentie_fouten_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "fout {{magazijn}} {{soort}}"
         }
       ]
     },
@@ -768,15 +758,15 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (instance) (increase(fbs_logboek_geweigerd_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
-          "legendFormat": "{{instance}}"
+          "expr": "sum by (magazijn) (increase(fbs_logboek_geweigerd_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{magazijn}}"
         }
       ]
     },
     {
       "type": "timeseries",
       "title": "Waarschuwingen per code",
-      "description": "Elke code is een alertregel: het logboek geeft een verwerking mogelijk onjuist weer, of gegevens verdwijnen zonder logregel. Wat te doen staat per code in de operator-handleiding.",
+      "description": "Elke code is een alert-token uit de log: het logboek geeft een verwerking mogelijk onjuist weer, of gegevens verdwijnen zonder logregel. De alertregel meldt per code; wat te doen staat in de operator-handleiding.",
       "id": 20,
       "datasource": {
         "type": "prometheus",
@@ -808,7 +798,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (code) (increase(fbs_logboek_waarschuwing_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum by (code) (increase(fbs_logboek_waarschuwing_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
           "legendFormat": "{{code}}"
         }
       ]
@@ -828,7 +818,7 @@
     },
     {
       "type": "timeseries",
-      "title": "Connections",
+      "title": "Databaseverbindingen",
       "description": "In gebruik en wachtend; een wachtrij betekent dat de pool te klein is of queries te lang duren.",
       "id": 22,
       "datasource": {
@@ -861,7 +851,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (instance) (agroal_active_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "expr": "sum by (instance) (agroal_active_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
           "legendFormat": "actief {{instance}}"
         },
         {
@@ -870,14 +860,14 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (instance) (agroal_awaiting_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "expr": "sum by (instance) (agroal_awaiting_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
           "legendFormat": "wachtend {{instance}}"
         }
       ]
     },
     {
       "type": "timeseries",
-      "title": "Wachttijd op een connection",
+      "title": "Wachttijd op een databaseverbinding",
       "description": "",
       "id": 23,
       "datasource": {
@@ -910,7 +900,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "max by (instance) (agroal_blocking_time_max_milliseconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "expr": "max by (instance) (agroal_blocking_time_max_milliseconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -963,7 +953,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (instance) (jvm_memory_used_bytes{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\", area=\"heap\"})",
+          "expr": "sum by (instance) (jvm_memory_used_bytes{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", area=\"heap\"})",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -1003,7 +993,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (instance) (worker_pool_active{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "expr": "sum by (instance) (worker_pool_active{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -1043,7 +1033,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", instance=~\"$instance\"}",
+          "expr": "process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}",
           "legendFormat": "{{instance}}"
         }
       ]

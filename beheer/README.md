@@ -1,14 +1,15 @@
 # Beheer: dashboards en alertregels
 
 Wat de berichtenketen als product meelevert om de diensten te bewaken. Een organisatie met een eigen
-magazijn laadt deze bestanden op haar eigen voorziening; de lokale demo-stack laadt ze ook.
+magazijn laadt deze bestanden op haar eigen voorziening.
 
 | Pad | Wat |
 |---|---|
 | `dashboards/berichtenuitvraag.json` | Grafana-dashboard "Berichtenuitvraag" |
-| `dashboards/berichtenmagazijn.json` | Grafana-dashboard "Berichtenmagazijn"; kies bij *Magazijn* welk magazijn je bekijkt |
+| `dashboards/berichtenmagazijn.json` | Grafana-dashboard "Berichtenmagazijn"; kies bij *Magazijn* welk magazijn je bekijkt (de OIN) |
 | `dashboards/stelselregister.json` | Grafana-dashboard "Stelselregister" |
 | `meldingen/<dienst>.yml` | Prometheus-alertregels per dienst (`rule_files`, of als Mimir/Grafana-regelgroep) |
+| `meldingen/toetsen.yml` | De toetsen van die regels, voor `promtool test rules` |
 
 Elk dashboard heeft verkeer, duur, fouten en beschikbaarheid, en daaronder de meetwaarden van het
 domein: de publicatie en het wissen in het magazijn, de aanroepen van de magazijnen in de uitvraag,
@@ -17,28 +18,31 @@ uitvraag en magazijn. Wat elke meetwaarde betekent: [`docs/operations/meetgegeve
 
 ## Aansluiten
 
-- **De labels `dienst` en `omgeving`** zet de dienst zelf op elke reeks (`Meetfilters`). Dashboards
-  en regels kiezen daarop, dus ze werken met elke scrape-configuratie. `omgeving` is
-  `DEPLOYMENT_NAME` (op ZAD `test` of `pr-<n>`), anders `lokaal`.
-- **Beschikbaarheid** leest het dashboard uit `process_uptime_seconds` (een instantie die meetgegevens
-  levert) en uit `up{dienst=...}`. Die tweede heeft alleen waarde als de scrape-configuratie de
-  target het label `dienst` geeft; de alertregels gebruiken hem daarom niet en melden op het
-  ontbreken van meetgegevens (`absent(...)`).
-- **De beheerpoort eist een bearer-token** (`METRICS_AUTH_TOKEN`); de scraper moet het meesturen.
-  Zie "Wie mag lezen" in `meetgegevens.md`.
+- **De labels `dienst`, `omgeving` en `magazijn`** zet de dienst zelf op elke reeks (`Meetfilters`).
+  Dashboards en regels kiezen daarop, dus ze werken met elke scrape-configuratie. `omgeving` is
+  `DEPLOYMENT_NAME` (op ZAD `test` of `pr-<n>`); buiten ZAD zet je `FBS_MEETGEGEVENS_OMGEVING`.
+  `magazijn` is de OIN van het magazijn, alleen op de reeksen van het magazijn.
+- **Beschikbaarheid** leest het dashboard uit `process_uptime_seconds`: het aantal instanties dat nu
+  meetgegevens levert, 0 als er geen enkele is. De regels melden op het ontbreken van meetgegevens:
+  van de hele dienst (`absent`), en van één omgeving of één magazijn dat de afgelopen dag wel leverde.
+- **De scraper moet de beheerpoort bereiken**: de applicatiepoort met een `2` ervoor, pad
+  `/q/metrics`. Eist de dienst daar een token, dan stuurt de scraper het mee.
 - **Een datasource** kies je bij het openen (variabele *Bron*); de dashboards noemen geen vaste uid.
+  De variabele *Omgeving* staat standaard op `test`; bestaat die niet, dan kiest Grafana de eerste.
 - **Geen percentielen.** De diensten publiceren geen histogrammen, dus de duur is een gemiddelde en
   een maximum per scrape-interval.
 
 ## Meldingen
 
-Elke regel heeft een `severity` (`waarschuwing` of `kritiek`), een `summary`, een `description` die
-zegt wat de beheerder moet doen, en een `runbook_url` naar de sectie "Meldingen" van de
-operator-handleiding van de dienst. Previews melden niet: elke expressie sluit `omgeving=~"pr-.*"`
-uit.
+Elke regel heeft een `severity` (`critical` of `warning`, de standaardwaarden waarop Alertmanager en
+Grafana routeren), een `summary`, een `description` die zegt wat de beheerder moet doen, en een
+`runbook_url` naar de sectie "Meldingen" van de operator-handleiding van de dienst. Previews melden
+niet: elke selector sluit `omgeving=~"pr-.*"` uit. Elke regel telt per omgeving, en die van het
+magazijn ook per magazijn, zodat een gezond magazijn een vastgelopen magazijn niet verbergt.
 
 - **Foutpercentage:** meer dan 5% 5xx over vijf minuten, vijf minuten lang. Een melding komt dus
-  binnen tien minuten. Een 429 telt niet mee: een bovengrens tegen overbelasting is begrenzing.
+  binnen tien minuten. Een 429 telt in teller noch noemer: begrenzing is geen fout, en een vloed van
+  429's mag een falende dienst niet verdunnen. Alleen de uitvraag geeft een 429 (`te-veel-sessies`).
 - **Herstel:** Prometheus stuurt een melding als `resolved` zodra de expressie niet meer waar is;
   het meldkanaal (Alertmanager, Grafana-contactpunt) bepaalt of die tweede melding verstuurd wordt.
   Zet `send_resolved: true`.
@@ -47,23 +51,33 @@ uit.
 
 | Drempel | Waarom |
 |---|---|
-| Publicatie: oudste aanmelding > 15 min | Een retry-reeks duurt minuten; een kwartier is ruim langer dan een gewone storing bij de bestemming |
-| Telling verouderd > 10 min | De telling draait elke minuut |
+| Publicatie: oudste aanmelding > 15 min | Met de standaardinstellingen is een retry-reeks binnen een minuut klaar; alleen een `Retry-After` van de bestemming rekt hem op. Een kwartier is ruim langer dan een gewone storing |
+| Telling verouderd > 10 min | De telling draait elke minuut; de eerste tien minuten na de start geldt nog geen oordeel |
 | Wissen: oudste achterstand > 2 dagen | De cron draait dagelijks; twee rondes gemist is een stilstand, geen toeval |
+| Wisronde > 36 uur geleden | Dezelfde cron plus een halve dag marge; de achterstand wordt alleen bij een ronde gemeten en bevriest dus als de cron stilvalt |
 | Stelseldocument < 1 uur geldig | Het document is 24 uur geldig en wordt ruim eerder vernieuwd |
-| Sleutelketen < 30 dagen (en < 7 dagen kritiek) | Gelijk aan de waarschuwing in de log van de dienst |
-| Magazijn: > 50% van de aanroepen mislukt | Eén mislukte aanroep is geen uitval; de helft wel |
+| Sleutelketen < 30 dagen | Gelijk aan de waarschuwing in de log van de dienst |
+| Sleutelketen < 7 dagen (critical) | De laatste week |
+| Magazijn: > 50% van de aanroepen zonder antwoord of met een 5xx | Eén mislukte aanroep is geen uitval; de helft wel. Een 403, 404 of 410 is een gewoon antwoord |
 
 ## Toetsen
 
-`BeheerbestandenTest` per dienst leest het dashboard en de regels van die dienst en eist dat elke
-genoemde meetwaarde in een echte scrape staat. Meters die pas bij het eerste geval ontstaan (een
-uitgaande aanroep, een afleverpoging) staan daar met de reden in een vrijstellingslijst, en een
-vrijstelling die niemand meer gebruikt, laat de toets ook falen. De toets eist verder bij elke regel
-een `severity`, `summary`, `for` en een `runbook_url` naar de handleiding.
+- **`BeheerbestandenTest` per dienst** leest het dashboard en de regels van die dienst, en eist:
+  - dat elke genoemde meetwaarde met zijn labels en letterlijke labelwaarden in een echte scrape
+    staat. Meters die pas bij het eerste geval ontstaan (een uitgaande aanroep, een afleverpoging),
+    en waarden die in de test niet ontstaan, staan met de reden in een vrijstellingslijst. Een
+    vrijstelling die niemand meer gebruikt, laat de toets ook falen;
+  - dat elke meetwaarde als selector (`naam{...}`) genoemd wordt;
+  - dat elke selector in de regels `dienst` en `omgeving!~"pr-.*"` kiest;
+  - dat elke regel een `severity`, `summary`, `for` en een `runbook_url` naar de handleiding heeft.
+- **`meldingen/toetsen.yml`** toetst het gedrag van elke regel met promtool:
+  `.github/scripts/test-beheer-meldingen.sh`, in de CI via `ci-scripts`. Dat script eist dat elke
+  regel minstens één toets heeft waarin hij afgaat, en dat een handvol mutaties op een kopie een
+  toets laat falen.
 
 ## Wijzigen
 
 Bewerk een dashboard gerust in Grafana, exporteer het (*Export → Save to file*, zonder "Export for
 sharing externally") en vervang het bestand hier. Houd de variabelen `datasource`, `omgeving` en
-`instance`; de toets meldt een meetwaarde die er niet is.
+`instance` (bij het magazijn `magazijn`): de panelen filteren erop. De toets meldt een meetwaarde of
+labelwaarde die de dienst niet levert.

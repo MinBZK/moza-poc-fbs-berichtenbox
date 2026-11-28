@@ -479,16 +479,19 @@ dezelfde bescherming te krijgen als de rest van Redis (TLS en authenticatie).
 
 De alertregels staan in [`beheer/meldingen/berichtenuitvraag.yml`](../beheer/meldingen/berichtenuitvraag.yml) en horen bij
 het product; een organisatie laadt ze op haar eigen Prometheus, Mimir of Grafana. Elke regel noemt
-deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten). Drempels en
-de reden ervoor: [`beheer/README.md`](../beheer/README.md).
+deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten), en elke
+regel telt per omgeving. De ernst staat als label `severity`: `critical` of `warning`, de
+standaardwaarden waarop Alertmanager en Grafana routeren. Drempels en de reden ervoor:
+[`beheer/README.md`](../beheer/README.md).
 
 | Melding | Ernst | Wat het betekent | Wat te doen |
 |---|---|---|---|
-| `UitvraagLevertGeenMeetgegevens` | kritiek | Vijf minuten lang levert geen instantie meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort, met het token? |
-| `UitvraagFoutpercentageHoog` | kritiek | Meer dan 5% van de verzoeken eindigt in een 5xx; een 429 (de bovengrens op ophaalrondes) telt niet | Gaat `UitvraagLogboekWeigert` of `UitvraagMagazijnFaalt` ook af? Anders de log op `errorId` en Redis |
-| `UitvraagMagazijnFaalt` | waarschuwing | Meer dan de helft van de aanroepen van één magazijn (label `address`) mislukt | Ondernemers zien de berichten van dat magazijn niet; de andere gaan door. Bereikbaarheid van het magazijn, en de FSC-outway als die ertussen zit |
-| `UitvraagLogboekWeigert` | kritiek | Het logboek kon een verwerking niet vastleggen; de uitvraag faalt dicht | De database van het logboek (`LDV_POSTGRES_URL`) en de log op `LogboekWriteException` |
-| `UitvraagLogboekWaarschuwing` | waarschuwing | Een alert-token van het logboek of de sessiecache (label `code`), zoals `sessie_veger_faalt` | Per token in deze handleiding; bij `sessie_veger_faalt` en `opruimen_na_schrijven` wist de Redis-TTL straks zonder logregel |
+| `UitvraagLevertGeenMeetgegevens` | critical | Vijf minuten lang levert geen instantie meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort? |
+| `UitvraagVerdwenen` | critical | De uitvraag in één omgeving leverde de afgelopen dag wel meetgegevens, nu niet meer | Zelfde als hierboven, voor die omgeving |
+| `UitvraagFoutpercentageHoog` | critical | Meer dan 5% van de verzoeken eindigt in een 5xx. Een 429 (`te-veel-sessies`: meer gelijktijdige sessies voor één ontvanger dan `max-per-ontvanger`) telt in teller noch noemer | Gaat `UitvraagLogboekWeigert` of `UitvraagMagazijnFaalt` ook af? Anders de log op `errorId` en Redis |
+| `UitvraagMagazijnFaalt` | warning | Meer dan de helft van de aanroepen van één magazijn (label `address`) eindigt zonder antwoord (`UNKNOWN`, bijvoorbeeld een geweigerde verbinding) of in een 5xx. Een 403, 404 of 410 is een gewoon antwoord en telt niet | Ondernemers zien de berichten van dat magazijn niet; de andere gaan door. Bereikbaarheid van het magazijn, en de FSC-outway als die ertussen zit. De gesimuleerde magazijnen delen één `address` |
+| `UitvraagLogboekWeigert` | critical | Het logboek kon een verwerking niet vastleggen; de uitvraag faalt dicht | De database van het logboek (`LDV_POSTGRES_URL`), en de log op `Onverwachte exception` met `type=…LogboekWriteException` of `type=…SpanStorageException` |
+| `UitvraagLogboekWaarschuwing` | warning | Een alert-token van het logboek of de sessiecache (label `code`), zoals `sessie_veger_faalt` | Per token in deze handleiding. Bij `sessie_veger_faalt` en `opruimen_na_schrijven` wist de Redis-TTL zonder logregel als het opruimen binnen de vangnet-marge niet alsnog lukt |
 
 ## Aandachtspunten in bedrijf
 

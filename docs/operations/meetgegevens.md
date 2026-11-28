@@ -78,10 +78,15 @@ te bouwen is, bereikt `DownstreamClient` niet en telt hier dus niet mee; ook dat
 ## Labels van de dienst
 
 Elke reeks draagt `dienst` (`berichtenuitvraag`, `berichtenmagazijn`, `stelselregister`) en
-`omgeving` (`DEPLOYMENT_NAME`, op ZAD `test` of `pr-<n>`; anders `lokaal`), gezet door `Meetfilters`
-per dienst. Zo werken de dashboards en alertregels in [`beheer/`](../../beheer/README.md) met elke
-scrape-configuratie, en sluiten de regels previews uit. `BeheerbestandenTest` per dienst toetst dat
-elke reeks ze draagt en dat elke meetwaarde die een paneel of regel noemt, bestaat.
+`omgeving`, gezet door `Meetfilters` per dienst. Het magazijn zet daarnaast `magazijn`: zijn eigen
+OIN (publiek, één waarde per pod). Zo werken de dashboards en alertregels in
+[`beheer/`](../../beheer/README.md) met elke scrape-configuratie, tellen ze per omgeving en per
+magazijn, en sluiten de regels previews uit.
+
+- `omgeving` is `DEPLOYMENT_NAME` (op ZAD `test` of `pr-<n>`). Buiten ZAD zet je
+  `FBS_MEETGEGEVENS_OMGEVING`; zonder een van beide is het `onbekend`, en in dev en test `lokaal`.
+- `BeheerbestandenTest` per dienst toetst dat elke reeks ze draagt, en dat elke meetwaarde die een
+  paneel of regel noemt, met de labels en letterlijke labelwaarden waarop gekozen wordt, bestaat.
 
 ## Wat er niet in mag
 
