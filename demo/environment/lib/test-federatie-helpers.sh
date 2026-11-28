@@ -20,7 +20,8 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/fsc-harness.sh"
 
 fails=0
-ok()   { echo "OK: $1"; }
+asserties=0
+ok()   { asserties=$((asserties + 1)); echo "OK: $1"; }
 fout() { echo "FAIL: $1" >&2; fails=$((fails + 1)); }
 
 WERK="$(mktemp -d)"
@@ -363,6 +364,9 @@ if [ -r "$FEDSH" ]; then
 else
   fout "deel-groep-ca.sh niet leesbaar op $FEDSH"
 fi
+
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
 
 if [ "$fails" -eq 0 ]; then
   echo "ALLE ASSERTS GROEN"

@@ -14,9 +14,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$(cd "${HERE}/../zad-demo" && pwd)/beheertoegang.sh"
 
 fails=0
+asserties=0
 
 ok() {
-    echo "OK: $1"
+    asserties=$((asserties + 1)); echo "OK: $1"
 }
 
 fout() {
@@ -323,6 +324,9 @@ else
 fi
 
 echo
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
+
 if [ "$fails" -eq 0 ]; then
     echo "alle tests geslaagd"
     exit 0

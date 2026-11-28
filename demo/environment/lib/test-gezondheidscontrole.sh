@@ -21,9 +21,10 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 SCRIPT="$(cd "${HERE}/../zad-demo" && pwd)/gezondheidscontrole.sh"
 
 fails=0
+asserties=0
 
 ok() {
-  echo "OK: $1"
+  asserties=$((asserties + 1)); echo "OK: $1"
 }
 
 fout() {
@@ -689,6 +690,9 @@ rc=0
   || fout "zonder argumenten deed het script iets"
 
 echo
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
+
 if [ "$fails" -ne 0 ]; then
   echo "ROOD: ${fails} test(s) gefaald." >&2
   exit 1
