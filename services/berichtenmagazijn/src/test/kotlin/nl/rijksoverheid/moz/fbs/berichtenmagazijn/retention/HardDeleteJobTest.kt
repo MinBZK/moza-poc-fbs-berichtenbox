@@ -1,11 +1,13 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
+import io.micrometer.core.instrument.MeterRegistry
 import io.quarkus.test.junit.QuarkusMock
 import io.quarkus.test.junit.QuarkusTest
 import jakarta.inject.Inject
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.assertThrows
 
 /**
  * Directe-aanroep-test voor [HardDeleteJob.fire]: de cron-trigger zelf testen
@@ -37,5 +39,18 @@ class HardDeleteJobTest {
 
         io.mockk.verify(exactly = 1) { serviceMock.run() }
         assertEquals(Unit, Unit) // ankerassert; verify hierboven is de echte check
+    }
+
+    @Inject
+    lateinit var registry: MeterRegistry
+
+    @Test
+    fun `een afgebroken ronde wordt geteld en doorgegooid`() {
+        val voor = registry.get("fbs.retentie.fouten").tags("soort", "ronde").counter().count()
+        io.mockk.every { serviceMock.run() } throws IllegalStateException("database onbereikbaar")
+
+        assertThrows<IllegalStateException> { job.fire() }
+
+        assertEquals(voor + 1, registry.get("fbs.retentie.fouten").tags("soort", "ronde").counter().count())
     }
 }

@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
+import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.time.Instant
@@ -26,6 +28,7 @@ class HardDeleteService(
     private val ops: HardDeleteTransactionalOps,
     private val ldv: HardDeleteLdvLogger,
     private val config: RetentionConfig,
+    private val meting: HardDeleteMeting,
 ) {
 
     private val log = Logger.getLogger(HardDeleteService::class.java)
@@ -60,13 +63,24 @@ class HardDeleteService(
 
             for (candidate in candidates) {
                 when (verwijderEnLog(candidate)) {
-                    KandidaatUitkomst.VERWIJDERD -> totaal++
+                    KandidaatUitkomst.VERWIJDERD -> {
+                        totaal++
+                        meting.verwijderd()
+                    }
+
                     KandidaatUitkomst.VERWIJDERD_LDV_FOUT -> {
                         totaal++
                         ldvFouten++
+                        meting.verwijderd()
+                        meting.logboekfout()
                     }
+
                     KandidaatUitkomst.OVERGESLAGEN -> {}
-                    KandidaatUitkomst.FOUT -> fouten++
+
+                    KandidaatUitkomst.FOUT -> {
+                        fouten++
+                        meting.wisfout()
+                    }
                 }
 
                 if (totaal >= MAX_PER_RUN) {
@@ -78,7 +92,12 @@ class HardDeleteService(
             if (candidates.size < batchSize) break
         }
 
-        val durationMs = Duration.between(start, Instant.now()).toMillis()
+        val einde = Instant.now()
+        val durationMs = Duration.between(start, einde).toMillis()
+        val resultaat = RunResultaat(totaal, fouten, ldvFouten, durationMs)
+
+        meting.ronde(resultaat, einde)
+        meetAchterstand(receiptDeadline, softDeleteDeadline)
         log.infof(
             "hard-delete run finished totaalVerwijderd=%d fouten=%d ldvFouten=%d durationMs=%d",
             totaal,
@@ -86,7 +105,46 @@ class HardDeleteService(
             ldvFouten,
             durationMs,
         )
-        return RunResultaat(totaal, fouten, ldvFouten, durationMs)
+
+        return resultaat
+    }
+
+    /**
+     * Ook bij de start, niet alleen na een ronde: de tijdstippen van de rondes leven in het geheugen
+     * en beginnen na elke herstart op nul, de achterstand staat in de database. Zo is een taak die
+     * nooit draait ook zichtbaar als de pods vaker herstarten dan de cron vuurt.
+     */
+    fun bijStart(@Observes start: StartupEvent) {
+        val nu = Instant.now()
+
+        meetAchterstand(subtract(nu, config.minimaleLeeftijd()), subtract(nu, config.minimaleSoftDeleteLeeftijd()))
+    }
+
+    /**
+     * Een fout hier laat de ronde zelf staan: die is al gedaan, en de meetwaarde houdt dan de vorige
+     * stand.
+     */
+    private fun meetAchterstand(receiptDeadline: Instant, softDeleteDeadline: Instant) {
+        val aantal = meetOfNull("Telling van de wachtende berichten") {
+            ops.telWachtend(receiptDeadline, softDeleteDeadline)
+        }
+        val oudste = meetOfNull("Meting van de oudste achterstand") {
+            ops.oudsteAchterstand(
+                receiptDeadline,
+                softDeleteDeadline,
+                config.minimaleLeeftijd(),
+                config.minimaleSoftDeleteLeeftijd(),
+            )
+        }
+
+        meting.achterstand(aantal, oudste)
+    }
+
+    private fun meetOfNull(wat: String, meet: () -> Long): Long? = try {
+        meet()
+    } catch (ex: RuntimeException) {
+        log.warnf(ex, "%s voor het definitief wissen mislukt", wat)
+        null
     }
 
     /**
