@@ -41,6 +41,26 @@ class HardDeleteTransactionalOps(
     ): List<HardDeleteKandidaat> =
         berichtRepository.claimVoorHardDelete(receiptDeadline, softDeleteDeadline, batchSize)
 
+    /** Eigen transactie om dezelfde reden als [claim]. */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    fun telWachtend(receiptDeadline: Instant, softDeleteDeadline: Instant): Long =
+        berichtRepository.telKandidatenVoorHardDelete(receiptDeadline, softDeleteDeadline)
+
+    /** Eigen transactie om dezelfde reden als [claim]. */
+    @Transactional(Transactional.TxType.REQUIRES_NEW)
+    fun oudsteAchterstand(
+        receiptDeadline: Instant,
+        softDeleteDeadline: Instant,
+        minLeeftijd: java.time.Period,
+        minSoftDeleteLeeftijd: java.time.Period,
+    ): Long =
+        berichtRepository.oudsteAchterstandVoorHardDelete(
+            receiptDeadline,
+            softDeleteDeadline,
+            minLeeftijd,
+            minSoftDeleteLeeftijd,
+        )
+
     /** Retourneert het aantal verwijderde bericht-rijen (0 of 1). */
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     fun deleteOne(candidate: HardDeleteKandidaat): Int {
