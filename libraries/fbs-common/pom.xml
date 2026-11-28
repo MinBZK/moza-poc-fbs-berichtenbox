@@ -54,8 +54,8 @@
             <scope>provided</scope>
         </dependency>
         <!-- Leest de OpenAPI-spec voor de Allow-header van een 405 (ToegestaneMethodes). Provided:
-             elke dienst met een spec heeft hem via SmallRye OpenAPI al; zonder spec wordt de klasse
-             nooit geladen. -->
+             elke dienst met een spec heeft hem via SmallRye OpenAPI al; zonder fbs.openapi.spec
+             laden de YAML-klassen niet. -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
             <artifactId>jackson-dataformat-yaml</artifactId>

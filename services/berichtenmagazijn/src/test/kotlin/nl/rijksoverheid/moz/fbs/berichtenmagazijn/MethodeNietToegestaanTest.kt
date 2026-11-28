@@ -23,4 +23,15 @@ class MethodeNietToegestaanTest {
             .header("Allow", containsString("POST"))
             .header("Allow", not(containsString(methode)))
     }
+
+    // Een pad met een parameter, exact: zo valt ook een verkeerd template of een ontbrekende HEAD op.
+    @org.junit.jupiter.api.Test
+    fun `een pad met een parameter noemt precies zijn methodes`() {
+        given()
+            .`when`()
+            .put("/api/v1/berichten/5f0c3e4a-0000-4000-8000-000000000001")
+            .then()
+            .statusCode(405)
+            .header("Allow", org.hamcrest.Matchers.equalTo("DELETE, GET, HEAD, OPTIONS, PATCH"))
+    }
 }

@@ -65,4 +65,48 @@ class ToegestaneMethodesTest {
 
         assertEquals(setOf("PUT", "OPTIONS"), zonder.voor("/x"))
     }
+
+    // Meer letterlijke tekens wint, ook als beide één parameter hebben.
+    @Test
+    fun `bij evenveel parameters wint het template met meer letterlijke tekens`() {
+        val spec = ObjectMapper(YAMLFactory()).readTree(
+            """
+            paths:
+              /a/{x}/c:
+                get: {}
+              /a/bbb/{y}:
+                delete: {}
+            """.trimIndent(),
+        )
+
+        assertEquals(setOf("DELETE", "OPTIONS"), ToegestaneMethodes(spec).voor("/a/bbb/c"))
+    }
+
+    @Test
+    fun `een absolute server-URL telt alleen met zijn pad`() {
+        val spec = ObjectMapper(YAMLFactory()).readTree("servers:\n  - url: https://example.org/api/v1/\npaths:\n  /x:\n    get: {}\n")
+
+        assertEquals(setOf("GET", "HEAD", "OPTIONS"), ToegestaneMethodes(spec).voor("/api/v1/x"))
+    }
+
+    // Raw zoals Quarkus routeert: een gecodeerde slash blijft binnen één segment.
+    @Test
+    fun `een gecodeerde slash maakt geen extra segment`() {
+        assertEquals(setOf("GET", "DELETE", "HEAD", "OPTIONS"), methodes.voor("/api/v1/berichten/a%2Fb"))
+    }
+
+    @Test
+    fun `een spec op het classpath wordt gelezen`() {
+        val geladen = ToegestaneMethodes.laad("openapi/allow-test-api.yaml")
+
+        assertEquals(setOf("GET", "HEAD", "OPTIONS"), geladen?.voor("/api/v1/dingen"))
+    }
+
+    // Liever geen Allow dan een onjuiste: zonder spec, of met een onleesbare, is er niets.
+    @Test
+    fun `zonder spec of met een onleesbare spec is er niets`() {
+        assertEquals(null, ToegestaneMethodes.laad(null))
+        assertEquals(null, ToegestaneMethodes.laad("openapi/bestaat-niet.yaml"))
+        assertEquals(null, ToegestaneMethodes.laad("openapi/allow-test-kapot.yaml"))
+    }
 }

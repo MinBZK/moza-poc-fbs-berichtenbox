@@ -28,8 +28,12 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
 
-    /** Alleen nodig voor de `Allow` van een 405; leeg als de mapper buiten een verzoek draait. */
+    /**
+     * Alleen nodig voor de `Allow` van een 405. In de dienst een proxy per verzoek; `null` alleen als
+     * de mapper buiten CDI wordt aangemaakt, zoals in een unit-test.
+     */
     @field:Context
+    @JvmField
     var uriInfo: UriInfo? = null
 
     override fun toResponse(exception: WebApplicationException): Response {
@@ -87,7 +91,9 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception,
                 // Het volledige pad: `uriInfo.path` is relatief aan de applicatieroot (`/api/v1`),
                 // en de spec noemt het pad inclusief zijn `servers`-basis.
-                pad = { uriInfo?.requestUri?.path },
+                // Raw: een `%2F` blijft binnen één segment, zoals Quarkus REST routeert. Gedecodeerd
+                // zou zo'n pad op een ander template passen en een onjuiste Allow opleveren.
+                pad = { uriInfo?.requestUri?.rawPath },
                 respons = metRetryAfter(
                     exception,
                     problemResponse(
@@ -169,9 +175,10 @@ private fun metAllow(exception: WebApplicationException, respons: Response, pad:
         ?.map(String::trim)
         ?.filter { it.matches(METHODE_TOKEN) }
         .orEmpty()
+
     val methodes = vanExceptie.ifEmpty {
-        pad()?.let { ToegestaneMethodes.vanDienst?.voor(it) }.orEmpty().sorted()
-    }
+        pad()?.let { ToegestaneMethodes.vanDienst()?.voor(it) }.orEmpty()
+    }.sorted()
 
     if (methodes.isEmpty()) return respons
 

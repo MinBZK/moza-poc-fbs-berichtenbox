@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory
 import org.eclipse.microprofile.config.ConfigProvider
 import org.jboss.logging.Logger
+import java.net.URI
 import java.util.Locale
 
 /**
@@ -17,20 +18,26 @@ import java.util.Locale
  */
 internal class ToegestaneMethodes(spec: JsonNode) {
 
-    private val basis = spec.path("servers").path(0).path("url").asText("").trimEnd('/')
+    // Alleen het pad: een absolute server-URL (https://host/api/v1) mag de basis niet breken.
+    private val basis = URI.create(spec.path("servers").path(0).path("url").asText("")).path.orEmpty().trimEnd('/')
 
-    // Letterlijke paden vóór paden met parameters, zodat `/berichten/zoeken` niet als
-    // `/berichten/{id}` geldt.
+    // Zoals JAX-RS kiest: eerst het template met de meeste letterlijke tekens, dan het met de minste
+    // parameters. Zo geldt `/berichten/zoeken` niet als `/berichten/{id}`.
     private val paden: List<Pair<Regex, Set<String>>> = spec.path("paths").fieldNames().asSequence()
-        .map { template -> patroon(basis + template) to methodes(spec.path("paths").path(template)) }
+        .map { template -> Triple(basis + template, patroon(basis + template), methodes(spec.path("paths").path(template))) }
+        .sortedWith(compareByDescending<Triple<String, Regex, Set<String>>> { letterlijk(it.first) }.thenBy { parameters(it.first) })
+        .map { (_, patroon, methodes) -> patroon to methodes }
         .toList()
-        .sortedBy { (patroon, _) -> patroon.pattern.count { it == '[' } }
 
     fun voor(pad: String): Set<String> {
         val genormaliseerd = "/" + pad.trim('/')
 
         return paden.firstOrNull { (patroon, _) -> patroon.matches(genormaliseerd) }?.second.orEmpty()
     }
+
+    private fun letterlijk(template: String): Int = template.replace(PARAMETER, "").length
+
+    private fun parameters(template: String): Int = PARAMETER.findAll(template).count()
 
     private fun patroon(template: String): Regex =
         Regex(template.split('/').joinToString("/") { deel -> if (deel.startsWith("{")) "[^/]+" else Regex.escape(deel) })
@@ -52,24 +59,58 @@ internal class ToegestaneMethodes(spec: JsonNode) {
     companion object {
         private val HTTP_METHODES = setOf("GET", "PUT", "POST", "DELETE", "PATCH", "HEAD", "OPTIONS")
 
+        private val PARAMETER = Regex("\\{[^}]*}")
+
         private val log = Logger.getLogger(ToegestaneMethodes::class.java)
 
-        /** Eén keer per dienst gelezen; een 405 is zeldzaam, het inlezen gebeurt pas bij de eerste. */
-        val vanDienst: ToegestaneMethodes? by lazy { laad() }
+        @Volatile
+        private var geladen: ToegestaneMethodes? = null
 
-        private fun laad(): ToegestaneMethodes? {
-            val pad = ConfigProvider.getConfig().getOptionalValue("fbs.openapi.spec", String::class.java).orElse(null)
-                ?: return null
+        @Volatile
+        private var gelezen = false
+
+        /**
+         * Eén keer per dienst gelezen, bij de eerste 405. De configuratie wordt eerst bekeken: zonder
+         * `fbs.openapi.spec` raakt niets de YAML-parser aan, zodat een dienst zonder jackson-yaml geen
+         * `NoClassDefFoundError` krijgt.
+         */
+        fun vanDienst(): ToegestaneMethodes? {
+            if (gelezen) return geladen
+
+            synchronized(this) {
+                if (!gelezen) {
+                    geladen = laad(ConfigProvider.getConfig().getOptionalValue("fbs.openapi.spec", String::class.java).orElse(null))
+                    gelezen = true
+                }
+            }
+
+            return geladen
+        }
+
+        /** [pad] is de waarde van `fbs.openapi.spec`; `null` betekent dat de dienst geen spec noemt. */
+        internal fun laad(pad: String?): ToegestaneMethodes? {
+            if (pad == null) return null
 
             return try {
-                val bron = Thread.currentThread().contextClassLoader.getResourceAsStream(pad)
-                    ?: throw IllegalStateException("niet op het classpath")
-
-                bron.use { ToegestaneMethodes(ObjectMapper(YAMLFactory()).readTree(it)) }
+                ToegestaneMethodes(SpecLezer.lees(pad))
             } catch (ex: Exception) {
+                log.warnf("OpenAPI-spec %s niet te lezen (%s); een 405 krijgt geen Allow-header", pad, ex.javaClass.name)
+                null
+            } catch (ex: LinkageError) {
                 log.warnf("OpenAPI-spec %s niet te lezen (%s); een 405 krijgt geen Allow-header", pad, ex.javaClass.name)
                 null
             }
         }
+    }
+}
+
+/** Apart, zodat de YAML-klassen pas laden als er een spec is ingesteld. */
+private object SpecLezer {
+
+    fun lees(pad: String): JsonNode {
+        val bron = Thread.currentThread().contextClassLoader.getResourceAsStream(pad)
+            ?: throw IllegalStateException("niet op het classpath")
+
+        return bron.use { ObjectMapper(YAMLFactory()).readTree(it) }
     }
 }

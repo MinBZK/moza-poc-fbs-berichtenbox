@@ -284,19 +284,18 @@ class ProblemExceptionMapperTest {
     }
 
     @Test
-    fun `een 405 van het framework neemt de toegestane methodes mee`() {
+    fun `een Allow op de exceptie gaat mee`() {
         val respons = mapper.toResponse(jakarta.ws.rs.NotAllowedException("GET", *arrayOf("HEAD", "OPTIONS")))
 
         assertEquals(405, respons.status)
-        // De volgorde komt uit een set van het framework; alleen de inhoud telt.
-        assertEquals(setOf("GET", "HEAD", "OPTIONS"), respons.getHeaderString("Allow").split(", ").toSet())
+        assertEquals("GET, HEAD, OPTIONS", respons.getHeaderString("Allow"))
     }
 
     @Test
     fun `alleen methode-tokens gaan mee in Allow`() {
         val respons = mapper.toResponse(waeMetAllow(405, "GET, <script>, post, DELETE"))
 
-        assertEquals("GET, DELETE", respons.getHeaderString("Allow"))
+        assertEquals("DELETE, GET", respons.getHeaderString("Allow"))
     }
 
     @Test
