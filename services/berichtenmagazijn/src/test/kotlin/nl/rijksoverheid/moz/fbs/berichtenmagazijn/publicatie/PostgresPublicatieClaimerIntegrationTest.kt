@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import io.micrometer.core.instrument.MeterRegistry
+import io.quarkus.narayana.jta.QuarkusTransaction
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.TestProfile
 import jakarta.inject.Inject
@@ -36,6 +38,15 @@ class PostgresPublicatieClaimerIntegrationTest {
 
     @Inject
     lateinit var outbox: PublicatieOutbox
+
+    @Inject
+    lateinit var achterstand: PublicatieAchterstand
+
+    @Inject
+    lateinit var registry: MeterRegistry
+
+    @Inject
+    lateinit var config: PublicatieConfig
 
     @BeforeEach
     @Transactional
@@ -171,5 +182,128 @@ class PostgresPublicatieClaimerIntegrationTest {
                 volledig.contains("23505"),
             "verwachte UNIQUE-violation in causal chain, kreeg: $volledig",
         )
+    }
+
+    private fun mislukt(): Double =
+        registry.get("fbs.publicatie.mislukt").tag("doel", AANMELD).counter().count()
+
+    // Op de plek waar elke definitieve mislukking langskomt; een geplande retry telt niet.
+    @Test
+    @Transactional
+    fun `een definitieve mislukking telt, een retry niet`() {
+        val nu = Instant.now()
+        val ids = List(2) { maakBericht(nu.minusSeconds(60)) }
+        val claims = claimer.claimNuVerwerkbaar(maxBatch = 100).filter { it.doel.key == AANMELD }.associateBy { it.berichtId }
+        val voor = mislukt()
+
+        claimer.markeerMislukt(claims.getValue(ids[0]).claimId, "test", volgendePoging = nu.plusSeconds(30))
+
+        assertEquals(voor, mislukt(), "een retry is geen definitieve mislukking")
+
+        claimer.markeerMislukt(claims.getValue(ids[1]).claimId, "test", volgendePoging = null)
+
+        assertEquals(voor + 1, mislukt())
+    }
+
+    private fun zetAangemaaktOp(berichtId: UUID, secondenGeleden: Long) {
+        deliveries.getEntityManager()
+            .createNativeQuery(
+                "UPDATE publicatie_deliveries SET aangemaakt_op = now() - make_interval(secs => :s) " +
+                    "WHERE bericht_db_id = (SELECT id FROM berichten WHERE bericht_id = :id)",
+            )
+            .setParameter("s", secondenGeleden)
+            .setParameter("id", berichtId)
+            .executeUpdate()
+    }
+
+    // Echte Postgres: de JOIN, de filters, de klok van de database en de typen die pgjdbc teruggeeft.
+    // Elk bericht krijgt een rij per geconfigureerd doel (het profiel voegt aanmeld toe aan de
+    // globale default); de test kijkt naar aanmeld.
+    @Test
+    @Transactional
+    fun `de telling van de achterstand telt alleen wat gepubliceerd had mogen zijn, per status en doel`() {
+        val nu = Instant.now()
+        val ids = List(4) { maakBericht(nu.minusSeconds(60)) }
+        maakBericht(nu.plusSeconds(86_400))
+        val claims = claimer.claimNuVerwerkbaar(maxBatch = 100).filter { it.doel.key == AANMELD }.associateBy { it.berichtId }
+
+        claimer.markeerGeslaagd(claims.getValue(ids[0]).claimId, nu)
+        claimer.markeerMislukt(claims.getValue(ids[1]).claimId, "test", volgendePoging = null)
+
+        val rijen = achterstand.telRijen().associateBy { it.status to it.doel }
+        val anderen = config.downstreams().keys - AANMELD
+
+        assertEquals(2L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to AANMELD).aantal, "het bericht van morgen telt niet")
+        assertEquals(1L, rijen.getValue(DeliveryStatus.MISLUKT to AANMELD).aantal)
+        anderen.forEach { assertEquals(4L, rijen.getValue(DeliveryStatus.TE_PUBLICEREN to it).aantal, it) }
+        assertEquals(2 + anderen.size, rijen.size, rijen.keys.toString())
+    }
+
+    // De leeftijd loopt vanaf het latere van aanmelding en publicatietijdstip.
+    @Test
+    @Transactional
+    fun `de leeftijd loopt vanaf het moment dat de aanmelding mocht gaan`() {
+        val nu = Instant.now()
+        val lang = maakBericht(nu.minusSeconds(3_600))
+        zetAangemaaktOp(lang, 600)
+        val kort = maakBericht(nu.minusSeconds(120))
+        zetAangemaaktOp(kort, 3_000)
+
+        val oudste = achterstand.telRijen().single { it.status == DeliveryStatus.TE_PUBLICEREN && it.doel == AANMELD }.oudsteSeconden
+
+        // lang: aangemaakt 600 s geleden, mocht al eerder; kort: aangemaakt eerder, mocht pas 120 s geleden
+        assertTrue(oudste in 595..700, "verwacht ongeveer 600, kreeg $oudste")
+    }
+
+    @Test
+    @Transactional
+    fun `een lege outbox levert geen rijen`() {
+        assertTrue(achterstand.telRijen().isEmpty())
+    }
+
+    // Zonder testtransactie: zo ziet de telling alleen gecommitte rijen, in haar eigen transactie, zoals
+    // in productie. Een rij met een vervallen bestemming komt onder _onbekend.
+    @Test
+    fun `de geplande telling zet de meetwaarden uit gecommitte rijen`() {
+        val verleden = Instant.now().minusSeconds(600)
+
+        QuarkusTransaction.requiringNew().run {
+            repeat(2) { maakBericht(verleden) }
+            val vervallen = maakBericht(verleden)
+
+            deliveries.getEntityManager()
+                .createNativeQuery(
+                    "UPDATE publicatie_deliveries SET doel = 'vervallen' " +
+                        "WHERE doel = :doel AND bericht_db_id = (SELECT id FROM berichten WHERE bericht_id = :id)",
+                )
+                .setParameter("doel", AANMELD)
+                .setParameter("id", vervallen)
+                .executeUpdate()
+        }
+
+        try {
+            // Rechtstreeks eerst: een kapotte query moet hier met haar eigen fout falen, niet als 0 ≠ 2.
+            QuarkusTransaction.requiringNew().call { achterstand.telRijen() }
+            // De gauges horen bij de applicatie en houden waarden uit andere tests: eerst op nul.
+            achterstand.tel { emptyList() }
+            achterstand.tel()
+
+            val waarde = { d: String ->
+                registry.get("fbs.publicatie.achterstand").tags("status", "te_publiceren", "doel", d).gauge().value()
+            }
+
+            assertEquals(2.0, waarde(AANMELD))
+            assertEquals(1.0, waarde(DownstreamClient.ONBEKEND_DOEL))
+            assertTrue(registry.get("fbs.publicatie.achterstand.gemeten.op").gauge().value() > 0.0)
+        } finally {
+            QuarkusTransaction.requiringNew().run {
+                deliveries.deleteAll()
+                berichten.deleteAll()
+            }
+        }
+    }
+
+    private companion object {
+        const val AANMELD = "aanmeld"
     }
 }

@@ -69,6 +69,7 @@ aanstaan.
 | `magazijn.publicatie.downstreams.<key>.max-pogingen` | `5` | Per downstream; verhoog bij een doel met lange recovery |
 | `magazijn.publicatie.downstreams.<key>.backoff.basis` / `plafond` | `PT1S` / `PT1H` | Per downstream; plafond voorkomt runaway-backoff |
 | `magazijn.publicatie.opschonen.interval` | `24h` | Verlaag interval (bv. `1h`) bij hoog volume voor frequenter opruimen; verhoog (bv. `7d`) bij lage throughput |
+| `magazijn.publicatie.achterstand.interval` | `60s` | Hoe vaak de outbox geteld wordt voor de meetwaarden (`fbs_publicatie_achterstand`). Eén query per pod per ronde over de hele outbox; lager maakt de meetwaarde actueler, hoger spaart de database |
 
 ## Downstream-URL conventies
 
@@ -115,12 +116,24 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 
 ## Outbox-monitoring
 
-* **`publicatie_deliveries.status = TE_PUBLICEREN` met oude `volgende_poging`**:
-  poller-stilstand of poison-pill (zie ERROR-log "MAX_OPEENVOLGENDE_FOUTEN").
-* **`status = MISLUKT` met `volgende_poging IS NULL`**: definitief mislukt
-  (hetzij na `max-pogingen` retries, hetzij niet-herstelbare fout zoals 4xx).
-  Forensisch onderzoek vereist behoud — opschoner verwijdert deze rijen
-  niet.
+De meetwaarden staan in [operations/meetgegevens.md](operations/meetgegevens.md): de achterstand
+per status en bestemming, en de leeftijd van de oudste aanmelding die al had mogen gaan.
+
+* **`fbs_publicatie_achterstand_oudste_seconds` loopt op**, met als oorzaken, in volgorde van
+  waarschijnlijkheid:
+  1. De bestemming weigert of is onbereikbaar, en de aanmelding wacht in de backoff. Zie
+     `fbs_publicatie_aflevering_seconds_count{uitkomst!="geslaagd"}` per `doel`; in de log staan
+     WARN-regels `Bericht-publicatie mislukt; retry gepland`.
+  2. Een poison-pill of database-uitval in de poller. In de log kan dan
+     `Onverwachte fout in pollronde (opeenvolgendeFouten=…)` (ERROR) staan, en na
+     `magazijn.publicatie.polling.max-opeenvolgende-fouten` keer op rij
+     `Pollronde overgeslagen na … opeenvolgende fouten` (WARN).
+  3. De poller draait niet (geen pod, een hangende scheduler). Daar hoort geen logregel bij.
+* **`status = MISLUKT`** (`fbs_publicatie_achterstand{status="mislukt"}`): definitief mislukt, na
+  `max-pogingen` retries of door een niet-herstelbare fout zoals een 4xx. `laatste_fout` en
+  `pogingen` tonen de laatste poging.
+  Forensisch onderzoek vereist behoud: de opschoner verwijdert deze rijen niet. Ze verdwijnen pas
+  met het bericht zelf, als de retentie dat definitief wist (de FK cascadeert).
 * **`status = GEPUBLICEERD` ouder dan retentie-interval**: `PublicatieDeliveriesOpschoner`
   ruimt deze elke `magazijn.publicatie.opschonen.interval`. Bij DB-uitval
   ziet de operator `ERROR Outbox-opschoning faalde (persistence|transactie)

@@ -59,6 +59,10 @@ Eigen meetwaarden:
 | `fbs_stelseldocument_organisaties` | stelselregister | — | Organisaties in het geldende document; `0` als er geen geldend exemplaar is. |
 | `fbs_stelseldocument_sleutel_geldig_tot_seconds` | stelselregister | `herkomst` (`keystore`, `wegwerp`) | Het vroegste einde van de certificaatketen van de ondertekensleutel. Een melding hoort te volgen ruim vóór dit moment; de dienst waarschuwt in de log vanaf 30 dagen, alleen bij een sleutel uit een keystore. |
 | `fbs_magazijnregister_magazijnen` | stelselregister | — | Ingeschreven magazijnen in het register van de dienst. |
+| `fbs_publicatie_achterstand` | magazijn | `status` (`te_publiceren`, `mislukt`), `doel` | Aanmeldingen in de outbox die niet gepubliceerd zijn. `te_publiceren` telt alleen aanmeldingen waarvan het publicatietijdstip voorbij is. `mislukt` is terminaal en blijft staan tot de retentie het bericht wist (de FK cascadeert), dus de waarde kan dalen; meld daarom op de counter `fbs_publicatie_mislukt_total` hieronder, niet op deze gauge. Elke pod telt dezelfde tabel: neem `max()` over de pods, niet `sum()`. |
+| `fbs_publicatie_achterstand_oudste_seconds` | magazijn | `status` (alleen `te_publiceren`), `doel` | Hoe lang de oudste aanmelding al had mogen gaan, ook tijdens een retry; `0` = geen. Een stijgende waarde is het teken dat de publicatie stilstaat. |
+| `fbs_publicatie_mislukt_total` | magazijn | `doel` | Aanmeldingen die definitief mislukt zijn: alle pogingen op, of een fout die geen retry krijgt. Vanaf de start op 0 per bestemming; meld op `increase(...[15m]) > 0`. |
+| `fbs_publicatie_achterstand_gemeten_op_seconds` | magazijn | — | Laatste geslaagde telling (sinds 1970). De telling draait elke `magazijn.publicatie.achterstand.interval` (60s); loopt deze waarde achter, dan zijn de twee hierboven verouderd. |
 
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op
