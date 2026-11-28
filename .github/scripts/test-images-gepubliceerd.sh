@@ -63,10 +63,17 @@ trap 'rm -rf "$werkmap"' EXIT
 maak_stub() {
   printf '%s\n' "$@" >"$werkmap/bestaat"
   : >"$werkmap/hikt"
-  rm -f "$werkmap/aanroepen" "$werkmap/gehikt"
+  : >"$werkmap/publiek"
+  : >"$werkmap/stuk"
+  rm -f "$werkmap/aanroepen" "$werkmap/gehikt" "$werkmap/configs" "$werkmap/configpad" "$werkmap/geen-buildx"
 
   cat >"$werkmap/docker" <<STUB
 #!/usr/bin/env bash
+if [ "\$1 \$2" = "buildx version" ]; then
+  [ -e "$werkmap/geen-buildx" ] && { echo "docker: 'buildx' is not a docker command." >&2; exit 1; }
+  exit 0
+fi
+
 ref=\${!#}
 printf '%s\n' "\$*" >>"$werkmap/aanroepen"
 
@@ -76,6 +83,18 @@ if grep -qxF "\$ref" "$werkmap/hikt" && ! grep -qxF "\$ref" "$werkmap/gehikt" 2>
   exit 1
 fi
 
+# Zonder credentials voor ghcr.io ziet de stub alleen wat in het bestand publiek staat; een ref in
+# het bestand stuk faalt dan zoals een register dat niet antwoordt.
+if [ -n "\${DOCKER_CONFIG:-}" ] && ! grep -q 'ghcr.io' "\$DOCKER_CONFIG/config.json" 2>/dev/null; then
+  echo leeg >>"$werkmap/configs"
+  echo "\$DOCKER_CONFIG" >"$werkmap/configpad"
+  grep -qxF "\$ref" "$werkmap/stuk" && { echo "ERROR: 503 Service Unavailable" >&2; exit 1; }
+  grep -qxF "\$ref" "$werkmap/publiek" && exit 0
+  echo "ERROR: \$ref: unauthorized: authentication required" >&2
+  exit 1
+fi
+
+echo "\${DOCKER_CONFIG:-standaard}" >>"$werkmap/configs"
 grep -qxF "\$ref" "$werkmap/bestaat" && exit 0
 echo "ERROR: \$ref: not found" >&2
 exit 1
@@ -102,6 +121,56 @@ maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1" "$B/fbs-c:t1"
 draai "$B" t1 fbs-a fbs-b fbs-c
 gelijk "drie gepubliceerde images slagen" 0 "$RC"
 bevat_niet "zonder ontbrekend image geen foutmelding" '::error' "$UITVOER"
+
+# --- anoniem: zoals ZAD ophaalt --------------------------------------------------------------------
+# Een vol DOCKER_CONFIG van een eerdere `docker login` mag niet meetellen.
+mkdir -p "$werkmap/ingelogd"
+echo '{"auths":{"ghcr.io":{"auth":"eA=="}}}' >"$werkmap/ingelogd/config.json"
+
+draai_anoniem() {
+  RC=0
+  UITVOER=$(DOCKER_CONFIG="$werkmap/ingelogd" IMAGES_ANONIEM=1 IMAGES_DOCKER="$werkmap/docker" IMAGES_WACHT=0 \
+    bash "$SCRIPT" "$@" 2>&1) || RC=$?
+}
+
+maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1"
+printf '%s\n' "$B/fbs-a:t1" "$B/fbs-b:t1" >"$werkmap/publiek"
+draai_anoniem "$B" t1 fbs-a fbs-b
+gelijk "anoniem: publieke images slagen" 0 "$RC"
+bevat "anoniem: de melding zegt dat het anoniem lukt" "Anoniem op te halen: $B/fbs-b:t1" "$UITVOER"
+gelijk "anoniem: elke opvraging zonder credentials, ook met een ingelogde DOCKER_CONFIG" "leeg leeg" \
+  "$(tr '\n' ' ' <"$werkmap/configs" | sed 's/ $//')"
+
+maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1"
+echo "$B/fbs-a:t1" >"$werkmap/publiek"
+draai_anoniem "$B" t1 fbs-a fbs-b
+gelijk "anoniem: een privé image faalt" 1 "$RC"
+bevat "anoniem: de melding noemt het privé image" '::error title=Image niet anoniem op te halen::fbs-b ' "$UITVOER"
+bevat "anoniem: de samenvatting noemt het" "Niet anoniem op te halen: fbs-b" "$UITVOER"
+gelijk "anoniem: geen melding over niet-gepubliceerd" 0 "$(grep -c 'title=Image niet gepubliceerd' <<<"$UITVOER" || true)"
+
+gelijk "anoniem: de eigen configuratie is na afloop opgeruimd" nee "$([ -e "$(cat "$werkmap/configpad")" ] && echo ja || echo nee)"
+
+maak_stub "$B/fbs-a:t1"
+echo "$B/fbs-a:t1" >"$werkmap/publiek"
+echo "$B/fbs-a:t1" >"$werkmap/stuk"
+draai_anoniem "$B" t1 fbs-a
+gelijk "anoniem: een register dat niet antwoordt, faalt" 1 "$RC"
+bevat "anoniem: en heet niet bereikt" '::error title=Register niet bereikt::fbs-a ' "$UITVOER"
+gelijk "anoniem: en niet privé" 0 "$(grep -c 'Zet het pakket op public' <<<"$UITVOER" || true)"
+
+maak_stub "$B/fbs-a:t1"
+echo "$B/fbs-a:t1" >"$werkmap/publiek"
+touch "$werkmap/geen-buildx"
+draai_anoniem "$B" t1 fbs-a
+gelijk "anoniem: zonder buildx faalt de controle" 1 "$RC"
+bevat "anoniem: en zegt dat hij niets meet" 'title=Publicatiecontrole meet niets' "$UITVOER"
+gelijk "anoniem: zonder buildx wordt het register niet gevraagd" '' "$(cat "$werkmap/aanroepen" 2>/dev/null || true)"
+
+maak_stub "$B/fbs-a:t1"
+echo "$B/fbs-a:t1" >"$werkmap/publiek"
+draai "$B" t1 fbs-a
+gelijk "zonder IMAGES_ANONIEM gaat de vraag met de gewone configuratie" "standaard" "$(cat "$werkmap/configs")"
 
 # --- ontbrekend: het enige, het middelste, en twee tegelijk --------------------------------------
 maak_stub
@@ -209,6 +278,9 @@ for job_id, job in wf["jobs"].items():
             print(f"uitgeschakeld\t{job_id}\texitcode weggenomen")
         if i < laatste_push:
             print(f"uitgeschakeld\t{job_id}\tvóór de push")
+        # ZAD haalt anoniem op: dezelfde stap vraagt het ook zonder login.
+        if not re.search(r"^\s*IMAGES_ANONIEM=1 \S*images-gepubliceerd\.sh ", run, re.M):
+            print(f"niet-anoniem\t{job_id}")
 
         m = EXPR.search(str((stap.get("env") or {}).get("NAMEN", "")))
         if not m:
@@ -271,6 +343,11 @@ while IFS= read -r naam; do
 done <<<"$bekend"
 
 gelijk "elke sleutel van EIGEN_IMAGES wordt door precies één controlestap gelezen" "$sleutels" "$gecontroleerd"
+
+while IFS=$'\t' read -r soort job; do
+  [ "$soort" = niet-anoniem ] || continue
+  fout "de controlestap van $job vraagt het image niet anoniem op; een privé pakket blijft dan groen"
+done <<<"$kruis"
 
 if grep -q '^zonder-lijst' <<<"$kruis"; then
   fout "een controlestap leest zijn namen niet uit EIGEN_IMAGES: $(awk -F'\t' '$1 == "zonder-lijst" { print $2 }' <<<"$kruis")"

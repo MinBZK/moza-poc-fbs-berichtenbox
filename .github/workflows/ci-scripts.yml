@@ -175,7 +175,7 @@ jobs:
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
             [.github/scripts/test-ghcr-package-bestaat.sh]=29
-            [.github/scripts/test-images-gepubliceerd.sh]=35
+            [.github/scripts/test-images-gepubliceerd.sh]=50
             [.github/scripts/test-preview-comment.sh]=130
             [.github/scripts/test-jdk-handtekening.sh]=53
             [.github/scripts/test-maven-cache.sh]=45
