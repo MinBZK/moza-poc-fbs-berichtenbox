@@ -147,7 +147,7 @@ jobs:
           # `xargs -r` draait shellcheck niet bij een lege lijst; zonder deze guard zou die stilte
           # dan als geslaagd tellen in plaats van als "niets gemeten".
           if [ "$scripts" -eq 0 ]; then
-            echo "FOUT: geen enkel script onder .github/scripts/, .claude/hooks/, demo/lib/ of charts/ — deze stap meet niets."
+            echo "FOUT: geen enkel script onder .github/scripts/, .claude/hooks/, demo/lib/, demo/environment/lib/ of charts/ — deze stap meet niets."
             fail=1
           elif ! find .github/scripts .claude/hooks demo/lib demo/environment/lib charts -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
             fail=1
