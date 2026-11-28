@@ -20,7 +20,7 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 readonly REPO_ROOT
 readonly MELDINGEN="$REPO_ROOT/beheer/meldingen"
 
-# v3.5.0, de multi-arch index.
+# De multi-arch index.
 readonly PROMETHEUS_IMAGE='docker.io/prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996'
 
 if [ -n "${CONTAINER_HOST:-}" ]; then
@@ -57,7 +57,16 @@ fi
 
 # Kopie van de regels plus een aangevulde toetsen.yml in $1; drukt per regel "positief <naam>" af.
 klaarzetten() {
-  local doel=$1
+  local doel=$1 vreemd
+
+  # Alleen .yml: een <dienst>.yaml zou buiten de kopie, de rule_files-vergelijking en de toetsen vallen.
+  vreemd=$(find "$MELDINGEN" -maxdepth 1 -type f ! -name '*.yml' -printf '%f ')
+
+  if [ -n "$vreemd" ]; then
+    echo "bestanden in beheer/meldingen/ die niet op .yml eindigen: $vreemd" >&2
+
+    return 1
+  fi
 
   mkdir -p "$doel"
   cp "$MELDINGEN"/*.yml "$doel/"
@@ -160,11 +169,13 @@ assert tekst.count(van) == 1, (pad, van)
 open(pad, "w").write(tekst.replace(van, naar))
 PY
 
-  # Alleen een falende toets telt: een parsefout of een container die niet start, faalt ook, maar
-  # bewijst niet dat de toetsen deze regel bewaken.
+  # Alleen een falende toets telt: een laadfout of een container die niet start, faalt ook, maar
+  # bewijst niet dat de toetsen deze regel bewaken. Een toetsfout noemt de melding en het tijdstip; een
+  # laadfout begint met de bestandsnaam.
   if uitvoer=$(promtool "$map" 2>&1); then
     fout "mutatie '$wat' blijft groen: de toetsen bewaken dit niet"
-  elif grep -q 'FAILED:' <<<"$uitvoer" && ! grep -qi 'parse error\|error loading' <<<"$uitvoer"; then
+  elif grep -qE '^[[:space:]]+alertname: [A-Za-z0-9_]+, time: ' <<<"$uitvoer" \
+    && ! grep -qE '^[^[:space:]]+\.yml: ' <<<"$uitvoer"; then
     ok "mutatie '$wat' wordt gevangen"
   else
     fout "mutatie '$wat' faalt om een andere reden dan een toets: $(head -c 300 <<<"$uitvoer")"
@@ -176,6 +187,10 @@ muteer "previews niet uitgesloten" stelselregister.yml 'fbs_stelseldocument_geld
 muteer "429 telt als fout" berichtenuitvraag.yml 'omgeving!~"pr-.*", status=~"5.."}' 'omgeving!~"pr-.*", status=~"[45].."}'
 muteer "magazijnen samengenomen" berichtenmagazijn.yml 'min by (omgeving, magazijn) (fbs_retentie_achterstand_oudste_seconds' 'min by (omgeving) (fbs_retentie_achterstand_oudste_seconds'
 muteer "4xx telt als uitval" berichtenuitvraag.yml 'outcome=~"SERVER_ERROR|UNKNOWN"' 'outcome!="SUCCESS"'
+muteer "wisronde zonder geheugen" berichtenmagazijn.yml '(max_over_time(fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[3d]))' '(fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})'
+muteer "for weg bij het foutpercentage" berichtenuitvraag.yml 'status!="429"}[5m])) > 0.05
+        for: 5m' 'status!="429"}[5m])) > 0.05
+        for: 0m'
 
 echo
 echo "ASSERTIES=$asserties"

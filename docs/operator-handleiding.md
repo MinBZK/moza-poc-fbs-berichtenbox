@@ -244,20 +244,23 @@ Prometheus-formaat, niet via het publieke adres. Wat erin zit, en de eigen meetw
 De alertregels staan in [`beheer/meldingen/berichtenmagazijn.yml`](../beheer/meldingen/berichtenmagazijn.yml) en horen bij
 het product; een organisatie laadt ze op haar eigen Prometheus, Mimir of Grafana. Elke regel noemt
 deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten), en elke
-regel telt per omgeving en per magazijn (het label `magazijn`, de OIN): twee magazijnen in één omgeving verbergen elkaar dan niet. De ernst staat als label `severity`: `critical` of `warning`, de
-standaardwaarden waarop Alertmanager en Grafana routeren. Drempels en de reden ervoor:
+regel behalve `…LevertGeenMeetgegevens` telt per omgeving en per magazijn (het label `magazijn`, de OIN): twee magazijnen in één omgeving verbergen elkaar dan niet. De ernst staat als label `severity`: `critical` of `warning`, de
+gangbare waarden waarop routeringsregels meestal kiezen. Een `…Verdwenen` die na zeven dagen vanzelf
+oplost, is geen herstel; zet bij een bewust opgeheven magazijn of omgeving, of een gewijzigde OIN, een
+silence. Drempels en de reden ervoor:
 [`beheer/README.md`](../beheer/README.md).
 
 | Melding | Ernst | Wat het betekent | Wat te doen |
 |---|---|---|---|
 | `MagazijnLevertGeenMeetgegevens` | critical | Vijf minuten lang levert geen enkel magazijn meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort? Zonder meetgegevens zijn de andere regels blind |
-| `MagazijnVerdwenen` | critical | Eén magazijn leverde de afgelopen dag wel meetgegevens, nu niet meer | Zelfde als hierboven, voor dat ene magazijn |
+| `MagazijnVerdwenen` | critical | Eén magazijn leverde de afgelopen zeven dagen wel meetgegevens, nu niet meer | Zelfde als hierboven, voor dat ene magazijn |
+| `MagazijnHerstartSteeds` | warning | Drie of meer herstarts in een halfuur | De log vlak voor elke herstart, en of het geheugen op is (OOM) |
 | `MagazijnFoutpercentageHoog` | critical | Meer dan 5% van de verzoeken eindigt in een 5xx; een open circuit breaker (503) telt mee | Gaat `MagazijnLogboekWeigert` ook af, dan is het logboek de oorzaak. Anders de log op `errorId` en de database (databaseverbindingen in het dashboard) |
 | `MagazijnPublicatieStaatStil` | warning | Een aanmelding wacht al meer dan een kwartier op publicatie | Meestal de bestemming: kijk naar de afleverpogingen per uitkomst; zie [Outbox-monitoring](#outbox-monitoring) |
 | `MagazijnPublicatieMislukt` | warning | Een aanmelding is definitief mislukt; het magazijn probeert hem niet opnieuw. Bij `notificatie` krijgt de ontvanger geen melding, bij `aanmeld` ziet hij het bericht pas bij zijn volgende ophaalronde | Zoek `Bericht-publicatie definitief mislukt` in de log (met `berichtId`, `doel` en `reden`) en herstel de bestemming. De rij blijft staan voor onderzoek ([Outbox-monitoring](#outbox-monitoring)) |
-| `MagazijnTellingVerouderd` | warning | De telling van de achterstand loopt meer dan tien minuten achter, of slaagde sinds de start nooit | De log op `Telling van de publicatie-achterstand mislukt`, en de database. Tot dan zeggen de twee regels hierboven niets |
+| `MagazijnTellingVerouderd` | warning | De telling van de achterstand loopt meer dan tien minuten achter, of slaagde sinds de start nooit | De log op `Telling van de publicatie-achterstand mislukt`, en de database. Zolang dat zo is, zegt `MagazijnPublicatieStaatStil` niets; `MagazijnPublicatieMislukt` telt los van de telling en blijft werken |
 | `MagazijnWissenStaatStil` | warning | Het definitief wissen loopt meer dan twee dagen achter | `fbs_retentie_fouten_total` per soort, en de log van `HardDeleteJob` |
-| `MagazijnWisrondeBlijftUit` | warning | Er is al meer dan anderhalve dag geen wisronde gedraaid, terwijl het magazijn zo lang draait | De log van `HardDeleteJob` en de scheduler (`retentie.hard-delete.cron`). De achterstand hierboven wordt alleen bij een ronde gemeten, dus die regel ziet dit niet |
+| `MagazijnWisrondeBlijftUit` | warning | Er is al meer dan anderhalve dag geen wisronde gedraaid, terwijl het magazijn er toen al was (ook als de pods intussen herstartten) | De log van `HardDeleteJob` en de scheduler (`retentie.hard-delete.cron`). De achterstand hierboven wordt alleen bij een ronde gemeten, dus die regel ziet dit niet |
 | `MagazijnWissenFouten` | warning | Fouten bij het wissen: een bericht niet te wissen, gewist zonder logregel, of een afgebroken ronde | De log van `HardDeleteService`; bij `logboek` ook `LDV_WISSEN_ONTBREEKT` |
 | `MagazijnLogboekWeigert` | critical | Het logboek kon een verwerking niet vastleggen; het magazijn faalt dicht | De database van het logboek, en de log op `Onverwachte exception` met `type=…LogboekWriteException` of `type=…SpanStorageException` |
 | `MagazijnLogboekWaarschuwing` | warning | Een alert-token van het logboek (label `code`) | Per token in [Logging & observability](#logging--observability) |

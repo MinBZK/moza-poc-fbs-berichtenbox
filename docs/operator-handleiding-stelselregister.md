@@ -100,14 +100,17 @@ niet met `QUARKUS_PROFILE=dev`.
 De alertregels staan in [`beheer/meldingen/stelselregister.yml`](../beheer/meldingen/stelselregister.yml) en horen bij
 het product; een organisatie laadt ze op haar eigen Prometheus, Mimir of Grafana. Elke regel noemt
 deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten), en elke
-regel telt per omgeving. De ernst staat als label `severity`: `critical` of `warning`, de
-standaardwaarden waarop Alertmanager en Grafana routeren. Drempels en de reden ervoor:
+regel behalve `…LevertGeenMeetgegevens` telt per omgeving. De ernst staat als label `severity`: `critical` of `warning`, de
+gangbare waarden waarop routeringsregels meestal kiezen. Een `…Verdwenen` die na zeven dagen vanzelf
+oplost, is geen herstel; zet bij een bewust opgeheven magazijn of omgeving, of een gewijzigde OIN, een
+silence. Drempels en de reden ervoor:
 [`beheer/README.md`](../beheer/README.md).
 
 | Melding | Ernst | Wat het betekent | Wat te doen |
 |---|---|---|---|
 | `StelselregisterLevertGeenMeetgegevens` | critical | Vijf minuten lang levert geen instantie meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort? |
-| `StelselregisterVerdwenen` | critical | Het stelselregister in één omgeving leverde de afgelopen dag wel meetgegevens, nu niet meer | Zelfde als hierboven, voor die omgeving |
+| `StelselregisterVerdwenen` | critical | Het stelselregister in één omgeving leverde de afgelopen zeven dagen wel meetgegevens, nu niet meer | Zelfde als hierboven, voor die omgeving |
+| `StelselregisterHerstartSteeds` | warning | Drie of meer herstarts in een halfuur | De log vlak voor elke herstart, en of het geheugen op is (OOM) |
 | `StelselregisterFoutpercentageHoog` | critical | Meer dan 5% van de verzoeken eindigt in een 5xx; afnemers krijgen het document niet | De log op `errorId`; zonder geldend document zie `StelseldocumentVerloopt` |
 | `StelseldocumentVerloopt` | critical | Het document verloopt binnen een uur, of er is geen geldend exemplaar (een 503) | Zoek `Het stelseldocument is niet ververst` in de log; zie [Bewaken](#bewaken) |
 | `OndertekensleutelVerloopt` | warning | De keten van de sleutel uit de keystore verloopt binnen 30 dagen | Een nieuwe sleutel en keten in de keystore zetten; zie [Sleutelbeheer](#sleutelbeheer) |

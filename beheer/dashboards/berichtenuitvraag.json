@@ -212,7 +212,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(http_server_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", status!=\"429\"}[$__rate_interval]))",
+          "expr": "(sum by () (rate(http_server_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) or sum by () (rate(http_server_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", status!=\"429\"}[$__rate_interval])) * 0) / sum by () (rate(http_server_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", status!=\"429\"}[$__rate_interval]))",
           "legendFormat": "5xx"
         }
       ]
@@ -322,7 +322,7 @@
     {
       "type": "timeseries",
       "title": "Aanroepen van magazijnen per uitkomst",
-      "description": "Uitgaande verzoeken naar de magazijnen, per magazijn (address) en uitkomst. Een magazijn dat niet antwoordt (verbinding geweigerd), telt als UNKNOWN; een 5xx als SERVER_ERROR. CLIENT_ERROR (403, 404, 410) is meestal een gewoon antwoord. De gesimuleerde magazijnen delen één address.",
+      "description": "Uitgaande verzoeken naar de magazijnen, per magazijn (address) en uitkomst. Een magazijn dat niet antwoordt (verbinding geweigerd), telt als UNKNOWN; een 5xx als SERVER_ERROR. CLIENT_ERROR (403, 404, 410) is meestal een gewoon antwoord. Via een FSC-outway is address de outway, voor alle magazijnen erachter.",
       "id": 8,
       "datasource": {
         "type": "prometheus",

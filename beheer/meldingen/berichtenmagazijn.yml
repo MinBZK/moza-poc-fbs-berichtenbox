@@ -19,15 +19,28 @@ groups:
           description: "Vijf minuten lang leverde geen magazijn meetgegevens. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt; zonder meetgegevens zijn ook de andere regels blind."
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
 
-      # Eén magazijn weg terwijl de rest levert; absent hierboven ziet dat niet.
+      # Eén magazijn weg terwijl de rest levert; absent hierboven ziet dat niet. Zeven dagen geheugen: een
+      # langere storing lost daarna vanzelf op, en een opgeheven magazijn meldt zo lang (silence).
       - alert: MagazijnVerdwenen
-        expr: group by (omgeving, magazijn) (max_over_time(process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[1d])) unless group by (omgeving, magazijn) (process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})
+        expr: group by (omgeving, magazijn) (max_over_time(process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[7d])) unless group by (omgeving, magazijn) (process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})
         for: 5m
         labels:
           severity: critical
         annotations:
           summary: "Magazijn {{ $labels.magazijn }} levert geen meetgegevens meer"
-          description: "Het magazijn leverde de afgelopen dag wel meetgegevens, nu vijf minuten niet. Wat te doen: kijk of dat magazijn draait (health, logs) en of de scrape zijn beheerpoort bereikt."
+          description: "Het magazijn leverde de afgelopen zeven dagen wel meetgegevens, nu vijf minuten niet. Wat te doen: kijk of dat magazijn draait (health, logs) en of de scrape zijn beheerpoort bereikt. Na zeven dagen weg lost deze melding vanzelf op: dat is geen herstel. Is het bewust opgeheven of hernoemd (een andere OIN of omgeving), zet dan een silence tot het venster voorbij is."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      # Een pod die steeds na een paar minuten omvalt, levert tussendoor meetgegevens en ontloopt zo
+      # absent en Verdwenen. Een uitrol telt niet: nieuwe pods zijn andere instances.
+      - alert: MagazijnHerstartSteeds
+        expr: sum by (omgeving, magazijn) (resets(process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[30m])) >= 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Magazijn {{ $labels.magazijn }} herstart steeds opnieuw"
+          description: "Drie of meer herstarts in een halfuur. Wat te doen: de log vlak voor elke herstart, en of het geheugen op is (OOM); zie ook health en de databaseverbindingen."
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
 
       - alert: MagazijnFoutpercentageHoog
@@ -61,7 +74,7 @@ groups:
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
 
       # Ook als de telling sinds de start nooit slaagde (gemeten_op 0): na tien minuten draaien hoort
-      # er een te zijn. Juist na een deploy die de telling breekt, staan de achterstandsregels anders blind.
+      # er een te zijn. Juist na een deploy die de telling breekt, staat MagazijnPublicatieStaatStil anders blind.
       - alert: MagazijnTellingVerouderd
         expr: (time() - max by (omgeving, magazijn) (fbs_publicatie_achterstand_gemeten_op_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})) > 600 and on (omgeving, magazijn) max by (omgeving, magazijn) (process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}) > 600
         for: 5m
@@ -69,7 +82,7 @@ groups:
           severity: warning
         annotations:
           summary: "De telling van de publicatie-achterstand van magazijn {{ $labels.magazijn }} loopt meer dan tien minuten achter"
-          description: "De telling draait elke minuut; staat hij stil of slaagde hij nooit, dan zeggen de achterstandsregels niets meer. Wat te doen: de log op 'Telling van de publicatie-achterstand mislukt', en de database."
+          description: "De telling draait elke minuut; staat hij stil of slaagde hij nooit, dan zegt MagazijnPublicatieStaatStil niets meer (MagazijnPublicatieMislukt telt los van de telling). Wat te doen: de log op 'Telling van de publicatie-achterstand mislukt', en de database."
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
 
       - alert: MagazijnWissenStaatStil
@@ -83,9 +96,12 @@ groups:
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
 
       # De achterstand wordt alleen bij een ronde gemeten; valt de cron stil, dan bevriest hij. Deze
-      # regel kijkt naar de ronde zelf: 36 uur is de dagelijkse cron plus een halve dag marge.
+      # regel kijkt naar de ronde zelf: 36 uur is de dagelijkse cron plus een halve dag marge. De laatste
+      # ronde staat in het geheugen van de pod en is na een herstart 0; het maximum over drie dagen houdt
+      # hem vast, ook als de pods bij elke uitrol herstarten. Een magazijn dat er 36 uur geleden nog niet
+      # was, krijgt nog geen oordeel.
       - alert: MagazijnWisrondeBlijftUit
-        expr: (time() - max by (omgeving, magazijn) (fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})) > 129600 and on (omgeving, magazijn) max by (omgeving, magazijn) (process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}) > 129600
+        expr: (time() - max by (omgeving, magazijn) (max_over_time(fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[3d]))) > 129600 and on (omgeving, magazijn) group by (omgeving, magazijn) (max_over_time(process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[1h] offset 36h))
         for: 15m
         labels:
           severity: warning
