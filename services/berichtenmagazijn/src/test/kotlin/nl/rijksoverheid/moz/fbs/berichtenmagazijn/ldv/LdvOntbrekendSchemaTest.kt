@@ -7,7 +7,12 @@ import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.logging.Handler
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 import javax.sql.DataSource
+import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
@@ -56,6 +61,20 @@ class LdvOntbrekendSchemaTest {
         val onderwerp = "Aanlevering zonder logboekschema"
         val berichtenVooraf = aantalBerichten()
         val geweigerdVooraf = registry.get("fbs.logboek.geweigerd").counter().count()
+        // Welke exceptie het vangnet kreeg: telt de teller niet, dan zegt de melding waarom.
+        val gevangen = CopyOnWriteArrayList<String>()
+        val vanger = object : Handler() {
+            override fun publish(record: LogRecord) {
+                gevangen += String.format(record.message, *(record.parameters ?: emptyArray()))
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val vangnetLogger = Logger.getLogger(UncaughtExceptionMapper::class.java.name)
+
+        vangnetLogger.addHandler(vanger)
 
         // Elke code bestaat vanaf de start, ook zonder één geval: anders mist increase() het eerste.
         LogboekMeting.Waarschuwing.entries.forEach { soort ->
@@ -88,7 +107,12 @@ class LdvOntbrekendSchemaTest {
             "een aanlevering die niet in het logboek kwam, mag geen bericht achterlaten",
         )
         // De weigering moet als zodanig herkenbaar zijn, niet alleen als een 500 tussen de andere.
-        assertEquals(geweigerdVooraf + 1, registry.get("fbs.logboek.geweigerd").counter().count())
+        vangnetLogger.removeHandler(vanger)
+        assertEquals(
+            geweigerdVooraf + 1,
+            registry.get("fbs.logboek.geweigerd").counter().count(),
+            "geweigerd niet geteld; het vangnet logde: $gevangen",
+        )
     }
 
     private fun aantalBerichten(): Int = dataSource.connection.use { connectie ->
