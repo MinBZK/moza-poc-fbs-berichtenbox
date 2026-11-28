@@ -1,0 +1,676 @@
+{
+  "title": "Stelselregister",
+  "uid": "fbs-stelselregister",
+  "description": "Verkeer, duur, fouten en beschikbaarheid van het stelselregister, met de geldigheid van het stelseldocument en de ondertekensleutel.",
+  "tags": [
+    "fbs",
+    "stelselregister"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Bron",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "omgeving",
+        "label": "Omgeving",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(process_uptime_seconds{dienst=\"stelselregister\"}, omgeving)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "test",
+          "value": "test"
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Instantie",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(process_uptime_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\"}, instance)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Verkeer, duur, fouten en beschikbaarheid",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Draaiende instanties",
+      "description": "Instanties die nu meetgegevens leveren; bij 0 levert de dienst niets meer, en is hij niet bereikbaar of niet te scrapen.",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(process_uptime_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}) or vector(0)",
+          "legendFormat": "instanties"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verzoeken per seconde",
+      "description": "Afgehandelde HTTP-verzoeken per endpoint-template.",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (method, uri) (rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Foutpercentage (5xx)",
+      "description": "Aandeel verzoeken met een 5xx. Een 429 telt in teller noch noemer: dat is begrenzing, geen fout, en een vloed ervan mag een falende dienst niet verdunnen.",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "softMax": 0.1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum by () (rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) or sum by () (rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", status!=\"429\"}[$__rate_interval])) * 0) / sum by () (rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", status!=\"429\"}[$__rate_interval]))",
+          "legendFormat": "5xx"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verzoeken per status",
+      "description": "Per statusklasse; 4xx zijn fouten van de aanroeper, 5xx van de dienst of wat erachter zit.",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duur (gemiddeld en maximum)",
+      "description": "Gemiddelde duur per endpoint-template over het venster, en het maximum sinds de vorige scrape. Er zijn geen histogrammen: percentielen zijn er niet.",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_sum{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval])) / sum by (uri) (rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "legendFormat": "gem {{uri}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (uri) (http_server_requests_seconds_max{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "legendFormat": "max {{uri}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Stelseldocument en ondertekensleutel",
+      "id": 7,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Document nog geldig",
+      "description": "Tijd tot het geldende stelseldocument verloopt. Ontbreekt een geldend exemplaar, dan is de meetwaarde 0 en staat hier een negatieve waarde.",
+      "id": 8,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3600
+              },
+              {
+                "color": "green",
+                "value": 21600
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "min(fbs_stelseldocument_geldig_tot_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}) - time()",
+          "legendFormat": "document"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Sleutelketen nog geldig",
+      "description": "Tijd tot het vroegste einde van de certificaatketen van de ondertekensleutel, per herkomst. De dienst waarschuwt in de log vanaf 30 dagen.",
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 604800
+              },
+              {
+                "color": "green",
+                "value": 2592000
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "min by (herkomst) (fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}) - time()",
+          "legendFormat": "{{herkomst}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Uitgegeven",
+      "description": "Hoe lang geleden het geldende document is uitgegeven.",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "time() - max(fbs_stelseldocument_uitgegeven_op_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"} > 0)",
+          "legendFormat": "uitgegeven"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Organisaties en magazijnen",
+      "description": "Organisaties in het geldende document, en magazijnen in het register van de dienst. Verschillen ze, dan is het document nog niet opnieuw uitgegeven.",
+      "id": 11,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(fbs_stelseldocument_organisaties{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "legendFormat": "in het document"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max(fbs_magazijnregister_magazijnen{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "legendFormat": "in het register"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Proces",
+      "id": 12,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap in gebruik",
+      "description": "",
+      "id": 13,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (jvm_memory_used_bytes{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", area=\"heap\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker-pool in gebruik",
+      "description": "Bezette threads in de pool voor blokkerend werk; staat hij lang op het maximum, dan wachten verzoeken.",
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (worker_pool_active{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sinds de start",
+      "description": "Een sprong naar 0 is een herstart.",
+      "id": 15,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_uptime_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    }
+  ]
+}

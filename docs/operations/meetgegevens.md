@@ -63,7 +63,7 @@ Eigen meetwaarden:
 | `fbs_publicatie_achterstand_oudste_seconds` | magazijn | `status` (alleen `te_publiceren`), `doel` | Hoe lang de oudste aanmelding al had mogen gaan, ook tijdens een retry; `0` = geen. Een stijgende waarde is het teken dat de publicatie stilstaat. |
 | `fbs_publicatie_mislukt_total` | magazijn | `doel` | Aanmeldingen die definitief mislukt zijn: alle pogingen op, of een fout die geen retry krijgt. Vanaf de start op 0 per bestemming; meld op `increase(...[15m]) > 0`. |
 | `fbs_publicatie_achterstand_gemeten_op_seconds` | magazijn | — | Laatste geslaagde telling (sinds 1970). De telling draait elke `magazijn.publicatie.achterstand.interval` (60s); loopt deze waarde achter, dan zijn de twee hierboven verouderd. |
-| `fbs_retentie_laatste_ronde_seconds`, `fbs_retentie_laatste_geslaagde_ronde_seconds` | magazijn | — | Einde van de laatste ronde van het definitief wissen, en van de laatste ronde zonder fouten (sinds 1970; `0` = nog geen sinds de start). Per pod: neem `max()` over de pods. De ronde draait volgens `retentie.hard-delete.cron`; een geslaagde ronde die meer dan twee periodes oud is, betekent dat het wissen stilstaat of steeds faalt. Na een herstart staan beide op `0` tot de eerste ronde; een melding op "het wissen staat stil" hoort daarom op `fbs_retentie_achterstand_oudste_seconds`. Een ronde die de grens van 100.000 haalt, telt als geslaagd: let dan op `fbs_retentie_wachtend`. |
+| `fbs_retentie_laatste_ronde_seconds`, `fbs_retentie_laatste_geslaagde_ronde_seconds` | magazijn | — | Einde van de laatste ronde van het definitief wissen, en van de laatste ronde zonder fouten (sinds 1970; `0` = nog geen sinds de start). Per pod: neem `max()` over de pods. De ronde draait volgens `retentie.hard-delete.cron`; een geslaagde ronde die meer dan twee periodes oud is, betekent dat het wissen stilstaat of steeds faalt. Na een herstart staan beide op `0` tot de eerste ronde: een melding op het uitblijven van de ronde neemt daarom het maximum over enkele dagen (`max_over_time`), zoals `MagazijnWisrondeBlijftUit`; een melding op "het wissen staat stil" hoort op `fbs_retentie_achterstand_oudste_seconds`. Een ronde die de grens van 100.000 haalt, telt als geslaagd: let dan op `fbs_retentie_wachtend`. |
 | `fbs_retentie_verwijderd_total` | magazijn | — | Definitief gewiste berichten. |
 | `fbs_retentie_fouten_total` | magazijn | `soort` (`wissen`, `logboek`, `ronde`) | `wissen`: een bericht dat niet te wissen was; `logboek`: gewist, maar de registratie in het logboek mislukte; `ronde`: de hele ronde brak af. |
 | `fbs_retentie_wachtend` | magazijn | — | Berichten die na de laatste ronde nog aan beide bewaardrempels voldeden. Hoort na een ronde 0 te zijn, tenzij een bericht niet te wissen was of de ronde de grens van 100.000 haalde; blijft het over meerdere rondes boven 0, dan loopt het wissen achter. Draaien twee pods tegelijk een ronde, dan kan één pod rijen tellen die de ander nog wist: neem `min()` over de pods. |
@@ -74,6 +74,19 @@ Eigen meetwaarden:
 Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een ontbrekende of
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op
 te bouwen is, bereikt `DownstreamClient` niet en telt hier dus niet mee; ook dat hoort bij #1488.
+
+## Labels van de dienst
+
+Elke reeks draagt `dienst` (`berichtenuitvraag`, `berichtenmagazijn`, `stelselregister`) en
+`omgeving`, gezet door `Meetfilters` per dienst. Het magazijn zet daarnaast `magazijn`: zijn eigen
+OIN (publiek, één waarde per pod). Zo werken de dashboards en alertregels in
+[`beheer/`](../../beheer/README.md) met elke scrape-configuratie, tellen ze per omgeving en per
+magazijn, en sluiten de regels previews uit.
+
+- `omgeving` is `DEPLOYMENT_NAME` (op ZAD `test` of `pr-<n>`). Buiten ZAD zet je
+  `FBS_MEETGEGEVENS_OMGEVING`; zonder een van beide is het `onbekend`, en in dev en test `lokaal`.
+- `BeheerbestandenTest` per dienst toetst dat elke reeks ze draagt, en dat elke meetwaarde die een
+  paneel of regel noemt, met de labels en letterlijke labelwaarden waarop gekozen wordt, bestaat.
 
 ## Wat er niet in mag
 

@@ -475,6 +475,26 @@ dezelfde bescherming te krijgen als de rest van Redis (TLS en authenticatie).
 - **Een proxy vóór de uitvraag mag `_volgen` niet bufferen** (nginx: `proxy_buffering off`), anders
   komen de berichten pas bij het sluiten van de verbinding aan.
 
+## Meldingen
+
+De alertregels staan in [`beheer/meldingen/berichtenuitvraag.yml`](../beheer/meldingen/berichtenuitvraag.yml) en horen bij
+het product; een organisatie laadt ze op haar eigen Prometheus, Mimir of Grafana. Elke regel noemt
+deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten), en elke
+regel behalve `…LevertGeenMeetgegevens` telt per omgeving. De ernst staat als label `severity`: `critical` of `warning`, de
+gangbare waarden waarop routeringsregels meestal kiezen. Een `…Verdwenen` die na zeven dagen vanzelf
+oplost, is geen herstel; zet bij een bewust opgeheven of hernoemde omgeving een silence. Drempels en de reden ervoor:
+[`beheer/README.md`](../beheer/README.md).
+
+| Melding | Ernst | Wat het betekent | Wat te doen |
+|---|---|---|---|
+| `UitvraagLevertGeenMeetgegevens` | critical | Vijf minuten lang levert geen instantie meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort? |
+| `UitvraagVerdwenen` | critical | De uitvraag in één omgeving leverde de afgelopen zeven dagen wel meetgegevens, nu niet meer | Zelfde als hierboven, voor die omgeving |
+| `UitvraagHerstartSteeds` | warning | Drie of meer herstarts in een uur | De log vlak voor elke herstart, en of het geheugen op is (OOM) |
+| `UitvraagFoutpercentageHoog` | critical | Meer dan 5% van de verzoeken eindigt in een 5xx. Een 429 (`te-veel-sessies`: meer gelijktijdige sessies voor één ontvanger dan `max-per-ontvanger`) telt in teller noch noemer. Een 503 `te-veel-open-berichtenboxen` of `te-veel-gelijktijdige-downloads` (een plafond per instantie) telt wél mee | Gaat `UitvraagLogboekWeigert` of `UitvraagMagazijnFaalt` ook af? Staat het verkeer op een piek, dan is een plafond de oorzaak. Anders de log op `errorId` en Redis |
+| `UitvraagMagazijnFaalt` | warning | Meer dan de helft van de aanroepen van één magazijn (label `address`) eindigt zonder antwoord (`UNKNOWN`, bijvoorbeeld een geweigerde verbinding) of in een 5xx. Een 403, 404 of 410 is een gewoon antwoord en telt niet | Ondernemers zien de berichten van dat magazijn niet; de andere gaan door. Bereikbaarheid van het magazijn, en de FSC-outway als die ertussen zit. Via een outway is `address` die outway, voor alle magazijnen erachter: dan meldt de regel pas als meer dan de helft faalt (een teller per magazijn wacht op MinBZK/MijnOverheidZakelijk#1472) |
+| `UitvraagLogboekWeigert` | critical | Het logboek kon een verwerking niet vastleggen; de uitvraag faalt dicht | De database van het logboek (`LDV_POSTGRES_URL`), en de log op `Onverwachte exception` met `type=…LogboekWriteException` of `type=…SpanStorageException` |
+| `UitvraagLogboekWaarschuwing` | warning | Een alert-token van het logboek of de sessiecache (label `code`), zoals `sessie_veger_faalt` | Per token in deze handleiding. Bij `sessie_veger_faalt` en `opruimen_na_schrijven` wist de Redis-TTL zonder logregel als het opruimen binnen de vangnet-marge niet alsnog lukt |
+
 ## Aandachtspunten in bedrijf
 
 - **Meetgegevens** staan op de beheerpoort (28086), niet via het publieke adres:

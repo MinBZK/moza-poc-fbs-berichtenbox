@@ -1,0 +1,1044 @@
+{
+  "title": "Berichtenmagazijn",
+  "uid": "fbs-berichtenmagazijn",
+  "description": "Verkeer, duur, fouten en beschikbaarheid van het berichtenmagazijn, met de publicatie, het definitief wissen en het logboek. Kies bij Magazijn welk magazijn je bekijkt.",
+  "tags": [
+    "fbs",
+    "berichtenmagazijn"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "label": "Bron",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": {},
+        "hide": 0
+      },
+      {
+        "name": "omgeving",
+        "label": "Omgeving",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(process_uptime_seconds{dienst=\"berichtenmagazijn\"}, omgeving)",
+        "refresh": 2,
+        "includeAll": false,
+        "multi": false,
+        "current": {
+          "text": "test",
+          "value": "test"
+        }
+      },
+      {
+        "name": "magazijn",
+        "label": "Magazijn",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "${datasource}"
+        },
+        "query": "label_values(process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\"}, magazijn)",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "allValue": ".*"
+      }
+    ]
+  },
+  "annotations": {
+    "list": []
+  },
+  "panels": [
+    {
+      "type": "row",
+      "title": "Verkeer, duur, fouten en beschikbaarheid",
+      "id": 1,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Draaiende instanties",
+      "description": "Instanties die nu meetgegevens leveren; bij 0 levert de dienst niets meer, en is hij niet bereikbaar of niet te scrapen.",
+      "id": 2,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "count(process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}) or vector(0)",
+          "legendFormat": "instanties"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verzoeken per seconde",
+      "description": "Afgehandelde HTTP-verzoeken per endpoint-template.",
+      "id": 3,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 8,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (method, uri) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{method}} {{uri}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Foutpercentage (5xx)",
+      "description": "Aandeel verzoeken met een 5xx. Een 429 telt in teller noch noemer: dat is begrenzing, geen fout, en een vloed ervan mag een falende dienst niet verdunnen.",
+      "id": 4,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "softMax": 0.1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum by (magazijn) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status=~\"5..\"}[$__rate_interval])) or sum by (magazijn) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status!=\"429\"}[$__rate_interval])) * 0) / sum by (magazijn) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status!=\"429\"}[$__rate_interval]))",
+          "legendFormat": "{{magazijn}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Verzoeken per status",
+      "description": "Per statusklasse; 4xx zijn fouten van de aanroeper, 5xx van de dienst of wat erachter zit.",
+      "id": 5,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{status}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duur (gemiddeld en maximum)",
+      "description": "Gemiddelde duur per endpoint-template over het venster, en het maximum sinds de vorige scrape. Er zijn geen histogrammen: percentielen zijn er niet.",
+      "id": 6,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 9
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (uri) (rate(http_server_requests_seconds_sum{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval])) / sum by (uri) (rate(http_server_requests_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "gem {{uri}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (uri) (http_server_requests_seconds_max{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "max {{uri}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Publicatie (outbox)",
+      "id": 7,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 17
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Wachtende en mislukte aanmeldingen",
+      "description": "Aanmeldingen in de outbox die niet gepubliceerd zijn, per magazijn, status en bestemming. De pods van één magazijn tellen dezelfde tabel: daarom max per magazijn, niet sum.",
+      "id": 8,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (magazijn, status, doel) (fbs_publicatie_achterstand{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}} {{status}} {{doel}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Oudste wachtende aanmelding",
+      "description": "Hoe lang de oudste aanmelding al had mogen gaan. Een stijgende lijn betekent dat de publicatie stilstaat.",
+      "id": 9,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (magazijn, doel) (fbs_publicatie_achterstand_oudste_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", status=\"te_publiceren\"})",
+          "legendFormat": "{{magazijn}} {{doel}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Definitief mislukt",
+      "description": "Aanmeldingen waarvoor alle pogingen op zijn of waarvan de fout geen retry krijgt, per magazijn en bestemming.",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (magazijn, doel) (increase(fbs_publicatie_mislukt_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{magazijn}} {{doel}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Afleverpogingen per uitkomst",
+      "description": "Elke poging om een CloudEvent af te leveren, per bestemming en uitkomst.",
+      "id": 11,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (doel, uitkomst) (rate(fbs_publicatie_aflevering_seconds_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{doel}} {{uitkomst}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Ouderdom van de telling",
+      "description": "Hoe lang de laatste geslaagde telling geleden is, per magazijn. Loopt hij op, dan zijn de twee panelen hierboven verouderd. Slaagde er sinds de start nog geen, dan staat hier hoe lang het magazijn draait.",
+      "id": 12,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 26
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(time() - max by (magazijn) (fbs_publicatie_achterstand_gemeten_op_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"} > 0)) or on (magazijn) max by (magazijn) (process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Definitief wissen (retentie)",
+      "id": 13,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Oudste achterstand bij het wissen",
+      "description": "Hoe lang het oudste bericht dat aan beide bewaardrempels voldoet al gewist had moeten zijn. Het signaal voor 'het wissen staat stil'.",
+      "id": 14,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "min by (magazijn) (fbs_retentie_achterstand_oudste_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Wachtend na de laatste ronde",
+      "description": "Hoort na een ronde 0 te zijn. Het paneel neemt per magazijn het minimum over de pods: een andere pod kan nog rijen aan het wissen zijn.",
+      "id": 15,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "min by (magazijn) (fbs_retentie_wachtend{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{magazijn}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Laatste ronde",
+      "description": "Hoe lang de laatste ronde zonder fouten (geslaagd) en de laatste ronde überhaupt geleden zijn, per magazijn. Geen lijn betekent nog geen ronde sinds de start.",
+      "id": 16,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 35
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "time() - max by (magazijn) (fbs_retentie_laatste_geslaagde_ronde_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"} > 0)",
+          "legendFormat": "geslaagd {{magazijn}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "time() - max by (magazijn) (fbs_retentie_laatste_ronde_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"} > 0)",
+          "legendFormat": "laatste {{magazijn}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Gewist en fouten",
+      "description": "Definitief gewiste berichten, en fouten per soort.",
+      "id": 17,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (magazijn) (increase(fbs_retentie_verwijderd_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "gewist {{magazijn}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (magazijn, soort) (increase(fbs_retentie_fouten_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "fout {{magazijn}} {{soort}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Logboek Dataverwerkingen",
+      "id": 18,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 51
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Geweigerd door het logboek",
+      "description": "Verzoeken die een 500 kregen omdat het logboek de verwerking niet kon vastleggen (fail-closed). Stijgt dit, dan is het logboek de storing, niet de dienst.",
+      "id": 19,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (magazijn) (increase(fbs_logboek_geweigerd_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{magazijn}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Waarschuwingen per code",
+      "description": "Elke code is een alert-token uit de log: het logboek geeft een verwerking mogelijk onjuist weer, of gegevens verdwijnen zonder logregel. De alertregel meldt per code; wat te doen staat in de operator-handleiding.",
+      "id": 20,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 52
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (code) (increase(fbs_logboek_waarschuwing_total{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}[$__rate_interval]))",
+          "legendFormat": "{{code}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Database",
+      "id": 21,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 60
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Databaseverbindingen",
+      "description": "In gebruik en wachtend; een wachtrij betekent dat de pool te klein is of queries te lang duren.",
+      "id": 22,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 61
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (agroal_active_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "actief {{instance}}"
+        },
+        {
+          "refId": "B",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (agroal_awaiting_count{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "wachtend {{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Wachttijd op een databaseverbinding",
+      "description": "",
+      "id": 23,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 61
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "max by (instance) (agroal_blocking_time_max_milliseconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Proces",
+      "id": 24,
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 69
+      },
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap in gebruik",
+      "description": "",
+      "id": 25,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 70
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (jvm_memory_used_bytes{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\", area=\"heap\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Worker-pool in gebruik",
+      "description": "Bezette threads in de pool voor blokkerend werk; staat hij lang op het maximum, dan wachten verzoeken.",
+      "id": 26,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 70
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "sum by (instance) (worker_pool_active{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"})",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Sinds de start",
+      "description": "Een sprong naar 0 is een herstart.",
+      "id": 27,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 70
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "process_uptime_seconds{dienst=\"berichtenmagazijn\", omgeving=~\"$omgeving\", magazijn=~\"$magazijn\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ]
+    }
+  ]
+}

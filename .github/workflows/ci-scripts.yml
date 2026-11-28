@@ -17,7 +17,7 @@ name: CI-scripts
 # volgende die toevallig een script aanraakt. Ten tweede hoort deze check een required context te
 # zijn, en een required check achter een workflow-niveau `paths`-filter wordt bij een
 # niet-matchende PR nooit gerapporteerd: die blijft eeuwig 'expected' en blokkeert de merge
-# voorgoed. De job kost enkele seconden (linting plus bash-unittests, geen build).
+# voorgoed. De job kost enkele minuten (linting, bash-unittests en promtool in containers; geen build).
 #
 # Op een push naar main gelden beide redenen niet: required contexts worden alleen op PR's
 # beoordeeld, en de kruiscontrole heeft daar al gevuurd. De push-run blijft als vangnet voor een
@@ -31,7 +31,7 @@ on:
     types: [checks_requested]
   push:
     branches: [main]
-    paths: ['.github/scripts/**', '.github/actions/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**', 'demo/lib/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-*.yaml', 'charts/**']
+    paths: ['.github/scripts/**', '.github/actions/**', '.claude/hooks/**', '.github/workflows/**', 'docs/architecture/**', '**/pom.xml', '.clusterfuzzlite/base/Dockerfile', 'demo/*.sh', 'demo/*.py', 'demo/environment/**', 'demo/lib/**', 'compose.yaml', 'compose.podman*.yaml', 'compose.proeftuin-*.yaml', 'charts/**', 'beheer/**']
 
 permissions:
   contents: read
@@ -166,12 +166,13 @@ jobs:
           # zelf als afsluitende ASSERTIES=-regel; een kale `echo "OK: ..."` telt daardoor niet mee,
           # en het verlagen van een verwachting is een zichtbare diff in plaats van stille erosie.
           declare -A VERWACHTE_ASSERTIES=(
-            [.github/scripts/test-wijzigingsfilter.sh]=117
+            [.github/scripts/test-wijzigingsfilter.sh]=119
             [.github/scripts/test-uitrol-poort.sh]=100
             [.github/scripts/test-opruim-oordeel.sh]=62
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
             [.github/scripts/test-preview-klaarzetten.sh]=97
+            [.github/scripts/test-beheer-meldingen.sh]=36
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
             [.github/scripts/test-ghcr-package-bestaat.sh]=29

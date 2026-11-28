@@ -353,6 +353,12 @@ class UitvraagKetenE2eTest {
         // Elke bestemming apart, met het endpoint-template en niet het bericht-id als pad.
         assertTrue(uitgaand.any { magazijnAdres in it && "uri=\"/api/v1/berichten/{berichtId}\"" in it }, uitgaand.toString())
         assertTrue(uitgaand.any { magazijnAdres in it && "uri=\"/api/v1/berichten\"" in it }, uitgaand.toString())
+        // De alertregel UitvraagMagazijnFaalt en het uitvraag-dashboard (beheer/) kiezen de magazijnaanroepen op
+        // deze clientName en tellen per outcome; een andere waarde laat ze stil leeg.
+        assertTrue(
+            uitgaand.any { magazijnAdres in it && "clientName=\"none\"" in it && "outcome=\"SUCCESS\"" in it },
+            uitgaand.toString(),
+        )
         assertTrue(uitgaand.any { profielAdres in it && "clientName=\"profiel-service\"" in it }, uitgaand.toString())
 
         // Geen ontvanger, geen bericht-id: alleen begrensde labels.

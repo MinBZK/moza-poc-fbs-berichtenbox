@@ -1,0 +1,85 @@
+# Prometheus-alertregels voor het stelselregister. Laden met `rule_files` in Prometheus of als
+# Mimir/Grafana-regelgroep. Uitleg, drempels en wat te doen: beheer/README.md en de sectie
+# "Meldingen" van docs/operator-handleiding-stelselregister.md.
+#
+# Elke expressie sluit previews uit (`omgeving!~"pr-.*"`) en telt per omgeving, behalve de `absent` van
+# …LevertGeenMeetgegevens. Elke expr staat kaal
+# op één regel; BeheerbestandenTest leest ze zo.
+groups:
+  - name: stelselregister
+    rules:
+      - alert: StelselregisterLevertGeenMeetgegevens
+        expr: absent(process_uptime_seconds{dienst="stelselregister", omgeving!~"pr-.*"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Het stelselregister levert geen meetgegevens
+          description: "Vijf minuten lang leverde geen instantie meetgegevens. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
+
+      # Eén omgeving weg terwijl een andere levert; absent hierboven ziet dat niet. Zeven dagen geheugen: een
+      # langere storing lost daarna vanzelf op, en een opgeheven omgeving meldt zo lang (silence).
+      - alert: StelselregisterVerdwenen
+        expr: group by (omgeving) (max_over_time(process_uptime_seconds{dienst="stelselregister", omgeving!~"pr-.*"}[7d])) unless group by (omgeving) (process_uptime_seconds{dienst="stelselregister", omgeving!~"pr-.*"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Het stelselregister in {{ $labels.omgeving }} levert geen meetgegevens meer"
+          description: "De dienst leverde de afgelopen zeven dagen wel meetgegevens, nu vijf minuten niet. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt. Na zeven dagen weg lost deze melding vanzelf op: dat is geen herstel. Is de omgeving bewust opgeheven of hernoemd, zet dan een silence tot het venster voorbij is."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
+
+      # Een pod die steeds omvalt, levert tussendoor meetgegevens en ontloopt zo absent en Verdwenen. Een
+      # uur, omdat de backoff van Kubernetes (tot vijf minuten) er in een halfuur te weinig laat passen; de
+      # starttijd en niet de uptime, omdat een kort leven anders geen daling laat zien. Telt per pod (een
+      # eigen instance): een uitrol met nieuwe pods telt niet.
+      - alert: StelselregisterHerstartSteeds
+        expr: sum by (omgeving) (changes(process_start_time_seconds{dienst="stelselregister", omgeving!~"pr-.*"}[1h])) >= 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Het stelselregister in {{ $labels.omgeving }} herstart steeds opnieuw"
+          description: "Drie of meer herstarts in een uur. Wat te doen: de log vlak voor elke herstart, en of het geheugen op is (OOM); zie ook health."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
+
+      - alert: StelselregisterFoutpercentageHoog
+        expr: sum by (omgeving) (rate(http_server_requests_seconds_count{dienst="stelselregister", omgeving!~"pr-.*", status=~"5.."}[5m])) / sum by (omgeving) (rate(http_server_requests_seconds_count{dienst="stelselregister", omgeving!~"pr-.*", status!="429"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Meer dan 5% van de verzoeken aan het stelselregister eindigt in een 5xx
+          description: "Afnemers krijgen het stelseldocument niet. Wat te doen: de log op errorId's; een 503 zonder geldend document staat bij StelseldocumentVerloopt."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
+
+      - alert: StelseldocumentVerloopt
+        expr: min by (omgeving) (fbs_stelseldocument_geldig_tot_seconds{dienst="stelselregister", omgeving!~"pr-.*"}) - time() < 3600
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Het stelseldocument verloopt binnen een uur, of er is geen geldend exemplaar
+          description: "Een afnemer die het document na het verlopen ophaalt, weigert het. Wat te doen: zoek 'Het stelseldocument is niet ververst' in de log (sleutel, register); 0 betekent geen geldend exemplaar en een 503. Zie 'Bewaken' in de handleiding."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
+
+      - alert: OndertekensleutelVerloopt
+        expr: min by (omgeving) (fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst="stelselregister", omgeving!~"pr-.*", herkomst="keystore"}) - time() < 2592000
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: De certificaatketen van de ondertekensleutel verloopt binnen 30 dagen
+          description: "Na het verlopen kan het stelselregister geen geldig document meer uitgeven. Wat te doen: een nieuwe sleutel en keten in de keystore zetten; zie 'Sleutelbeheer' in de handleiding."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
+
+      - alert: OndertekensleutelBijnaVerlopen
+        expr: min by (omgeving) (fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst="stelselregister", omgeving!~"pr-.*", herkomst="keystore"}) - time() < 604800
+        for: 1h
+        labels:
+          severity: critical
+        annotations:
+          summary: De certificaatketen van de ondertekensleutel verloopt binnen 7 dagen
+          description: "Zelfde oorzaak als OndertekensleutelVerloopt, nu met minder dan een week marge. Wat te doen: de sleutel vandaag vervangen; zie 'Sleutelbeheer' in de handleiding."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen

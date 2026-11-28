@@ -1,0 +1,89 @@
+# Prometheus-alertregels voor de berichtenuitvraag. Laden met `rule_files` in Prometheus of als
+# Mimir/Grafana-regelgroep. Uitleg, drempels en wat te doen: beheer/README.md en de sectie
+# "Meldingen" van docs/operator-handleiding-uitvraag.md.
+#
+# Elke expressie sluit previews uit (`omgeving!~"pr-.*"`) en telt per omgeving, behalve de `absent` van
+# …LevertGeenMeetgegevens. Elke expr staat kaal
+# op één regel; BeheerbestandenTest leest ze zo.
+groups:
+  - name: berichtenuitvraag
+    rules:
+      - alert: UitvraagLevertGeenMeetgegevens
+        expr: absent(process_uptime_seconds{dienst="berichtenuitvraag", omgeving!~"pr-.*"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: De berichtenuitvraag levert geen meetgegevens
+          description: "Vijf minuten lang leverde geen instantie meetgegevens. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
+
+      # Eén omgeving weg terwijl een andere levert; absent hierboven ziet dat niet. Zeven dagen geheugen: een
+      # langere storing lost daarna vanzelf op, en een opgeheven omgeving meldt zo lang (silence).
+      - alert: UitvraagVerdwenen
+        expr: group by (omgeving) (max_over_time(process_uptime_seconds{dienst="berichtenuitvraag", omgeving!~"pr-.*"}[7d])) unless group by (omgeving) (process_uptime_seconds{dienst="berichtenuitvraag", omgeving!~"pr-.*"})
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "De berichtenuitvraag in {{ $labels.omgeving }} levert geen meetgegevens meer"
+          description: "De dienst leverde de afgelopen zeven dagen wel meetgegevens, nu vijf minuten niet. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt. Na zeven dagen weg lost deze melding vanzelf op: dat is geen herstel. Is de omgeving bewust opgeheven of hernoemd, zet dan een silence tot het venster voorbij is."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
+
+      # Een pod die steeds omvalt, levert tussendoor meetgegevens en ontloopt zo absent en Verdwenen. Een
+      # uur, omdat de backoff van Kubernetes (tot vijf minuten) er in een halfuur te weinig laat passen; de
+      # starttijd en niet de uptime, omdat een kort leven anders geen daling laat zien. Telt per pod (een
+      # eigen instance): een uitrol met nieuwe pods telt niet.
+      - alert: UitvraagHerstartSteeds
+        expr: sum by (omgeving) (changes(process_start_time_seconds{dienst="berichtenuitvraag", omgeving!~"pr-.*"}[1h])) >= 3
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "De berichtenuitvraag in {{ $labels.omgeving }} herstart steeds opnieuw"
+          description: "Drie of meer herstarts in een uur. Wat te doen: de log vlak voor elke herstart, en of het geheugen op is (OOM); zie ook health en de verbindingen met Redis en de logboekdatabase."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
+
+      - alert: UitvraagFoutpercentageHoog
+        expr: sum by (omgeving) (rate(http_server_requests_seconds_count{dienst="berichtenuitvraag", omgeving!~"pr-.*", status=~"5.."}[5m])) / sum by (omgeving) (rate(http_server_requests_seconds_count{dienst="berichtenuitvraag", omgeving!~"pr-.*", status!="429"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Meer dan 5% van de verzoeken aan de uitvraag eindigt in een 5xx
+          description: "Een 429 (te-veel-sessies: meer gelijktijdige sessies voor één ontvanger dan max-per-ontvanger) telt in teller noch noemer. Een 503 te-veel-open-berichtenboxen of te-veel-gelijktijdige-downloads (een plafond per instantie) telt wél mee: staat het verkeer op een piek, dan is dat de oorzaak. Wat te doen: kijk of UitvraagLogboekWeigert of UitvraagMagazijnFaalt ook afgaat, anders de log op errorId's en Redis."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
+
+      # Een magazijn dat de verbinding weigert, telt als UNKNOWN; een 5xx als SERVER_ERROR. Een 403, 404 of
+      # 410 (CLIENT_ERROR) is een gewoon antwoord en telt niet als uitval. Per `address`: staan alle
+      # magazijnen achter één FSC-outway, dan delen ze dat adres en verdunt een gezond magazijn een falend.
+      # Een teller per magazijn (OIN) wacht op MinBZK/MijnOverheidZakelijk#1472.
+      - alert: UitvraagMagazijnFaalt
+        expr: sum by (omgeving, address) (rate(http_client_requests_seconds_count{dienst="berichtenuitvraag", omgeving!~"pr-.*", clientName="none", outcome=~"SERVER_ERROR|UNKNOWN"}[5m])) / sum by (omgeving, address) (rate(http_client_requests_seconds_count{dienst="berichtenuitvraag", omgeving!~"pr-.*", clientName="none"}[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Meer dan de helft van de aanroepen van magazijn {{ $labels.address }} mislukt"
+          description: "Ondernemers zien de berichten van dit magazijn niet of onvolledig; de andere magazijnen gaan door. Loopt het verkeer via een FSC-outway, dan is address die outway en meldt deze regel pas als meer dan de helft van alle magazijnen erachter faalt. Wat te doen: de bereikbaarheid van het magazijn, en de FSC-outway als die ertussen zit."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
+
+      - alert: UitvraagLogboekWeigert
+        expr: sum by (omgeving) (increase(fbs_logboek_geweigerd_total{dienst="berichtenuitvraag", omgeving!~"pr-.*"}[5m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+        annotations:
+          summary: De uitvraag weigert verzoeken omdat het logboek faalt
+          description: "Het logboek kon een verwerking niet vastleggen en de dienst faalt dicht. Wat te doen: de database van het logboek (LDV_POSTGRES_URL), en de log op 'Onverwachte exception' met type LogboekWriteException of SpanStorageException."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
+
+      - alert: UitvraagLogboekWaarschuwing
+        expr: sum by (omgeving, code) (increase(fbs_logboek_waarschuwing_total{dienst="berichtenuitvraag", omgeving!~"pr-.*"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Waarschuwing van het logboek: {{ $labels.code }}"
+          description: "Het logboek geeft een verwerking mogelijk onjuist weer, of gegevens verdwijnen zonder logregel. Bij sessie_veger_faalt en opruimen_na_schrijven wist de Redis-TTL zonder logregel als het opruimen binnen de vangnet-marge niet alsnog lukt. Wat te doen: per code in de operator-handleiding."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-uitvraag.md#meldingen
