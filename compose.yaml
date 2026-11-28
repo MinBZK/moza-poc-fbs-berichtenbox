@@ -594,7 +594,8 @@ services:
     command:
       - --config.file=/etc/fbs-beheer/prometheus.yml
       - --web.listen-address=0.0.0.0:9095
-      - --storage.tsdb.retention.time=1d
+      # Zeven dagen, zoals beheer/README.md vraagt: korter maakt MagazijnWisrondeBlijftUit blind.
+      - --storage.tsdb.retention.time=7d
     volumes:
       - ./demo/beheer:/etc/fbs-beheer:ro
       - ./beheer/meldingen:/etc/fbs-meldingen:ro

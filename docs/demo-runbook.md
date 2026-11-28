@@ -567,7 +567,7 @@ De persona's heten hier zoals in de personadienst; in de proeftuin staat de naam
 | 12 | Redis weg | *Redis uit* → de berichtenbox kan zijn lijst niet meer lezen en meldt dat; de uitvraag antwoordt met 502 problem+json (geen kale 500), te zien in de netwerk-tab. *Cache verlopen* blijft werken |
 | 13 | Ontdubbeling | Berichtenbox open → Scenario's → kies dezelfde persona → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht verschijnt |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
-| 16 | Logboek weg | *Logboek uitvraag uit* → nieuwe ronde: de uitvraag weigert met een 500, want het logboek is fail-closed: zonder logregel geen verwerking. In Grafana (§9b) loopt *Geweigerd door het logboek* op, en na een minuut gaat `UitvraagLogboekWeigert` af. *Alles normaal* → de volgende ronde slaagt weer |
+| 16 | Logboek weg | *Logboek uitvraag uit* → nieuwe ronde: de uitvraag geeft een 500, want het logboek is fail-closed. Een sessie starten is een wijziging die al is doorgevoerd als het logboek faalt, net als een aanmelding van een magazijn: dat telt als `LDV_ZONDER_LOGREGEL`. In Grafana (§9b) lopen *Waarschuwingen per code* en *Foutpercentage (5xx)* op; `UitvraagLogboekWaarschuwing` gaat meteen af, `UitvraagFoutpercentageHoog` na vijf minuten. *Geweigerd door het logboek* telt alleen lezende verzoeken (de lijst of een bericht opvragen in een sessie die al liep). *Alles normaal* → de volgende ronde slaagt weer |
 | 15 | Niet alles opgehaald | Kies Grootbedrijf. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`); de uitvraag geeft dat door als `afgekapt` (27 van 507). De berichtenbox toont één melding tegelijk, en bij Grootbedrijf wint die over de organisaties die niet leverden. Het afkappen zie je daarom in de voortgangsmeldingen van `_ophalen` in de netwerk-tab, of in de log van de uitvraag: `leverde minder dan er beschikbaar` |
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
@@ -584,7 +584,7 @@ een organisatie met een eigen magazijn ook op het scherm.
 |---|---|---|
 | *Magazijn A* → *Uit*, nieuwe ronde | Dashboard Berichtenuitvraag: *Aanroepen van magazijnen per uitkomst* kleurt voor magazijn A naar een fout; Berichtenmagazijn: A verdwijnt niet, want alleen de verbinding ernaartoe is dicht | `UitvraagMagazijnFaalt` na vijf minuten aanhoudende fouten |
 | *Uitvraag/aanmeld uit*, *Bericht plaatsen* | Dashboard Berichtenmagazijn: *Oudste wachtende aanmelding* loopt op, *Afleverpogingen per uitkomst* toont `netwerkfout` | `MagazijnPublicatieStaatStil` als het langer dan een kwartier duurt |
-| *Logboek uitvraag uit*, nieuwe ronde | Dashboard Berichtenuitvraag: *Geweigerd door het logboek* en *Foutpercentage (5xx)* lopen op | `UitvraagLogboekWeigert` meteen, `UitvraagFoutpercentageHoog` na vijf minuten |
+| *Logboek uitvraag uit*, nieuwe ronde | Dashboard Berichtenuitvraag: *Waarschuwingen per code* (`LDV_ZONDER_LOGREGEL`) en *Foutpercentage (5xx)* lopen op; *Geweigerd door het logboek* alleen bij een lezend verzoek in een sessie die al liep | `UitvraagLogboekWaarschuwing` meteen, `UitvraagFoutpercentageHoog` na vijf minuten; `UitvraagLogboekWeigert` alleen bij dat lezende verzoek |
 
 Een melding staat in de demo onder *Alerts* van Prometheus; er is geen meldkanaal aangesloten. De
 `omgeving` is hier `lokaal`, dus de regels sluiten niets uit.
