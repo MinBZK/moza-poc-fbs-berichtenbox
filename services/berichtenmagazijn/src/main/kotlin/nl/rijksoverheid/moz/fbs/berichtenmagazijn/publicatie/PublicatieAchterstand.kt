@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 
+import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.Gauge
 import io.micrometer.core.instrument.MeterRegistry
 import io.quarkus.narayana.jta.QuarkusTransaction
@@ -67,6 +68,9 @@ class PublicatieAchterstand(
                 .register(registry)
         }
 
+        // Vanaf de start op 0, anders ziet increase() de eerste mislukking niet.
+        doelen.forEach { mislukt(it) }
+
         Gauge.builder("fbs.publicatie.achterstand.gemeten.op", gemetenOp) { it.get().toDouble() }
             .description("Laatste geslaagde telling van de achterstand, sinds 1970 (0 = nog geen)")
             .baseUnit(SECONDEN)
@@ -102,6 +106,20 @@ class PublicatieAchterstand(
             log.warnf("Telling van de publicatie-achterstand opnieuw mislukt: %s: %s", ex.javaClass.name, ex.message)
         }
     }
+
+    /**
+     * Een aanmelding die definitief mislukte. Een counter en geen gauge: de gauge `mislukt` daalt
+     * als de retentie het bericht wist, en dan leest `increase()` een daling als reset.
+     */
+    fun definitiefMislukt(doel: String) {
+        mislukt(if (doel in doelen) doel else DownstreamClient.ONBEKEND_DOEL).increment()
+    }
+
+    private fun mislukt(doel: String): Counter =
+        Counter.builder("fbs.publicatie.mislukt")
+            .description("Aanmeldingen die definitief niet gepubliceerd zijn, per bestemming")
+            .tag("doel", doel)
+            .register(registry)
 
     /**
      * De query bevat geen parameters en geen persoonsgegevens. `now()` is de klok van de database;

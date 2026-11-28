@@ -121,6 +121,31 @@ class PublicatieAchterstandTest {
         assertThrows<IllegalArgumentException> { achterstand.tel { throw IllegalArgumentException("programmeerfout") } }
     }
 
+    @Test
+    fun `definitief mislukte aanmeldingen tellen per bestemming, vanaf nul`() {
+        val teller = { doel: String -> registry.get("fbs.publicatie.mislukt").tag("doel", doel).counter().count() }
+
+        assertEquals(0.0, teller("aanmeld"))
+        assertEquals(0.0, teller(DownstreamClient.ONBEKEND_DOEL))
+
+        achterstand.definitiefMislukt("aanmeld")
+        achterstand.definitiefMislukt("aanmeld")
+        achterstand.definitiefMislukt("notificatie")
+
+        assertEquals(2.0, teller("aanmeld"))
+        assertEquals(1.0, teller("notificatie"))
+    }
+
+    // Een vervallen bestemming maakt geen eigen reeks aan.
+    @Test
+    fun `een onbekende bestemming telt als onbekend`() {
+        achterstand.definitiefMislukt("oud-a")
+        achterstand.definitiefMislukt("oud-b")
+
+        assertEquals(2.0, registry.get("fbs.publicatie.mislukt").tag("doel", DownstreamClient.ONBEKEND_DOEL).counter().count())
+        assertEquals(3, registry.find("fbs.publicatie.mislukt").counters().size)
+    }
+
     companion object {
         @JvmStatic
         fun fouten(): List<RuntimeException> = listOf(

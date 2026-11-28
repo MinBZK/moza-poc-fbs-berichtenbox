@@ -4,6 +4,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import jakarta.persistence.EntityManager
 import jakarta.transaction.Transactional
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.DeliveryStatus
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieAchterstand
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaim
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieClaimer
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie.PublicatieDeliveryEntity
@@ -26,6 +27,7 @@ import java.time.Instant
 internal class PostgresPublicatieClaimer(
     private val entityManager: EntityManager,
     private val clock: Clock,
+    private val achterstand: PublicatieAchterstand,
 ) : PublicatieClaimer {
 
     @Transactional(Transactional.TxType.MANDATORY)
@@ -73,5 +75,8 @@ internal class PostgresPublicatieClaimer(
                     "transactie- of MANDATORY-contract gebroken",
             )
         entity.markeerMislukt(fout, volgendePoging)
+
+        // Hier en niet bij elke aanroeper: elke definitieve mislukking komt langs deze ene plek.
+        if (volgendePoging == null) achterstand.definitiefMislukt(entity.doel)
     }
 }

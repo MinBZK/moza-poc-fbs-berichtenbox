@@ -184,6 +184,27 @@ class PostgresPublicatieClaimerIntegrationTest {
         )
     }
 
+    private fun mislukt(): Double =
+        registry.get("fbs.publicatie.mislukt").tag("doel", AANMELD).counter().count()
+
+    // Op de plek waar elke definitieve mislukking langskomt; een geplande retry telt niet.
+    @Test
+    @Transactional
+    fun `een definitieve mislukking telt, een retry niet`() {
+        val nu = Instant.now()
+        val ids = List(2) { maakBericht(nu.minusSeconds(60)) }
+        val claims = claimer.claimNuVerwerkbaar(maxBatch = 100).filter { it.doel.key == AANMELD }.associateBy { it.berichtId }
+        val voor = mislukt()
+
+        claimer.markeerMislukt(claims.getValue(ids[0]).claimId, "test", volgendePoging = nu.plusSeconds(30))
+
+        assertEquals(voor, mislukt(), "een retry is geen definitieve mislukking")
+
+        claimer.markeerMislukt(claims.getValue(ids[1]).claimId, "test", volgendePoging = null)
+
+        assertEquals(voor + 1, mislukt())
+    }
+
     private fun zetAangemaaktOp(berichtId: UUID, secondenGeleden: Long) {
         deliveries.getEntityManager()
             .createNativeQuery(
