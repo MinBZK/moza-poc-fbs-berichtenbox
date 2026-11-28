@@ -280,7 +280,7 @@ services:
     command:
       - --config.file=/etc/fbs-beheer/prometheus-hostnet.yml
       - --web.listen-address=127.0.0.1:9095
-      - --storage.tsdb.retention.time=1d
+      - --storage.tsdb.retention.time=7d
 
   grafana:
     network_mode: host
