@@ -254,7 +254,7 @@ silence. Drempels en de reden ervoor:
 |---|---|---|---|
 | `MagazijnLevertGeenMeetgegevens` | critical | Vijf minuten lang levert geen enkel magazijn meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort? Zonder meetgegevens zijn de andere regels blind |
 | `MagazijnVerdwenen` | critical | Eén magazijn leverde de afgelopen zeven dagen wel meetgegevens, nu niet meer | Zelfde als hierboven, voor dat ene magazijn |
-| `MagazijnHerstartSteeds` | warning | Drie of meer herstarts in een halfuur | De log vlak voor elke herstart, en of het geheugen op is (OOM) |
+| `MagazijnHerstartSteeds` | warning | Drie of meer herstarts in een uur | De log vlak voor elke herstart, en of het geheugen op is (OOM) |
 | `MagazijnFoutpercentageHoog` | critical | Meer dan 5% van de verzoeken eindigt in een 5xx; een open circuit breaker (503) telt mee | Gaat `MagazijnLogboekWeigert` ook af, dan is het logboek de oorzaak. Anders de log op `errorId` en de database (databaseverbindingen in het dashboard) |
 | `MagazijnPublicatieStaatStil` | warning | Een aanmelding wacht al meer dan een kwartier op publicatie | Meestal de bestemming: kijk naar de afleverpogingen per uitkomst; zie [Outbox-monitoring](#outbox-monitoring) |
 | `MagazijnPublicatieMislukt` | warning | Een aanmelding is definitief mislukt; het magazijn probeert hem niet opnieuw. Bij `notificatie` krijgt de ontvanger geen melding, bij `aanmeld` ziet hij het bericht pas bij zijn volgende ophaalronde | Zoek `Bericht-publicatie definitief mislukt` in de log (met `berichtId`, `doel` en `reden`) en herstel de bestemming. De rij blijft staan voor onderzoek ([Outbox-monitoring](#outbox-monitoring)) |

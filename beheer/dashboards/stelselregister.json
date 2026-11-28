@@ -194,7 +194,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "min": 0,
+          "softMax": 0.1
         },
         "overrides": []
       },

@@ -60,11 +60,12 @@ fi
 klaarzetten() {
   local doel=$1 vreemd
 
-  # Alleen .yml: een <dienst>.yaml zou buiten de kopie, de rule_files-vergelijking en de toetsen vallen.
-  vreemd=$(find "$MELDINGEN" -maxdepth 1 -type f ! -name '*.yml' -printf '%f ')
+  # Alleen gewone .yml-bestanden direct in de map: een <dienst>.yaml, een symlink of een submap zou
+  # buiten de kopie, de rule_files-vergelijking en de toetsen vallen.
+  vreemd=$(find "$MELDINGEN" -mindepth 1 \( ! -path "$MELDINGEN/*.yml" -o ! -type f -o -path "$MELDINGEN/*/*" \) -printf '%P ')
 
   if [ -n "$vreemd" ]; then
-    echo "bestanden in beheer/meldingen/ die niet op .yml eindigen: $vreemd" >&2
+    echo "in beheer/meldingen/ hoort alleen <naam>.yml, gevonden: $vreemd" >&2
 
     return 1
   fi
@@ -179,7 +180,7 @@ PY
     && ! grep -qE '^[^[:space:]]+\.yml: ' <<<"$uitvoer"; then
     ok "mutatie '$wat' wordt gevangen"
   else
-    fout "mutatie '$wat' faalt om een andere reden dan een toets: $(head -c 300 <<<"$uitvoer")"
+    fout "mutatie '$wat' faalt om een andere reden dan een toets: $(grep -v '^[[:space:]]*$' <<<"$uitvoer" | head -c 300)"
   fi
 }
 
@@ -189,6 +190,10 @@ muteer "429 telt als fout" berichtenuitvraag.yml 'omgeving!~"pr-.*", status=~"5.
 muteer "magazijnen samengenomen" berichtenmagazijn.yml 'min by (omgeving, magazijn) (fbs_retentie_achterstand_oudste_seconds' 'min by (omgeving) (fbs_retentie_achterstand_oudste_seconds'
 muteer "4xx telt als uitval" berichtenuitvraag.yml 'outcome=~"SERVER_ERROR|UNKNOWN"' 'outcome!="SUCCESS"'
 muteer "wisronde zonder geheugen" berichtenmagazijn.yml '(max_over_time(fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[3d]))' '(fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})'
+muteer "herstarts zonder drempel" berichtenmagazijn.yml '[1h])) >= 3' '[1h])) >= 1'
+muteer "verdwenen magazijn telt bij de wisronde" berichtenmagazijn.yml ' and on (omgeving, magazijn) group by (omgeving, magazijn) (process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})
+        for: 15m' '
+        for: 15m'
 muteer "for weg bij het foutpercentage" berichtenuitvraag.yml 'status!="429"}[5m])) > 0.05
         for: 5m' 'status!="429"}[5m])) > 0.05
         for: 0m'
