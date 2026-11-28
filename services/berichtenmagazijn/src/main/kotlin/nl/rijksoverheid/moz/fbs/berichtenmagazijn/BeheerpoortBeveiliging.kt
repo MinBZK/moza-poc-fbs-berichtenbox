@@ -28,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 @ApplicationScoped
 class BeheerpoortBeveiliging(
-    @param:ConfigProperty(name = "fbs.beheerpoort.token") token: Optional<String>,
+    @ConfigProperty(name = "fbs.beheerpoort.token") token: Optional<String>,
     @param:ConfigProperty(name = "quarkus.profile") private val profiel: String,
 ) {
 
