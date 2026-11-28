@@ -133,11 +133,13 @@ met_state() {
   printf '%s\n' "$1" > "${TMP}/logius/contracts/.bootstrap-state/${OIN}-${OIN}-${DIENST}.hash"
 }
 
-# draai: het script tegen de stub; zet $RC en $UIT. Een tcp-adres laat de engine-keuze de host niet
-# bevragen: zonder dat hing de uitkomst af van een draaiende podman op de machine van de tester.
+# draai: het script tegen de stub; zet $RC en $UIT. Een tcp-adres laat de engine-keuze geen socket
+# bevragen, en een eigen XDG_RUNTIME_DIR houdt hem uit de runtime-map van de host (de opruiming van
+# een verweesde pause.pid): zonder die twee hing de uitkomst af van podman op de machine van de tester.
 draai() {
   RC=0
-  UIT="$(DOCKER_HOST=tcp://teststub.invalid PATH="${TMP}/stub:$PATH" "${TMP}/logius/deploy/local/consume-service.sh" 2>&1)" || RC=$?
+  UIT="$(DOCKER_HOST=tcp://teststub.invalid XDG_RUNTIME_DIR="${TMP}/run" PATH="${TMP}/stub:$PATH" \
+    "${TMP}/logius/deploy/local/consume-service.sh" 2>&1)" || RC=$?
 }
 
 aantal() { grep -c "^$1 " "${TMP}/stub/aanroepen.log" 2>/dev/null || true; }

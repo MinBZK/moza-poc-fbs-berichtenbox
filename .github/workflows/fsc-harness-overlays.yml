@@ -360,10 +360,10 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck + bash-unittests
-        # De harness is bash, en zijn bash-tests (demo/environment/lib/test-*.sh) draaien nergens
-        # anders. Zonder deze stap rot elke test die eraan wordt toegevoegd. De suites onder
-        # demo/lib/ (de modus-keuze) en naast de demo-scripts (demo/test-*.sh) draaien in
-        # ci-scripts.yml, want dat is een required check.
+        # De harness is bash. Zijn bash-tests (demo/environment/lib/test-*.sh) draaien ook in
+        # ci-scripts.yml, een required check, met een telling per suite; hier staan ze nog naast de
+        # docker-build van de harness, zodat een PR die alleen de harness raakt ze vóór die build
+        # ziet. De suites onder demo/lib/ en naast de demo-scripts draaien alleen in ci-scripts.yml.
         #
         # `deploy/zad/*.sh` valt bewust buiten de globs: die scripts dragen bestaande
         # SC2034-bevindingen die losstaan van de lokale harness. Ze erbij nemen vergt eerst die

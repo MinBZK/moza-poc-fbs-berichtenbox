@@ -3,7 +3,8 @@
 # merge-guard.sh bewaakt de compose-overlays en demo-grens.sh bewaakt dat het stelsel niet van
 # demonstratiecode afhangt, en jdk-handtekening.py bewaakt dat elke setup-java-stap de JDK op
 # handtekening controleert en door .github/actions/maven-cache gevolgd wordt. De suites onder
-# demo/lib/ toetsen de modus-keuze waarmee elke lokale opstelling start, demo/test-meet-fanout.sh
+# demo/lib/ toetsen de modus-keuze waarmee elke lokale opstelling start, die onder
+# demo/environment/lib/ de FSC-harness en de contract-bootstrap die ook op ZAD draait, demo/test-meet-fanout.sh
 # toetst dat de fan-out-meting een niet-geleegde cache weigert, en charts/controleer.sh toetst de
 # Helm-chart, die geen andere check in de keten raakt; die horen bij een required check, en
 # draaien daarom hier. Een fout daarin is stil — een overgeslagen job rapporteert 'skipped' en
@@ -140,14 +141,15 @@ jobs:
           # .claude/hooks/ hoort erbij: die scripts draaien op elke machine van het team, en een
           # fout erin blokkeert of verstomt een guard zonder dat iemand het merkt. demo/lib/ hoort
           # erbij omdat zijn suites hier draaien: de bibliotheek die ze toetsen, haalt dezelfde gate.
-          scripts=$(find .github/scripts .claude/hooks demo/lib charts -name '*.sh' | wc -l)
+          # Om dezelfde reden demo/environment/lib/.
+          scripts=$(find .github/scripts .claude/hooks demo/lib demo/environment/lib charts -name '*.sh' | wc -l)
 
           # `xargs -r` draait shellcheck niet bij een lege lijst; zonder deze guard zou die stilte
           # dan als geslaagd tellen in plaats van als "niets gemeten".
           if [ "$scripts" -eq 0 ]; then
             echo "FOUT: geen enkel script onder .github/scripts/, .claude/hooks/, demo/lib/ of charts/ — deze stap meet niets."
             fail=1
-          elif ! find .github/scripts .claude/hooks demo/lib charts -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
+          elif ! find .github/scripts .claude/hooks demo/lib demo/environment/lib charts -name '*.sh' -print0 | xargs -0 -r shellcheck -x -S warning; then
             fail=1
           fi
 
