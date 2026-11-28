@@ -238,6 +238,10 @@ tests:
       - eval_time: 9m
         alertname: MagazijnTellingVerouderd
         exp_alerts: []
+      # Al boven de tien minuten, maar nog binnen de for.
+      - eval_time: 13m
+        alertname: MagazijnTellingVerouderd
+        exp_alerts: []
       - eval_time: 17m
         alertname: MagazijnTellingVerouderd
         exp_alerts:
@@ -274,39 +278,64 @@ tests:
       - series: 'fbs_retentie_achterstand_oudste_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="C"}'
         values: '172800x20'
     alert_rule_test:
+      - eval_time: 10m
+        alertname: MagazijnWissenStaatStil
+        exp_alerts: []
       - eval_time: 16m
         alertname: MagazijnWissenStaatStil
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test, magazijn: B}
 
-  # De cron valt stil: de achterstand bevriest op 0, alleen de ronde zelf verraadt het. Elke tien minuten
-  # een sample, over twee dagen.
+  # De cron valt stil: de achterstand bevriest op 0, alleen de ronde zelf verraadt het. Elke vijf minuten
+  # een sample (een instant-selector kijkt vijf minuten terug), over ruim twee dagen.
   - name: de wisronde blijft uit, ook als de pods steeds herstarten
-    interval: 10m
+    interval: 5m
     input_series:
       # A draaide een ronde op t=1h (3600) en daarna nooit meer; de pod herstart elke twaalf uur, en de
       # laatste ronde staat daarna in het geheugen weer op 0.
       - series: 'fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="A"}'
-        values: '0x5 3600x66 0x216'
+        values: '0x11 3600x132 0x600'
       - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="A"}'
-        values: '0+600x71 0+600x71 0+600x71 0+600x71'
-      # B draait elke dag een ronde (op t=0 en t=24h) en herstart net zo vaak: na de herstart op t=36h
-      # staat zijn laatste ronde in het geheugen weer op 0, het maximum over drie dagen niet.
+        values: '0+300x143 0+300x143 0+300x143 0+300x143 0+300x143'
+      # B draaide een ronde op t=24h (86400) en herstart elke twaalf uur: na de herstart op t=36h staat
+      # zijn laatste ronde in het geheugen weer op 0, het maximum over drie dagen niet.
       - series: 'fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B"}'
-        values: '0x143 86400x71 0x71'
+        values: '0x287 86400x143 0x300'
       - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B"}'
-        values: '0+600x71 0+600x71 0+600x71 0+600x71'
-      # C bestaat pas sinds t=20h en had nog geen ronde: na 36 uur bestaan pas een oordeel.
+        values: '0+300x143 0+300x143 0+300x143 0+300x143 0+300x143'
+      # C bestaat pas sinds t=20h en had nog geen ronde: pas 36 uur na zijn start krijgt hij een oordeel.
       - series: 'fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="C"}'
-        values: '_x120 0x167'
+        values: '_x240 0x500'
       - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="C"}'
-        values: '_x120 0+600x167'
+        values: '_x240 0+300x500'
+      # D verdween op t=10h: dat meldt MagazijnVerdwenen, niet deze regel.
+      - series: 'fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="D"}'
+        values: '0x11 3600x107 stale'
+      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="D"}'
+        values: '0+300x119 stale'
+      # E: een uitrol op t=31h. De oude pod draaide een ronde op t=30h, de nieuwe staat op 0.
+      - series: 'fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="E", instance="e1"}'
+        values: '0x359 108000x11 stale'
+      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="E", instance="e1"}'
+        values: '0+300x371 stale'
+      - series: 'fbs_retentie_laatste_ronde_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="E", instance="e2"}'
+        values: '_x372 0x300'
+      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="E", instance="e2"}'
+        values: '_x372 0+300x300'
     alert_rule_test:
-      # 30 uur na de laatste ronde van A: nog binnen de marge.
-      - eval_time: 31h
+      # 33 uur na de laatste ronde van A: binnen de marge.
+      - eval_time: 34h
+        alertname: MagazijnWisrondeBlijftUit
+        exp_alerts: []
+      # Sinds 37 uur over de drempel, maar nog binnen de for.
+      - eval_time: 37h10m
         alertname: MagazijnWisrondeBlijftUit
         exp_alerts: []
       - eval_time: 40h
+        alertname: MagazijnWisrondeBlijftUit
+        exp_alerts:
+          - exp_labels: {severity: warning, omgeving: test, magazijn: A}
+      - eval_time: 50h
         alertname: MagazijnWisrondeBlijftUit
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test, magazijn: A}
@@ -329,10 +358,11 @@ tests:
   - name: het logboek weigert en waarschuwt
     interval: 1m
     input_series:
+      # Eén weigering is al een storing: het logboek faalt dicht.
       - series: 'fbs_logboek_geweigerd_total{dienst="berichtenuitvraag", omgeving="test"}'
-        values: '0 0 3 3 3'
+        values: '0 0 1 1 1'
       - series: 'fbs_logboek_geweigerd_total{dienst="berichtenmagazijn", omgeving="test", magazijn="A"}'
-        values: '0 0 2 2 2'
+        values: '0 0 1 1 1'
       - series: 'fbs_logboek_waarschuwing_total{dienst="berichtenmagazijn", omgeving="test", magazijn="A", code="LDV_WISSEN_ONTBREEKT"}'
         values: '0 0 1 1 1'
       - series: 'fbs_logboek_waarschuwing_total{dienst="berichtenuitvraag", omgeving="test", code="sessie_veger_faalt"}'
@@ -430,6 +460,13 @@ tests:
       # Nog 31 dagen: net buiten de drempel van 30.
       - series: 'fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst="stelselregister", omgeving="productie", herkomst="keystore"}'
         values: '2678400x80'
+      # Rond de twee drempels: 6, 8 en 29 dagen.
+      - series: 'fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst="stelselregister", omgeving="zes-dagen", herkomst="keystore"}'
+        values: '518400x80'
+      - series: 'fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst="stelselregister", omgeving="acht-dagen", herkomst="keystore"}'
+        values: '691200x80'
+      - series: 'fbs_stelseldocument_sleutel_geldig_tot_seconds{dienst="stelselregister", omgeving="negenentwintig-dagen", herkomst="keystore"}'
+        values: '2505600x80'
     alert_rule_test:
       - eval_time: 30m
         alertname: OndertekensleutelVerloopt
@@ -439,10 +476,14 @@ tests:
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test}
           - exp_labels: {severity: warning, omgeving: acceptatie}
+          - exp_labels: {severity: warning, omgeving: zes-dagen}
+          - exp_labels: {severity: warning, omgeving: acht-dagen}
+          - exp_labels: {severity: warning, omgeving: negenentwintig-dagen}
       - eval_time: 61m
         alertname: OndertekensleutelBijnaVerlopen
         exp_alerts:
           - exp_labels: {severity: critical, omgeving: acceptatie}
+          - exp_labels: {severity: critical, omgeving: zes-dagen}
 
   # --- grenzen en randen ------------------------------------------------------------------------------
 
@@ -468,7 +509,7 @@ tests:
         exp_alerts:
           - exp_labels: {severity: critical, omgeving: test, magazijn: A}
 
-  # Tien minuten gezond, dan 5,5% fouten: de melding komt binnen tien minuten na het begin van de storing.
+  # Twintig minuten gezond, dan 5,5% fouten: de melding komt binnen tien minuten na het begin van de storing.
   - name: binnen tien minuten na het begin van de storing
     interval: 1m
     input_series:
@@ -506,8 +547,9 @@ tests:
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test, address: magazijn-e}
 
-  # Twee pods van één magazijn tellen dezelfde tabel: een verse pod (achterstand 0) verbergt niets bij het
-  # wissen niet als het andere ook 0 heeft, en de telling geldt als vers zodra één pod telt.
+  # Twee pods van één magazijn tellen dezelfde tabel. Het wissen meldt pas als elke pod achterloopt (min):
+  # een pod op 0 had net een ronde. De publicatie meldt zodra één pod achterloopt (max). De telling geldt
+  # als vers zodra één pod telt.
   - name: twee pods van één magazijn
     interval: 1m
     input_series:
@@ -588,34 +630,89 @@ tests:
         exp_alerts:
           - exp_labels: {severity: critical, omgeving: productie}
 
-  # Een pod die steeds herstart (uptime telt steeds opnieuw vanaf 0); een uitrol met nieuwe pods
-  # (andere instances) telt niet.
+  # Een pod die steeds herstart, met de backoff van Kubernetes ertussen: elke herstart geeft een nieuwe
+  # starttijd. Twee herstarts in een uur is nog geen patroon, drie wel; een uitrol met nieuwe pods (andere
+  # instances) telt niet.
   - name: steeds herstarten
     interval: 1m
     input_series:
-      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="A", instance="a1"}'
-        values: '0+60x4 0+60x4 0+60x4 0+60x4 0+60x4'
-      - series: 'process_uptime_seconds{dienst="berichtenuitvraag", omgeving="test", instance="u1"}'
-        values: '0+60x4 0+60x4 0+60x4 0+60x4 0+60x4'
-      - series: 'process_uptime_seconds{dienst="stelselregister", omgeving="test", instance="s1"}'
-        values: '0+60x4 0+60x4 0+60x4 0+60x4 0+60x4'
-      # Een uitrol: drie nieuwe pods na elkaar, elk met zijn eigen instance.
-      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B", instance="b1"}'
-        values: '0+60x7 stale'
-      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B", instance="b2"}'
-        values: '_x8 0+60x7 stale'
-      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B", instance="b3"}'
-        values: '_x16 0+60x8'
+      # A: levens van vier minuten, vijf minuten backoff ertussen; drie herstarts.
+      - series: 'process_start_time_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="A", instance="a1"}'
+        values: '100x3 _x5 600x3 _x5 1100x3 _x5 1600x3'
+      # D: levens van negen minuten; drie herstarts.
+      - series: 'process_start_time_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="D", instance="d1"}'
+        values: '100x8 _x5 1000x8 _x5 2000x8 _x5 3000x8'
+      # C: twee herstarts.
+      - series: 'process_start_time_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="C", instance="c1"}'
+        values: '100x9 700x9 1400x20'
+      # B: een uitrol, drie nieuwe pods na elkaar, elk met een eigen instance.
+      - series: 'process_start_time_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B", instance="b1"}'
+        values: '100x7 stale'
+      - series: 'process_start_time_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B", instance="b2"}'
+        values: '_x8 600x7 stale'
+      - series: 'process_start_time_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="B", instance="b3"}'
+        values: '_x16 1100x40'
+      - series: 'process_start_time_seconds{dienst="berichtenuitvraag", omgeving="test", instance="u1"}'
+        values: '100x3 _x5 600x3 _x5 1100x3 _x5 1600x3'
+      - series: 'process_start_time_seconds{dienst="berichtenuitvraag", omgeving="acceptatie", instance="u2"}'
+        values: '100x9 700x9 1400x20'
+      - series: 'process_start_time_seconds{dienst="stelselregister", omgeving="test", instance="s1"}'
+        values: '100x3 _x5 600x3 _x5 1100x3 _x5 1600x3'
+      - series: 'process_start_time_seconds{dienst="stelselregister", omgeving="acceptatie", instance="s2"}'
+        values: '100x9 700x9 1400x20'
     alert_rule_test:
-      - eval_time: 20m
+      - eval_time: 50m
         alertname: MagazijnHerstartSteeds
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test, magazijn: A}
-      - eval_time: 20m
+          - exp_labels: {severity: warning, omgeving: test, magazijn: D}
+      - eval_time: 50m
         alertname: UitvraagHerstartSteeds
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test}
-      - eval_time: 20m
+      - eval_time: 50m
         alertname: StelselregisterHerstartSteeds
         exp_alerts:
           - exp_labels: {severity: warning, omgeving: test}
+
+  # Na een herstart slaagt de telling niet meer: de eerste tien minuten geen oordeel, dan nog de for.
+  - name: na een herstart slaagt de telling niet meer
+    interval: 1m
+    input_series:
+      - series: 'fbs_publicatie_achterstand_gemeten_op_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="A"}'
+        values: '0+60x99 0x40'
+      - series: 'process_uptime_seconds{dienst="berichtenmagazijn", omgeving="test", magazijn="A"}'
+        values: '6000+60x99 0+60x40'
+    alert_rule_test:
+      - eval_time: 113m
+        alertname: MagazijnTellingVerouderd
+        exp_alerts: []
+      - eval_time: 117m
+        alertname: MagazijnTellingVerouderd
+        exp_alerts:
+          - exp_labels: {severity: warning, omgeving: test, magazijn: A}
+
+  # Het stelselregister rond de 5%: 5,5% meldt, 5% en 4,5% niet.
+  - name: het foutpercentage van het stelselregister rond de drempel
+    interval: 1m
+    input_series:
+      - series: 'http_server_requests_seconds_count{dienst="stelselregister", omgeving="a", status="500"}'
+        values: '0+11x20'
+      - series: 'http_server_requests_seconds_count{dienst="stelselregister", omgeving="a", status="200"}'
+        values: '0+189x20'
+      - series: 'http_server_requests_seconds_count{dienst="stelselregister", omgeving="b", status="500"}'
+        values: '0+10x20'
+      - series: 'http_server_requests_seconds_count{dienst="stelselregister", omgeving="b", status="200"}'
+        values: '0+190x20'
+      - series: 'http_server_requests_seconds_count{dienst="stelselregister", omgeving="c", status="500"}'
+        values: '0+9x20'
+      - series: 'http_server_requests_seconds_count{dienst="stelselregister", omgeving="c", status="200"}'
+        values: '0+191x20'
+    alert_rule_test:
+      - eval_time: 3m
+        alertname: StelselregisterFoutpercentageHoog
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: StelselregisterFoutpercentageHoog
+        exp_alerts:
+          - exp_labels: {severity: critical, omgeving: a}

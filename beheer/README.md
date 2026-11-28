@@ -19,7 +19,7 @@ uitvraag en magazijn. Wat elke meetwaarde betekent: [`docs/operations/meetgegeve
 ## Aansluiten
 
 - **De labels `dienst`, `omgeving` en `magazijn`** zet de dienst zelf op elke reeks (`Meetfilters`).
-  Dashboards en regels kiezen daarop, dus ze werken met elke scrape-configuratie. `omgeving` is
+  Dashboards en regels kiezen daarop, niet op labels van de scrape. `omgeving` is
   `DEPLOYMENT_NAME` (op ZAD `test` of `pr-<n>`); buiten ZAD zet je `FBS_MEETGEGEVENS_OMGEVING`.
   `magazijn` is de OIN van het magazijn, alleen op de reeksen van het magazijn.
 - **Beschikbaarheid** leest het dashboard uit `process_uptime_seconds`: het aantal instanties dat nu
@@ -27,9 +27,15 @@ uitvraag en magazijn. Wat elke meetwaarde betekent: [`docs/operations/meetgegeve
   van de hele dienst (`absent`), van één omgeving of één magazijn dat de afgelopen zeven dagen wel
   leverde (`…Verdwenen`), en op een pod die steeds herstart (`…HerstartSteeds`). Een `…Verdwenen`
   die na zeven dagen vanzelf oplost, is geen herstel; een bewust opgeheven magazijn of omgeving, of
-  een gewijzigde OIN, krijgt zolang een silence.
+  een gewijzigde OIN, krijgt die zeven dagen een silence.
 - **De scraper moet de beheerpoort bereiken**: de applicatiepoort met een `2` ervoor, pad
   `/q/metrics`. Eist de dienst daar een token, dan stuurt de scraper het mee.
+- **Elke pod apart scrapen** (pod- of endpoints-discovery), met een eigen `instance`. Via één
+  Service-adres wisselt elke scrape van pod: dan meldt `…HerstartSteeds` steeds, en kiezen de
+  regels met `min`/`max` tussen de pods verkeerd.
+- **Bewaar minstens zeven dagen** in de Prometheus (of ruler) die de regels evalueert.
+  `MagazijnWisrondeBlijftUit` kijkt 36 uur terug en `…Verdwenen` zeven dagen; bij een kortere
+  bewaartermijn valt de eerste stil en meldt de tweede korter, zonder foutmelding.
 - **Een datasource** kies je bij het openen (variabele *Bron*); de dashboards noemen geen vaste uid.
   De variabele *Omgeving* staat standaard op `test`; bestaat die niet, dan kiest Grafana de eerste.
 - **Geen percentielen.** De diensten publiceren geen histogrammen, dus de duur is een gemiddelde en
@@ -61,11 +67,11 @@ gezond magazijn een vastgelopen magazijn niet verbergt.
 
 | Drempel | Waarom |
 |---|---|
-| Publicatie: oudste aanmelding > 15 min | Met de standaardinstellingen (vijf pogingen, backoff vanaf 1 s, een pollronde per minuut) is een retry-reeks binnen enkele minuten klaar; een `Retry-After` van de bestemming rekt hem op, tot hooguit een uur. Een kwartier is ruim langer dan een gewone storing |
+| Publicatie: oudste aanmelding > 15 min | Met de standaardinstellingen (vijf pogingen, backoff vanaf 1 s, een pollronde per minuut) is een retry-reeks binnen enkele minuten klaar; een `Retry-After` van de bestemming rekt elke wachttijd op tot hooguit een uur (het plafond van de backoff), en de reeks dus tot enkele uren. Een kwartier is ruim langer dan een gewone storing |
 | Telling verouderd > 10 min | De telling draait elke minuut; de eerste tien minuten na de start geldt nog geen oordeel |
 | Wissen: oudste achterstand > 2 dagen | De cron draait dagelijks; twee rondes gemist is een stilstand, geen toeval |
 | Wisronde > 36 uur geleden | Dezelfde cron plus een halve dag marge; de achterstand wordt alleen bij een ronde gemeten en bevriest dus als de cron stilvalt. De laatste ronde telt over drie dagen, zodat een herstart (die hem in het geheugen op 0 zet) hem niet wist |
-| Drie herstarts in een halfuur | Een pod die steeds omvalt, levert tussendoor meetgegevens en ontloopt de regels op het ontbreken ervan; een uitrol met nieuwe pods telt niet |
+| Drie herstarts in een uur | Een pod die steeds omvalt, levert tussendoor meetgegevens en ontloopt de regels op het ontbreken ervan. Een uur, omdat de backoff van Kubernetes (tot vijf minuten) in een halfuur te weinig herstarts laat passen; een uitrol met nieuwe pods telt niet |
 | `…Verdwenen`: zeven dagen | Lang genoeg voor een weekend; daarna lost de melding vanzelf op |
 | Stelseldocument < 1 uur geldig | Het document is 24 uur geldig en wordt ruim eerder vernieuwd |
 | Sleutelketen < 30 dagen | Gelijk aan de waarschuwing in de log van de dienst |

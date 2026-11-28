@@ -194,7 +194,9 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "percentunit",
+          "min": 0,
+          "softMax": 0.1
         },
         "overrides": []
       },
@@ -361,8 +363,8 @@
     },
     {
       "type": "timeseries",
-      "title": "Duur per magazijn",
-      "description": "Gemiddelde duur van een aanroep per magazijn.",
+      "title": "Aandeel mislukt per magazijn",
+      "description": "Het deel van de aanroepen per magazijn (address) zonder antwoord of met een 5xx, over vijf minuten: waarop UitvraagMagazijnFaalt meldt (boven de 50%). Zonder één mislukte aanroep is het 0.",
       "id": 9,
       "datasource": {
         "type": "prometheus",
@@ -373,6 +375,48 @@
         "w": 12,
         "x": 12,
         "y": 18
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "expr": "(sum by (address) (rate(http_client_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", clientName=\"none\", outcome=~\"SERVER_ERROR|UNKNOWN\"}[5m])) or sum by (address) (rate(http_client_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", clientName=\"none\"}[5m])) * 0) / sum by (address) (rate(http_client_requests_seconds_count{dienst=\"berichtenuitvraag\", omgeving=~\"$omgeving\", instance=~\"$instance\", clientName=\"none\"}[5m]))",
+          "legendFormat": "{{address}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duur per magazijn",
+      "description": "Gemiddelde duur van een aanroep per magazijn.",
+      "id": 10,
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 26
       },
       "fieldConfig": {
         "defaults": {
@@ -403,7 +447,7 @@
       "type": "timeseries",
       "title": "Profiel-service per status",
       "description": "",
-      "id": 10,
+      "id": 11,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -411,7 +455,7 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 0,
+        "x": 12,
         "y": 26
       },
       "fieldConfig": {
@@ -443,7 +487,7 @@
       "type": "timeseries",
       "title": "Redis-pool",
       "description": "Bezette verbindingen naar de tijdelijke opslag, en de wachtrij.",
-      "id": 11,
+      "id": 12,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -451,8 +495,8 @@
       "gridPos": {
         "h": 8,
         "w": 12,
-        "x": 12,
-        "y": 26
+        "x": 0,
+        "y": 34
       },
       "fieldConfig": {
         "defaults": {
@@ -491,13 +535,13 @@
     {
       "type": "row",
       "title": "Logboek Dataverwerkingen",
-      "id": 12,
+      "id": 13,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
       "panels": []
     },
@@ -505,7 +549,7 @@
       "type": "timeseries",
       "title": "Geweigerd door het logboek",
       "description": "Verzoeken die een 500 kregen omdat het logboek de verwerking niet kon vastleggen (fail-closed). Stijgt dit, dan is het logboek de storing, niet de dienst.",
-      "id": 13,
+      "id": 14,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -514,7 +558,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -545,7 +589,7 @@
       "type": "timeseries",
       "title": "Waarschuwingen per code",
       "description": "Elke code is een alert-token uit de log: het logboek geeft een verwerking mogelijk onjuist weer, of gegevens verdwijnen zonder logregel. De alertregel meldt per code; wat te doen staat in de operator-handleiding.",
-      "id": 14,
+      "id": 15,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -554,7 +598,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 35
+        "y": 43
       },
       "fieldConfig": {
         "defaults": {
@@ -584,13 +628,13 @@
     {
       "type": "row",
       "title": "Proces",
-      "id": 15,
+      "id": 16,
       "collapsed": false,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 43
+        "y": 51
       },
       "panels": []
     },
@@ -598,7 +642,7 @@
       "type": "timeseries",
       "title": "Heap in gebruik",
       "description": "",
-      "id": 16,
+      "id": 17,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -607,7 +651,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 44
+        "y": 52
       },
       "fieldConfig": {
         "defaults": {
@@ -638,7 +682,7 @@
       "type": "timeseries",
       "title": "Worker-pool in gebruik",
       "description": "Bezette threads in de pool voor blokkerend werk; staat hij lang op het maximum, dan wachten verzoeken.",
-      "id": 17,
+      "id": 18,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -647,7 +691,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 44
+        "y": 52
       },
       "fieldConfig": {
         "defaults": {
@@ -678,7 +722,7 @@
       "type": "timeseries",
       "title": "Sinds de start",
       "description": "Een sprong naar 0 is een herstart.",
-      "id": 18,
+      "id": 19,
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -687,7 +731,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 44
+        "y": 52
       },
       "fieldConfig": {
         "defaults": {

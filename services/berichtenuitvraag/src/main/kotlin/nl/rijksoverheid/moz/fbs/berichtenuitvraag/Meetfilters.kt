@@ -14,8 +14,9 @@ import org.eclipse.microprofile.config.inject.ConfigProperty
  * valt dan terug op het ruwe pad als `uri`-label, en elke aanroeper kan zo met willekeurige
  * bericht-id's onbeperkt reeksen aanmaken. Alle OPTIONS-verzoeken tellen daarom als één reeks.
  *
- * De tegenhangers in de andere stelseldiensten zijn identiek en moeten dat blijven; om dezelfde
- * reden als bij `SecurityHeadersRegistratie` staat dit niet in fbs-common.
+ * De OPTIONS-filter is in de andere stelseldiensten identiek en moet dat blijven; in het magazijn zet
+ * `herkomst` ook `magazijn`. Om dezelfde reden als bij `SecurityHeadersRegistratie` staat dit niet in
+ * fbs-common.
  */
 class Meetfilters {
 

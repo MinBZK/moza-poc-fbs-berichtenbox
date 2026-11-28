@@ -2,7 +2,8 @@
 # Mimir/Grafana-regelgroep. Uitleg, drempels en wat te doen: beheer/README.md en de sectie
 # "Meldingen" van docs/operator-handleiding-stelselregister.md.
 #
-# Elke expressie sluit previews uit (`omgeving!~"pr-.*"`) en telt per omgeving. Elke expr staat kaal
+# Elke expressie sluit previews uit (`omgeving!~"pr-.*"`) en telt per omgeving, behalve de `absent` van
+# …LevertGeenMeetgegevens. Elke expr staat kaal
 # op één regel; BeheerbestandenTest leest ze zo.
 groups:
   - name: stelselregister
@@ -26,19 +27,21 @@ groups:
           severity: critical
         annotations:
           summary: "Het stelselregister in {{ $labels.omgeving }} levert geen meetgegevens meer"
-          description: "De dienst leverde de afgelopen zeven dagen wel meetgegevens, nu vijf minuten niet. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt. Na zeven dagen weg lost deze melding vanzelf op: dat is geen herstel. Is het bewust opgeheven of hernoemd (een andere OIN of omgeving), zet dan een silence tot het venster voorbij is."
+          description: "De dienst leverde de afgelopen zeven dagen wel meetgegevens, nu vijf minuten niet. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape de beheerpoort bereikt. Na zeven dagen weg lost deze melding vanzelf op: dat is geen herstel. Is de omgeving bewust opgeheven of hernoemd, zet dan een silence tot het venster voorbij is."
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
 
-      # Een pod die steeds na een paar minuten omvalt, levert tussendoor meetgegevens en ontloopt zo
-      # absent en Verdwenen. Een uitrol telt niet: nieuwe pods zijn andere instances.
+      # Een pod die steeds omvalt, levert tussendoor meetgegevens en ontloopt zo absent en Verdwenen. Een
+      # uur, omdat de backoff van Kubernetes (tot vijf minuten) er in een halfuur te weinig laat passen; de
+      # starttijd en niet de uptime, omdat een kort leven anders geen daling laat zien. Telt per pod (een
+      # eigen instance): een uitrol met nieuwe pods telt niet.
       - alert: StelselregisterHerstartSteeds
-        expr: sum by (omgeving) (resets(process_uptime_seconds{dienst="stelselregister", omgeving!~"pr-.*"}[30m])) >= 3
+        expr: sum by (omgeving) (changes(process_start_time_seconds{dienst="stelselregister", omgeving!~"pr-.*"}[1h])) >= 3
         for: 0m
         labels:
           severity: warning
         annotations:
           summary: "Het stelselregister in {{ $labels.omgeving }} herstart steeds opnieuw"
-          description: "Drie of meer herstarts in een halfuur. Wat te doen: de log vlak voor elke herstart, en of het geheugen op is (OOM); zie ook health en de databaseverbindingen."
+          description: "Drie of meer herstarts in een uur. Wat te doen: de log vlak voor elke herstart, en of het geheugen op is (OOM); zie ook health."
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding-stelselregister.md#meldingen
 
       - alert: StelselregisterFoutpercentageHoog
