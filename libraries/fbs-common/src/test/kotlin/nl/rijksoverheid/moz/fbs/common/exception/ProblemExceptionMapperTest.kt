@@ -273,6 +273,43 @@ class ProblemExceptionMapperTest {
         assertEquals("urn:uuid:$errorIdUitLog", problem.instance!!.toString())
     }
 
+    // --- Allow: een 405 noemt wat wel mag (RFC 9110 §15.5.6) ---
+
+    private fun waeMetAllow(status: Int, allow: String?): WebApplicationException {
+        val bouwer = Response.status(status)
+
+        if (allow != null) bouwer.header("Allow", allow)
+
+        return WebApplicationException(bouwer.build())
+    }
+
+    @Test
+    fun `een Allow op de exceptie gaat mee`() {
+        val respons = mapper.toResponse(jakarta.ws.rs.NotAllowedException("GET", *arrayOf("HEAD", "OPTIONS")))
+
+        assertEquals(405, respons.status)
+        assertEquals("GET, HEAD, OPTIONS", respons.getHeaderString("Allow"))
+    }
+
+    @Test
+    fun `alleen methode-tokens gaan mee in Allow`() {
+        val respons = mapper.toResponse(waeMetAllow(405, "GET, <script>, post, DELETE"))
+
+        assertEquals("DELETE, GET", respons.getHeaderString("Allow"))
+    }
+
+    @Test
+    fun `een 405 zonder bruikbare methodes krijgt geen lege Allow`() {
+        assertNull(mapper.toResponse(waeMetAllow(405, null)).getHeaderString("Allow"))
+        assertNull(mapper.toResponse(waeMetAllow(405, "<script>")).getHeaderString("Allow"))
+    }
+
+    // Alleen bij 405 betekent Allow iets; bij een andere status hoort hij er niet.
+    @Test
+    fun `een andere status neemt Allow niet over`() {
+        assertNull(mapper.toResponse(waeMetAllow(404, "GET")).getHeaderString("Allow"))
+    }
+
     // --- Retry-After: alleen een eigen, begrensde waarde gaat mee ---
 
     /**

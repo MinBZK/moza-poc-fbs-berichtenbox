@@ -1,7 +1,9 @@
 package nl.rijksoverheid.moz.fbs.common.exception
 
 import jakarta.ws.rs.WebApplicationException
+import jakarta.ws.rs.core.Context
 import jakarta.ws.rs.core.Response
+import jakarta.ws.rs.core.UriInfo
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.rijksoverheid.moz.fbs.common.Foutspoor
@@ -25,6 +27,14 @@ import java.util.UUID
 class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
 
     private val log = Logger.getLogger(ProblemExceptionMapper::class.java)
+
+    /**
+     * Alleen nodig voor de `Allow` van een 405. In de dienst een proxy per verzoek; `null` alleen als
+     * de mapper buiten CDI wordt aangemaakt, zoals in een unit-test.
+     */
+    @field:Context
+    @JvmField
+    var uriInfo: UriInfo? = null
 
     override fun toResponse(exception: WebApplicationException): Response {
         val status = exception.response?.status ?: 500
@@ -77,14 +87,22 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            metRetryAfter(
+            metAllow(
                 exception,
-                problemResponse(
-                    status = status,
-                    title = title,
-                    detail = sanitizeClientDetail(exception.message),
-                    foutcode = foutcode,
-                    instance = URI.create("urn:uuid:$errorId"),
+                // Het volledige pad: `uriInfo.path` is relatief aan de applicatieroot (`/api/v1`),
+                // en de spec noemt het pad inclusief zijn `servers`-basis.
+                // Raw: een `%2F` blijft binnen één segment, zoals Quarkus REST routeert. Gedecodeerd
+                // zou zo'n pad op een ander template passen en een onjuiste Allow opleveren.
+                pad = { uriInfo?.requestUri?.rawPath },
+                respons = metRetryAfter(
+                    exception,
+                    problemResponse(
+                        status = status,
+                        title = title,
+                        detail = sanitizeClientDetail(exception.message),
+                        foutcode = foutcode,
+                        instance = URI.create("urn:uuid:$errorId"),
+                    ),
                 ),
             )
         }
@@ -143,6 +161,31 @@ private fun metRetryAfter(exception: WebApplicationException, respons: Response)
 
     return Response.fromResponse(respons).header("Retry-After", seconden).build()
 }
+
+/**
+ * Een 405 noemt de methodes die wel mogen (RFC 9110 §15.5.6). Draagt de exceptie al een `Allow`,
+ * dan gaat die mee (alleen methode-tokens: een eigen throw-site mag er geen tekst in smokkelen).
+ * Quarkus REST zet hem bij een ontbrekende methode niet; dan komt hij uit de spec van de dienst.
+ */
+private fun metAllow(exception: WebApplicationException, respons: Response, pad: () -> String?): Response {
+    if (respons.status != Response.Status.METHOD_NOT_ALLOWED.statusCode) return respons
+
+    val vanExceptie = exception.response?.getHeaderString("Allow")
+        ?.split(',')
+        ?.map(String::trim)
+        ?.filter { it.matches(METHODE_TOKEN) }
+        .orEmpty()
+
+    val methodes = vanExceptie.ifEmpty {
+        pad()?.let { ToegestaneMethodes.vanDienst()?.voor(it) }.orEmpty()
+    }.sorted()
+
+    if (methodes.isEmpty()) return respons
+
+    return Response.fromResponse(respons).header("Allow", methodes.joinToString(", ")).build()
+}
+
+private val METHODE_TOKEN = Regex("[A-Z]{1,16}")
 
 /**
  * Bovengrens op een overgenomen `Retry-After`. Vijf minuten dekt elke tijdelijke storing waarop
