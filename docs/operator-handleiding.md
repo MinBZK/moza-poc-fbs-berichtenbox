@@ -119,12 +119,19 @@ schendt de aanbeveling om credentials uit URL-paths te houden.
 De meetwaarden staan in [operations/meetgegevens.md](operations/meetgegevens.md): de achterstand
 per status en bestemming, en de leeftijd van de oudste aanmelding die al had mogen gaan.
 
-* **`fbs_publicatie_achterstand_oudste_seconds` loopt op**: poller-stilstand of poison-pill. In de
-  log staat dan `Onverwachte fout in pollronde (opeenvolgendeFouten=…)` (ERROR), en na
-  `magazijn.publicatie.polling.max-opeenvolgende-fouten` keer op rij
-  `Pollronde overgeslagen na … opeenvolgende fouten` (WARN).
-* **`status = MISLUKT` met `volgende_poging IS NULL`** (`fbs_publicatie_achterstand{status="mislukt"}`):
-  definitief mislukt, na `max-pogingen` retries of door een niet-herstelbare fout zoals een 4xx.
+* **`fbs_publicatie_achterstand_oudste_seconds` loopt op**, met als oorzaken, in volgorde van
+  waarschijnlijkheid:
+  1. De bestemming weigert of is onbereikbaar, en de aanmelding wacht in de backoff. Zie
+     `fbs_publicatie_aflevering_seconds_count{uitkomst!="geslaagd"}` per `doel`; in de log staan
+     WARN-regels `Bericht-publicatie mislukt; retry gepland`.
+  2. Een poison-pill of database-uitval in de poller. In de log kan dan
+     `Onverwachte fout in pollronde (opeenvolgendeFouten=…)` (ERROR) staan, en na
+     `magazijn.publicatie.polling.max-opeenvolgende-fouten` keer op rij
+     `Pollronde overgeslagen na … opeenvolgende fouten` (WARN).
+  3. De poller draait niet (geen pod, een hangende scheduler). Daar hoort geen logregel bij.
+* **`status = MISLUKT`** (`fbs_publicatie_achterstand{status="mislukt"}`): definitief mislukt, na
+  `max-pogingen` retries of door een niet-herstelbare fout zoals een 4xx. `laatste_fout` en
+  `pogingen` tonen de laatste poging.
   Forensisch onderzoek vereist behoud: de opschoner verwijdert deze rijen niet. Ze verdwijnen pas
   met het bericht zelf, als de retentie dat definitief wist (de FK cascadeert).
 * **`status = GEPUBLICEERD` ouder dan retentie-interval**: `PublicatieDeliveriesOpschoner`

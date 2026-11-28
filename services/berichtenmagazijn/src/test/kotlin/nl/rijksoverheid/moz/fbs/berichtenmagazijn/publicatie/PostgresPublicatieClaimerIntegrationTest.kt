@@ -263,6 +263,8 @@ class PostgresPublicatieClaimerIntegrationTest {
         try {
             // Rechtstreeks eerst: een kapotte query moet hier met haar eigen fout falen, niet als 0 ≠ 2.
             QuarkusTransaction.requiringNew().call { achterstand.telRijen() }
+            // De gauges horen bij de applicatie en houden waarden uit andere tests: eerst op nul.
+            achterstand.tel { emptyList() }
             achterstand.tel()
 
             val waarde = { d: String ->
