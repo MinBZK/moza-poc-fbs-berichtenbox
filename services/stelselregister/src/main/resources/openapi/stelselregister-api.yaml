@@ -193,13 +193,20 @@ paths:
                 tooling in de browser het document kan lezen; zonder `Origin` ontbreekt de header.
               schema:
                 type: string
-            Vary:
-              $ref: '#/components/headers/Vary'
           content:
             application/json:
               schema:
                 type: object
                 description: OpenAPI-document (OpenAPI 3)
+        '406':
+          description: De `Accept`-header sluit `application/json` uit
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
         '500':
           $ref: '#/components/responses/InternalServerError'
 

@@ -10,7 +10,8 @@ import nl.rijksoverheid.moz.fbs.stelselregister.api.SpecificatieApi
 /**
  * Levert het OpenAPI-document ook onder het basisadres, op `/api/v1/openapi.json`, waar de API
  * Design Rules het zoeken. De root (`/openapi.json`, uit `quarkus.smallrye-openapi.path`) blijft
- * voor Swagger UI en bestaande afnemers; beide paden leveren hetzelfde document uit dezelfde bron.
+ * voor bestaande afnemers en, in dev-mode, Swagger UI; beide paden leveren hetzelfde document uit
+ * dezelfde bron.
  *
  * Een resource, geen Vert.x-reroute of verplaatst SmallRye-pad: die geven op een niet-ondersteunde
  * methode 404 in plaats van 405, en dan is niet meer te toetsen dat dit pad uit de spec een route

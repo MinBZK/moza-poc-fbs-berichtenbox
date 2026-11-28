@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.stelselregister.specificatie
 
 import com.atlassian.oai.validator.OpenApiInteractionValidator
+import com.atlassian.oai.validator.report.LevelResolver
+import com.atlassian.oai.validator.report.ValidationReport
 import com.atlassian.oai.validator.restassured.OpenApiValidationFilter
 import io.quarkus.test.junit.QuarkusTest
 import io.restassured.RestAssured.given
@@ -18,6 +20,17 @@ class SpecificatieResourceTest {
 
     private val validator = OpenApiValidationFilter(
         OpenApiInteractionValidator.createForSpecificationUrl("openapi/stelselregister-api.yaml").build(),
+    )
+
+    // Een Accept die de spec niet kent, is zelf al een afwijking; hier telt alleen het antwoord.
+    private val alleenAntwoord = OpenApiValidationFilter(
+        OpenApiInteractionValidator.createForSpecificationUrl("openapi/stelselregister-api.yaml")
+            .withLevelResolver(
+                LevelResolver.create()
+                    .withLevel("validation.request.accept.notAllowed", ValidationReport.Level.IGNORE)
+                    .build(),
+            )
+            .build(),
     )
 
     private fun body(pad: String): String =
@@ -64,6 +77,11 @@ class SpecificatieResourceTest {
             .body("info.version", equalTo(ApiInfo.SPEC_VERSION))
             .body("paths", hasKey("/api/v1/stelseldocument"))
             .body("paths", hasKey("/api/v1/openapi.json"))
+    }
+
+    @Test
+    fun `een Accept zonder JSON geeft een 406 volgens het foutcontract`() {
+        given().filter(alleenAntwoord).accept("application/yaml").`when`().get("/api/v1/openapi.json").then().statusCode(406)
     }
 
     // Het pad staat in de spec als alleen GET; een resource geeft dan 405, geen 404.
