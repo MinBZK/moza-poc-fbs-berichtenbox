@@ -45,6 +45,8 @@ servers:
 tags:
   - name: Stelsel
     description: De deelnemende organisaties en de geldigheid van het stelseldocument
+  - name: Specificatie
+    description: Dit OpenAPI-document
 
 paths:
   /stelsel:
@@ -71,6 +73,37 @@ paths:
           $ref: '#/components/responses/InternalServerError'
         '502':
           $ref: '#/components/responses/BadGateway'
+
+  /openapi.json:
+    get:
+      tags: [Specificatie]
+      operationId: getOpenApiDocument
+      summary: OpenAPI-document van deze API
+      description: |
+        Dit document, als JSON, op `/openapi.json` onder het basisadres
+        (ADR `/core/publish-openapi`). Vrij op te halen, ook vanuit een browser op een ander
+        domein: de response staat elke origin toe, de rest van de API niet.
+      responses:
+        '200':
+          description: Het OpenAPI-document
+          headers:
+            API-Version:
+              $ref: '#/components/headers/API-Version'
+            # Kleine letters: de ADR-linter zoekt de header op precies deze sleutel.
+            access-control-allow-origin:
+              description: Altijd `*`, zodat tooling in de browser het document kan lezen.
+              schema:
+                type: string
+                enum: ['*']
+          content:
+            application/json:
+              schema:
+                type: object
+                description: OpenAPI-document (OpenAPI 3)
+        '406':
+          $ref: '#/components/responses/NotAcceptable'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
 components:
   headers:
