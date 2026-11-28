@@ -2,9 +2,11 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn
 
 import io.micrometer.core.instrument.Meter
 import io.micrometer.core.instrument.Tag
+import io.micrometer.core.instrument.Tags
 import io.micrometer.core.instrument.config.MeterFilter
 import jakarta.enterprise.inject.Produces
 import jakarta.inject.Singleton
+import org.eclipse.microprofile.config.inject.ConfigProperty
 
 /**
  * Een `OPTIONS`-verzoek krijgt antwoord zonder endpoint-template, en met een 200: van de
@@ -27,8 +29,22 @@ class Meetfilters {
         }
     }
 
+    /**
+     * Elke reeks draagt de dienst en de omgeving. De dashboards en alertregels in `beheer/` kiezen
+     * daarop, en zo zijn ze niet afhankelijk van de labels die een scraper zelf toevoegt: die
+     * verschillen per platform, en op ZAD liggen ze niet bij ons. `omgeving` is de deploymentnaam
+     * (`DEPLOYMENT_NAME` op ZAD: `test` of `pr-<n>`), zodat een regel previews kan uitsluiten.
+     */
+    @Produces
+    @Singleton
+    fun herkomst(@ConfigProperty(name = "fbs.meetgegevens.omgeving") omgeving: String): MeterFilter =
+        MeterFilter.commonTags(Tags.of(Tag.of("dienst", DIENST), Tag.of("omgeving", omgeving)))
+
     companion object {
         private const val HTTP_SERVER_REQUESTS = "http.server.requests"
+
+        /** De waarde van het label `dienst`; de dashboards en regels in `beheer/` noemen hem letterlijk. */
+        const val DIENST = "berichtenmagazijn"
 
         const val OPTIONS_URI = "OPTIONS"
     }

@@ -1,0 +1,99 @@
+# Prometheus-alertregels voor het berichtenmagazijn. Laden met `rule_files` in Prometheus of als
+# Mimir/Grafana-regelgroep. Uitleg, drempels en wat te doen: beheer/README.md en de sectie
+# "Meldingen" van docs/operator-handleiding.md.
+#
+# Elke expressie sluit previews uit (`omgeving!~"pr-.*"`): een tijdelijke omgeving per
+# wijzigingsvoorstel hoort geen melding te geven. Elke expr staat op één regel; de toets
+# BeheerbestandenTest leest ze zo en eist dat elke genoemde meetwaarde bestaat.
+groups:
+  - name: berichtenmagazijn
+    rules:
+      - alert: MagazijnLevertGeenMeetgegevens
+        expr: absent(process_uptime_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"})
+        for: 5m
+        labels:
+          severity: kritiek
+        annotations:
+          summary: Geen enkel berichtenmagazijn levert meetgegevens
+          description: "Vijf minuten lang leverde geen magazijn meetgegevens. Wat te doen: kijk of de dienst draait (health, logs) en of de scrape hem bereikt; zonder meetgegevens zijn ook de andere regels blind."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnFoutpercentageHoog
+        expr: sum by (omgeving) (rate(http_server_requests_seconds_count{dienst="berichtenmagazijn", omgeving!~"pr-.*", status=~"5.."}[5m])) / sum by (omgeving) (rate(http_server_requests_seconds_count{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: kritiek
+        annotations:
+          summary: Meer dan 5% van de verzoeken aan het magazijn eindigt in een 5xx
+          description: "Een 429 telt niet mee: een bovengrens tegen overbelasting is begrenzing, geen fout. Wat te doen: kijk of MagazijnLogboekWeigert ook afgaat (dan is het logboek de oorzaak), anders de log op errorId's en de database."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnPublicatieStaatStil
+        expr: max by (omgeving, doel) (fbs_publicatie_achterstand_oudste_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*", status="te_publiceren"}) > 900
+        for: 5m
+        labels:
+          severity: waarschuwing
+        annotations:
+          summary: "Een aanmelding voor {{ $labels.doel }} wacht al meer dan een kwartier op publicatie"
+          description: "De oudste aanmelding had al meer dan 15 minuten weg moeten zijn, ook tijdens een retry. Wat te doen: de bestemming is meestal de oorzaak; kijk naar fbs_publicatie_aflevering_seconds per uitkomst en de outbox-monitoring in de handleiding."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnPublicatieMislukt
+        expr: sum by (omgeving, doel) (increase(fbs_publicatie_mislukt_total{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: waarschuwing
+        annotations:
+          summary: "Een aanmelding voor {{ $labels.doel }} is definitief mislukt"
+          description: "Alle pogingen zijn op, of de fout krijgt geen retry; de ontvanger hoort niets over dit bericht. Wat te doen: zoek de aanmelding in de log (DELIVERY_FAILED) en lever opnieuw aan na herstel van de bestemming."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnTellingVerouderd
+        expr: time() - max by (omgeving) (fbs_publicatie_achterstand_gemeten_op_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"} > 0) > 600
+        for: 5m
+        labels:
+          severity: waarschuwing
+        annotations:
+          summary: De telling van de publicatie-achterstand loopt meer dan tien minuten achter
+          description: "De telling draait elke minuut; staat hij stil, dan zeggen de achterstandsregels niets meer. Wat te doen: de log op fouten van PublicatieAchterstand, en de database."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnWissenStaatStil
+        expr: min by (omgeving) (fbs_retentie_achterstand_oudste_seconds{dienst="berichtenmagazijn", omgeving!~"pr-.*"}) > 172800
+        for: 15m
+        labels:
+          severity: waarschuwing
+        annotations:
+          summary: Het definitief wissen loopt meer dan twee dagen achter
+          description: "Een bericht dat aan beide bewaardrempels voldoet, had al twee rondes (de cron draait dagelijks) gewist moeten zijn. Wat te doen: kijk naar fbs_retentie_fouten_total per soort en de log van HardDeleteJob."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnWissenFouten
+        expr: sum by (omgeving, soort) (increase(fbs_retentie_fouten_total{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[1h])) > 0
+        for: 0m
+        labels:
+          severity: waarschuwing
+        annotations:
+          summary: "Fouten bij het definitief wissen ({{ $labels.soort }})"
+          description: "wissen: een bericht was niet te wissen; logboek: gewist zonder logregel (ook LDV_WISSEN_ONTBREEKT); ronde: de hele ronde brak af. Wat te doen: de log van HardDeleteService, en bij logboek de registratie herstellen."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnLogboekWeigert
+        expr: sum by (omgeving) (increase(fbs_logboek_geweigerd_total{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[5m])) > 0
+        for: 0m
+        labels:
+          severity: kritiek
+        annotations:
+          summary: Het magazijn weigert verzoeken omdat het logboek faalt
+          description: "Het logboek kon een verwerking niet vastleggen en de dienst faalt dicht: aanleveringen en ophaalverzoeken krijgen een 500. Wat te doen: de database van het logboek (LDV_POSTGRES_URL) en de log op LogboekWriteException."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
+
+      - alert: MagazijnLogboekWaarschuwing
+        expr: sum by (omgeving, code) (increase(fbs_logboek_waarschuwing_total{dienst="berichtenmagazijn", omgeving!~"pr-.*"}[15m])) > 0
+        for: 0m
+        labels:
+          severity: waarschuwing
+        annotations:
+          summary: "Waarschuwing van het logboek: {{ $labels.code }}"
+          description: "Het logboek geeft een verwerking mogelijk onjuist weer, of gegevens verdwijnen zonder logregel. Wat te doen: per code in de operator-handleiding (sectie over de alert-tokens)."
+          runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
