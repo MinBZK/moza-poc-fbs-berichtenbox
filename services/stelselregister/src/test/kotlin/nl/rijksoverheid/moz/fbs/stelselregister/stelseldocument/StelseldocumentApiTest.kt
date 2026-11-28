@@ -256,6 +256,7 @@ class StelseldocumentApiTest {
             .`when`().get("/openapi.json")
             .then()
             .statusCode(200)
-            .body("paths.'/api/v1/stelseldocument'.get", notNullValue())
+            .body("servers[0].url", equalTo("/api/v1"))
+            .body("paths.'/stelseldocument'.get", notNullValue())
     }
 }
