@@ -236,9 +236,12 @@ demo/up.sh down
 | aanmeld-stub / notificatie-stub | 8083 / 8084 | Downstreams van de publicatiestroom |
 | postgres-a / -b | 5432 / 5433 | Databases van de echte magazijnen, inclusief hun eigen logboek |
 | postgres-uitvraag | 5434 | Logboek Dataverwerkingen (LDV) van de uitvraag |
+| prometheus | 9095 | Leest de beheerpoorten van uitvraag, magazijnen en stelselregister, en evalueert de alertregels uit `beheer/meldingen/` |
+| grafana | 3095 | De dashboards uit `beheer/dashboards/`, zonder inloggen te bekijken (§9b) |
 
-De uitvraag loopt in de demo door Toxiproxy voor redis, profiel en de twee echte magazijnen; de
-magazijn-downstreams (aanmeld, notificatie) lopen óók door Toxiproxy zodat ze per knop uit kunnen.
+De uitvraag loopt in de demo door Toxiproxy voor redis, profiel, de twee echte magazijnen en zijn
+logboek (`logboek`, :15434 naar postgres-uitvraag); de magazijn-downstreams (aanmeld, notificatie)
+lopen óók door Toxiproxy zodat ze per knop uit kunnen.
 
 ---
 
@@ -564,9 +567,27 @@ De persona's heten hier zoals in de personadienst; in de proeftuin staat de naam
 | 12 | Redis weg | *Redis uit* → de berichtenbox kan zijn lijst niet meer lezen en meldt dat; de uitvraag antwoordt met 502 problem+json (geen kale 500), te zien in de netwerk-tab. *Cache verlopen* blijft werken |
 | 13 | Ontdubbeling | Berichtenbox open → Scenario's → kies dezelfde persona → *Tweemaal hetzelfde event sturen* → precies één nieuw bericht verschijnt |
 | 14 | Load/stress | **Fase 7** — k6-script, nog te bouwen |
+| 16 | Logboek weg | *Logboek uitvraag uit* → nieuwe ronde: de uitvraag weigert met een 500, want het logboek is fail-closed: zonder logregel geen verwerking. In Grafana (§9b) loopt *Geweigerd door het logboek* op, en na een minuut gaat `UitvraagLogboekWeigert` af. *Alles normaal* → de volgende ronde slaagt weer |
 | 15 | Niet alles opgehaald | Kies Grootbedrijf. De Autoriteit Persoonsgegevens noemt meer berichten dan ze levert (simulator-modus `ONVOLLEDIG`); de uitvraag geeft dat door als `afgekapt` (27 van 507). De berichtenbox toont één melding tegelijk, en bij Grootbedrijf wint die over de organisaties die niet leverden. Het afkappen zie je daarom in de voortgangsmeldingen van `_ophalen` in de netwerk-tab, of in de log van de uitvraag: `leverde minder dan er beschikbaar` |
 
 **Rode vlag (markeren als belangrijk):** nog te bouwen (fase 7 — productiecode door de hele keten).
+
+### 9b. Meekijken in Grafana
+
+Grafana draait mee op <http://localhost:3095>, zonder inloggen, met de dashboards "Berichtenuitvraag",
+"Berichtenmagazijn" en "Stelselregister" uit `beheer/dashboards/`. Prometheus op
+<http://localhost:9095> laadt de alertregels uit `beheer/meldingen/`; onder *Alerts* zie je welke
+afgaan. Het zijn dezelfde bestanden die het product meelevert: wat hier op het scherm komt, komt bij
+een organisatie met een eigen magazijn ook op het scherm.
+
+| Knop in het paneel | Wat je ziet | Melding |
+|---|---|---|
+| *Magazijn A* → *Uit*, nieuwe ronde | Dashboard Berichtenuitvraag: *Aanroepen van magazijnen per uitkomst* kleurt voor magazijn A naar een fout; Berichtenmagazijn: A verdwijnt niet, want alleen de verbinding ernaartoe is dicht | `UitvraagMagazijnFaalt` na vijf minuten aanhoudende fouten |
+| *Uitvraag/aanmeld uit*, *Bericht plaatsen* | Dashboard Berichtenmagazijn: *Oudste wachtende aanmelding* loopt op, *Afleverpogingen per uitkomst* toont `netwerkfout` | `MagazijnPublicatieStaatStil` als het langer dan een kwartier duurt |
+| *Logboek uitvraag uit*, nieuwe ronde | Dashboard Berichtenuitvraag: *Geweigerd door het logboek* en *Foutpercentage (5xx)* lopen op | `UitvraagLogboekWeigert` meteen, `UitvraagFoutpercentageHoog` na vijf minuten |
+
+Een melding staat in de demo onder *Alerts* van Prometheus; er is geen meldkanaal aangesloten. De
+`omgeving` is hier `lokaal`, dus de regels sluiten niets uit.
 
 Na een storingsscenario altijd *Alles normaal* (tabblad Storingen) en voor de gesimuleerde
 magazijnen *Legen en gedrag terugzetten* (tabblad Scenario's). De toestandsbalk bovenaan het paneel zegt of dat gelukt is:

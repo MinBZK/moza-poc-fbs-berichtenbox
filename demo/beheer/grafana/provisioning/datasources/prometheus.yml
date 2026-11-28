@@ -1,0 +1,10 @@
+# De Prometheus van de demo-stack; het adres verschilt per modus (PROMETHEUS_URL in compose).
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    uid: fbs-demo-prometheus
+    type: prometheus
+    access: proxy
+    url: ${PROMETHEUS_URL}
+    isDefault: true
+    editable: false

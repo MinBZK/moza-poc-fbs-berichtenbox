@@ -48,7 +48,10 @@ jobs:
       - name: infra-image-pins moeten overal identiek zijn
         run: |
           fail=0
-          for img in redis/redis-stack-server ghcr.io/shopify/toxiproxy; do
+          # prom/prometheus staat in compose.yaml (de demo-stack) en in test-beheer-meldingen.sh (de
+          # promtool-toetsen); die twee horen dezelfde versie te draaien, anders toetst de CI regels
+          # tegen een andere Prometheus dan de demo ze laadt.
+          for img in redis/redis-stack-server ghcr.io/shopify/toxiproxy prom/prometheus; do
             # -I slaat binaire bestanden over (pins staan in tekst), zodat geen stderr-ruis;
             # stderr verder NIET dempen — een echte grep/xargs-fout moet zichtbaar zijn.
             #
@@ -67,7 +70,8 @@ jobs:
             # `docs/plans/` valt erbuiten: een plan is een verslag van een moment en citeert de pin
             # die tóen gold. Die meeslepen zou de vastlegging vervalsen, en hem meetellen zou deze
             # guard laten falen op een bestand dat niets uitrolt.
-            ruwe_pins=$(git grep --cached -hoIE "${img}:[A-Za-z0-9._-]+" -- . ':!docs/plans/' ) || rc=$?
+            # De digest hoort bij de pin: dezelfde tag met een andere digest is drift.
+            ruwe_pins=$(git grep --cached -hoIE "${img}:[A-Za-z0-9._-]+(@sha256:[0-9a-f]{64})?" -- . ':!docs/plans/' ) || rc=$?
             rc=${rc:-0}
 
             if [ "$rc" -gt 1 ]; then

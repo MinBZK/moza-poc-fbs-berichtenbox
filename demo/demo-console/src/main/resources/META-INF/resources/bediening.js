@@ -67,6 +67,7 @@ const ONDERDEEL_NAMEN = {
     profiel: 'Profielservice',
     notificatie: 'Notificatie',
     redis: 'Redis',
+    logboek: 'Logboek uitvraag',
 };
 
 /* Hoeveel acties er lopen; zolang dat er meer dan nul zijn slaat de poll over, want de statusbalk

@@ -1,0 +1,11 @@
+# De dashboards uit beheer/dashboards/, dezelfde bestanden die het product meelevert. Alleen-lezen:
+# een wijziging hoort in de repo, niet in deze Grafana.
+apiVersion: 1
+providers:
+  - name: fbs
+    folder: Federatief Berichtenstelsel
+    type: file
+    allowUiUpdates: false
+    disableDeletion: true
+    options:
+      path: /etc/fbs-dashboards

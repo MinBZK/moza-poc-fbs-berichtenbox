@@ -32,5 +32,11 @@
     "listen": "0.0.0.0:18086",
     "upstream": "berichtenuitvraag:8086",
     "enabled": true
+  },
+  {
+    "name": "logboek",
+    "listen": "0.0.0.0:15434",
+    "upstream": "postgres-uitvraag:5432",
+    "enabled": true
   }
 ]

@@ -345,8 +345,10 @@ services:
       # Het logboek moet expliciet: de %dev-default is een localhost-adres (bedoeld voor
       # draaien op de host), en localhost is binnen een container de container zelf.
       # Gebruiker, wachtwoord en databasenaam moeten gelijk blijven aan wat
-      # postgres-uitvraag hierboven zet; niets in compose bewaakt dat.
-      LDV_POSTGRES_URL: jdbc:postgresql://postgres-uitvraag:5432/ldv_logging
+      # postgres-uitvraag hierboven zet; niets in compose bewaakt dat. Via Toxiproxy, zodat de
+      # knop "logboek" het uit kan zetten: het logboek is fail-closed, dus dan weigert de uitvraag
+      # elk verzoek met een 500 en telt fbs_logboek_geweigerd_total op.
+      LDV_POSTGRES_URL: jdbc:postgresql://toxiproxy:15434/ldv_logging
       LDV_POSTGRES_USERNAME: ldv
       LDV_POSTGRES_PASSWORD: ldv
       # CORS voor de berichtenbox van de proeftuin (:8096) en de demo-proxy (:8097).
@@ -456,6 +458,8 @@ services:
       QUARKUS_PROFILE: dev
       QUARKUS_HTTP_HOST: 0.0.0.0
       TOXIPROXY_ADMIN_URL: http://toxiproxy:8474
+      # Alleen hier: de knop "logboek" bestaat alleen waar het logboek door Toxiproxy loopt.
+      TOXIPROXY_LOGBOEK_URL: http://toxiproxy:8474
       # Direct op Redis (niet via Toxiproxy) voor de cache-verval-knop.
       REDIS_HOSTS: redis://redis:6379
       # Uitvraag-aanmeld-webhook voor de ontdubbeling-knop (fase 5).
@@ -566,6 +570,59 @@ services:
       NGINX_ENVSUBST_FILTER: '^(PROXY_(BIND|PORT)|(PROEFTUIN|CONSOLE|PERSONAS|UITVRAAG)_UPSTREAM)$$'
     volumes:
       - ./demo/proxy/demo.conf.template:/etc/nginx/templates/default.conf.template:ro
+
+  # Beheer: de meetgegevens van de stelseldiensten op een scherm, zodat een storing uit het
+  # bedieningspaneel ook in de dashboards en meldingen te zien is. Dezelfde dashboards en
+  # alertregels die het product meelevert (beheer/), geprovisioneerd; alleen demo, nooit het
+  # stelsel. Prometheus bewaart niets tussen twee starts: het gaat om wat er nú gebeurt.
+  prometheus:
+    image: docker.io/prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:9095:9095"
+    depends_on:
+      berichtenuitvraag:
+        condition: service_started
+      berichtenmagazijn-a:
+        condition: service_started
+      berichtenmagazijn-b:
+        condition: service_started
+      stelselregister:
+        condition: service_started
+    environment:
+      TZ: Europe/Amsterdam
+    command:
+      - --config.file=/etc/fbs-beheer/prometheus.yml
+      - --web.listen-address=0.0.0.0:9095
+      - --storage.tsdb.retention.time=1d
+    volumes:
+      - ./demo/beheer:/etc/fbs-beheer:ro
+      - ./beheer/meldingen:/etc/fbs-meldingen:ro
+
+  # Kijken zonder inloggen (alleen lezen); beheer kan met admin/admin, net als elke verse Grafana.
+  # Op loopback, net als de rest; geen nieuws- of updatecontrole naar buiten.
+  grafana:
+    image: docker.io/grafana/grafana:12.1.1@sha256:a1701c2180249361737a99a01bc770db39381640e4d631825d38ff4535efa47d
+    profiles: [demo]
+    ports:
+      - "${DEMO_BIND:-127.0.0.1}:3095:3095"
+    depends_on:
+      prometheus:
+        condition: service_started
+    environment:
+      TZ: Europe/Amsterdam
+      PROMETHEUS_URL: http://prometheus:9095
+      GF_SERVER_HTTP_PORT: "3095"
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/fbs-dashboards/berichtenmagazijn.json
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    volumes:
+      - ./demo/beheer/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./beheer/dashboards:/etc/fbs-dashboards:ro
 
 volumes:
   postgres-data-a:
