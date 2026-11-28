@@ -9,6 +9,7 @@ import io.restassured.RestAssured.given
 import nl.rijksoverheid.moz.fbs.beheerconsole.ApiInfo
 import org.hamcrest.Matchers.equalTo
 import org.hamcrest.Matchers.hasKey
+import org.hamcrest.Matchers.not
 import org.hamcrest.Matchers.startsWith
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
@@ -93,6 +94,9 @@ class SpecificatieResourceTest {
             .`when`()
             .get("/api/v1/stelsel")
             .then()
+            // Welke fout het overzicht hier geeft, hangt aan het testprofiel; een 404 betekent een
+            // verkeerd pad, en dan zegt de toets niets.
+            .statusCode(not(equalTo(404)))
             .extract()
             .header("Access-Control-Allow-Origin")
 
