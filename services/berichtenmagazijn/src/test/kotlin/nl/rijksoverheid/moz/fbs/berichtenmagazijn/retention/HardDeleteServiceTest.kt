@@ -1,5 +1,6 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
+import io.micrometer.core.instrument.Metrics
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
@@ -100,10 +101,20 @@ class HardDeleteServiceTest {
             emptyList(),
         )
 
-        val result = service.run()
+        val logboek = SimpleMeterRegistry()
+
+        Metrics.globalRegistry.add(logboek)
+
+        val result = try {
+            service.run()
+        } finally {
+            Metrics.globalRegistry.remove(logboek)
+        }
 
         assertEquals(1, result.totaalVerwijderd)
         assertEquals(1, result.ldvFouten)
+        // Ook als afwijking van het logboek: het bericht is weg, zonder logregel.
+        assertEquals(1.0, logboek.get("fbs.logboek.waarschuwing").tag("code", HardDeleteService.LDV_ALERT_TOKEN).counter().count())
     }
 
     @Test

@@ -1,13 +1,27 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv
 
+import io.micrometer.core.instrument.MeterRegistry
+import io.quarkus.narayana.jta.QuarkusTransaction
 import io.quarkus.test.junit.QuarkusTest
 import io.quarkus.test.junit.QuarkusTestProfile
 import io.quarkus.test.junit.TestProfile
 import io.restassured.RestAssured.given
 import io.restassured.http.ContentType
 import jakarta.inject.Inject
+import java.time.Instant
+import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
+import java.util.logging.Handler
+import java.util.logging.LogRecord
+import java.util.logging.Logger
 import javax.sql.DataSource
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.Bericht
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BerichtRepository
+import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
+import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertNotNull
 import org.junit.jupiter.api.Test
 
 /**
@@ -32,6 +46,12 @@ class LdvOntbrekendSchemaTest {
     @Inject
     lateinit var dataSource: DataSource
 
+    @Inject
+    lateinit var registry: MeterRegistry
+
+    @Inject
+    lateinit var berichten: BerichtRepository
+
     class OntbrekendSchemaProfile : QuarkusTestProfile {
         override fun getConfigOverrides(): Map<String, String> = mapOf(
             "logboekdataverwerking.enabled" to "true",
@@ -50,6 +70,26 @@ class LdvOntbrekendSchemaTest {
     fun `een aanlevering faalt zichtbaar als het logboekschema ontbreekt`() {
         val onderwerp = "Aanlevering zonder logboekschema"
         val berichtenVooraf = aantalBerichten()
+        val geweigerdVooraf = registry.get("fbs.logboek.geweigerd").counter().count()
+        // Welke exceptie het vangnet kreeg: telt de teller niet, dan zegt de melding waarom.
+        val gevangen = CopyOnWriteArrayList<String>()
+        val vanger = object : Handler() {
+            override fun publish(record: LogRecord) {
+                gevangen += String.format(record.message, *(record.parameters ?: emptyArray()))
+            }
+
+            override fun flush() = Unit
+
+            override fun close() = Unit
+        }
+        val vangnetLogger = Logger.getLogger(UncaughtExceptionMapper::class.java.name)
+
+        vangnetLogger.addHandler(vanger)
+
+        // Elke code bestaat vanaf de start, ook zonder één geval: anders mist increase() het eerste.
+        LogboekMeting.Waarschuwing.entries.forEach { soort ->
+            assertNotNull(registry.find("fbs.logboek.waarschuwing").tag("code", soort.code).counter(), soort.code)
+        }
 
         given()
             .contentType(ContentType.JSON)
@@ -76,6 +116,48 @@ class LdvOntbrekendSchemaTest {
             aantalBerichten(),
             "een aanlevering die niet in het logboek kwam, mag geen bericht achterlaten",
         )
+        // De weigering moet als zodanig herkenbaar zijn, niet alleen als een 500 tussen de andere.
+        vangnetLogger.removeHandler(vanger)
+        assertEquals(
+            geweigerdVooraf + 1,
+            registry.get("fbs.logboek.geweigerd").counter().count(),
+            "geweigerd niet geteld; het vangnet logde: $gevangen",
+        )
+    }
+
+    // Bij een @Logboek-methode schrijft de wrapper pas ná de methode: het bericht is dan al
+    // verwijderd. Dat is geen weigering, maar een verwerking zonder logregel.
+    @Test
+    fun `een verwijdering zonder logregel telt als afwijking, niet als weigering`() {
+        val berichtId = UUID.randomUUID()
+
+        QuarkusTransaction.requiringNew().run {
+            berichten.save(
+                Bericht(
+                    berichtId = berichtId,
+                    afzender = Oin("00000001003214345000"),
+                    ontvanger = Bsn("999993653"),
+                    onderwerp = "Verwijderen zonder logboekschema",
+                    inhoud = "Inhoud",
+                    tijdstipOntvangst = Instant.now(),
+                    publicatietijdstip = Instant.now(),
+                ),
+            )
+        }
+
+        val code = LogboekMeting.ZONDER_LOGREGEL_TOKEN
+        val zonderVooraf = registry.get("fbs.logboek.waarschuwing").tag("code", code).counter().count()
+        val geweigerdVooraf = registry.get("fbs.logboek.geweigerd").counter().count()
+
+        given()
+            .header("X-Ontvanger", "BSN:999993653")
+            .`when`()
+            .delete("/api/v1/berichten/$berichtId")
+            .then()
+            .statusCode(500)
+
+        assertEquals(zonderVooraf + 1, registry.get("fbs.logboek.waarschuwing").tag("code", code).counter().count())
+        assertEquals(geweigerdVooraf, registry.get("fbs.logboek.geweigerd").counter().count())
     }
 
     private fun aantalBerichten(): Int = dataSource.connection.use { connectie ->

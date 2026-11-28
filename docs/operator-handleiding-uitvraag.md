@@ -122,6 +122,13 @@ ERROR-child niet worden opgeslagen, dan logt de uitvraag `LDV_UITKOMST_ONTBREEKT
 `ontvanger.type`, en bij een mislukte schrijfactie ook de `trace_id:span_id` van de logregel. Zie
 verder de [magazijn-handleiding](operator-handleiding.md#uitkomst-van-een-verwerking-in-het-logboek).
 
+Een wijzigend verzoek (een sessie starten of beëindigen, metadata bijwerken, een bericht verwijderen)
+dat een 500 kreeg omdat het logboek niet kon schrijven, is wél doorgevoerd: de uitvraag logt dan
+`LDV_ZONDER_LOGREGEL` op ERROR, met methode en pad. Meld de ontbrekende regel. De alerts
+`[ALERT sessie_veger_faalt]` en `[ALERT opruimen_na_schrijven]` tellen in dezelfde meetwaarde
+(`fbs_logboek_waarschuwing_total`, codes `sessie_veger_faalt` en `opruimen_na_schrijven`): daar wist
+de Redis-TTL straks gegevens zonder logregel.
+
 **Let op bij een grote fan-out.** Een ophaalronde duurt in het slechtste geval
 `⌈organisaties ÷ max-parallel-per-ronde⌉ × (max-wachttijd-ms ÷ 1000 + magazijn-query-timeout-seconds)`.
 De wachttijd hoort erbij omdat een bevraging eerst haar budget kan volmaken en daarna alsnog op de

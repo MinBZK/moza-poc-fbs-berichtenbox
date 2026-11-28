@@ -6,6 +6,7 @@ import jakarta.enterprise.context.ApplicationScoped
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.Sessiecache
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.OpruimUitkomst
 import nl.rijksoverheid.moz.fbs.berichtensessiecache.sessie.Opruiming
+import nl.rijksoverheid.moz.fbs.berichtenuitvraag.LogboekMeting
 import org.eclipse.microprofile.config.inject.ConfigProperty
 import org.jboss.logging.Logger
 import java.time.Duration
@@ -163,6 +164,7 @@ class SessieVeger(
                 ALARM_NA,
                 vast.maxOf { it.aantal },
             )
+            LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.SESSIE_VEGER_FAALT)
         }
     }
 
@@ -177,6 +179,7 @@ class SessieVeger(
                 opRij,
                 e.javaClass.simpleName,
             )
+            LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.SESSIE_VEGER_FAALT)
         } else {
             log.warnf("Verlopen sessies opruimen mislukt (%s); volgende ronde probeert opnieuw", e.javaClass.simpleName)
         }
@@ -201,6 +204,7 @@ class SessieVeger(
                     OpruimAanleiding.VERLOPEN.waarde,
                     opruiming.uitkomst,
                 )
+                LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.OPRUIMEN_ONTBREEKT)
             }
         }
 
@@ -216,6 +220,9 @@ class SessieVeger(
     companion object {
         /** Gelijk aan het standaardmaximum van de facade. */
         const val BATCH = 100
+
+        /** De waarde van het label `code` op de teller, naast [ALERT_TOKEN] in de log. */
+        const val METING_CODE = "sessie_veger_faalt"
 
         /** Stabiel token voor alert-routing: de veegtaak faalt aanhoudend. */
         const val ALERT_TOKEN = "[ALERT sessie_veger_faalt]"

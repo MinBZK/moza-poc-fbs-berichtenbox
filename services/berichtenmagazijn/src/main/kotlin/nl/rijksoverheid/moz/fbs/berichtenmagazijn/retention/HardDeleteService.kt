@@ -3,6 +3,7 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.ldv.LogboekMeting
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.time.Instant
@@ -181,10 +182,12 @@ class HardDeleteService(
         } catch (ex: Exception) {
             log.errorf(
                 ex,
-                "LDV-write failed na hard-delete berichtId=%s ontvangerType=%s",
+                "%s: LDV-write failed na hard-delete berichtId=%s ontvangerType=%s",
+                LDV_ALERT_TOKEN,
                 candidate.berichtId,
                 candidate.ontvangerType,
             )
+            LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.WISSEN_ONTBREEKT)
             KandidaatUitkomst.VERWIJDERD_LDV_FOUT
         }
     }
@@ -203,5 +206,8 @@ class HardDeleteService(
     companion object {
         /** Veiligheidsplafond: nooit meer dan dit aantal verwijderingen per cron-run. */
         const val MAX_PER_RUN = 100_000
+
+        /** Het bericht is definitief weg, zonder logregel van het wissen. */
+        const val LDV_ALERT_TOKEN = "LDV_WISSEN_ONTBREEKT"
     }
 }

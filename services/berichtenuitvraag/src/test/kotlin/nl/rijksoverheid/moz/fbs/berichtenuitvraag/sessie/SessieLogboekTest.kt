@@ -1,5 +1,7 @@
 package nl.rijksoverheid.moz.fbs.berichtenuitvraag.sessie
 
+import io.micrometer.core.instrument.Metrics
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.slot
@@ -149,13 +151,22 @@ class SessieLogboekTest {
             override fun close() = Unit
         }
 
+        val meting = SimpleMeterRegistry()
+
         logger.addHandler(vanger)
+        Metrics.globalRegistry.add(meting)
 
         try {
             blok()
         } finally {
             logger.removeHandler(vanger)
+            Metrics.globalRegistry.remove(meting)
         }
+
+        // Elke alertregel telt één keer mee.
+        val geteld = meting.find("fbs.logboek.waarschuwing").tag("code", SessieLogboek.ALERT_TOKEN).counter()?.count() ?: 0.0
+
+        assertEquals(regels.count { it.contains(SessieLogboek.ALERT_TOKEN) }.toDouble(), geteld, "alertregels en teller lopen uiteen")
 
         return regels
     }

@@ -63,6 +63,7 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
             // en zonder persoonsgegevens. Andere messages kunnen die wel bevatten.
             val detail = if (ex is LinkageError) " (${ex.message})" else ""
             log.errorf("%s: vastleggen gaf %s%s (%s)", ALERT_TOKEN, ex.javaClass.name, detail, kenmerken)
+            LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.UITKOMST_ONTBREEKT)
             logregels
         }
 
@@ -77,6 +78,7 @@ class MislukteUitkomst(private val processingHandler: ProcessingHandler) {
             kenmerken,
             zonderUitkomst.joinToString { "${it.spanContext.traceId}:${it.spanContext.spanId}" },
         )
+        LogboekMeting.waarschuwing(LogboekMeting.Waarschuwing.UITKOMST_ONTBREEKT)
     }
 
     companion object {

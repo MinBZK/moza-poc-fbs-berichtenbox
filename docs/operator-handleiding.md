@@ -198,6 +198,14 @@ niet (Logius-standaarden/logboek-dataverwerkingen#314).
   aanlevering faalde de commit zonder dat vaststaat of de database het bericht vastlegde. De
   aanleveraar kreeg een fout, het logboek toont de verwerking als geslaagd. Ga met het
   `berichtId` na of het bericht er staat; staat het er niet, dan is dit over-rapportage.
+* **`LDV_ZONDER_LOGREGEL`** (ERROR, met methode en pad): een wijzigend verzoek (status bijwerken,
+  verwijderen) kreeg een 500 omdat het logboek niet kon schrijven, maar de wijziging was al
+  doorgevoerd: de wrapper schrijft pas ná de methode. Het logboek mist die verwerking. Meld de
+  ontbrekende regel en herstel hem handmatig; het pad noemt het `berichtId`. Een aanlevering valt
+  hier niet onder: die schrijft het logboek vóór de opslag, en telt als geweigerd.
+* **`LDV_WISSEN_ONTBREEKT`** (ERROR, met `berichtId` en type ontvanger): het definitief wissen
+  slaagde, de logregel daarvan niet. Het bericht is weg en het logboek toont het nog. Meld de
+  ontbrekende regel; de rest van de ronde gaat door.
 
 ### W3C Trace Context (outbound)
 * Alleen `traceparent` wordt naar downstream gestuurd; `tracestate`
