@@ -30,15 +30,23 @@ class Meetfilters {
     }
 
     /**
-     * Elke reeks draagt de dienst en de omgeving. De dashboards en alertregels in `beheer/` kiezen
-     * daarop, en zo zijn ze niet afhankelijk van de labels die een scraper zelf toevoegt: die
-     * verschillen per platform, en op ZAD liggen ze niet bij ons. `omgeving` is de deploymentnaam
-     * (`DEPLOYMENT_NAME` op ZAD: `test` of `pr-<n>`), zodat een regel previews kan uitsluiten.
+     * Elke reeks draagt de dienst, de omgeving en het magazijn. De dashboards en alertregels in
+     * `beheer/` kiezen daarop, en zo zijn ze niet afhankelijk van de labels die een scraper zelf
+     * toevoegt: die verschillen per platform, en op ZAD liggen ze niet bij ons. `omgeving` is de
+     * deploymentnaam (`DEPLOYMENT_NAME` op ZAD: `test` of `pr-<n>`), zodat een regel previews kan
+     * uitsluiten.
+     *
+     * `magazijn` is de eigen OIN: twee magazijnen in één omgeving hebben elk een eigen database, en
+     * zonder dit label zou een regel die per omgeving het minimum of maximum neemt, een vastgelopen
+     * magazijn achter een gezond magazijn verstoppen. Eén waarde per pod, en publiek.
      */
     @Produces
     @Singleton
-    fun herkomst(@ConfigProperty(name = "fbs.meetgegevens.omgeving") omgeving: String): MeterFilter =
-        MeterFilter.commonTags(Tags.of(Tag.of("dienst", DIENST), Tag.of("omgeving", omgeving)))
+    fun herkomst(
+        @ConfigProperty(name = "fbs.meetgegevens.omgeving") omgeving: String,
+        @ConfigProperty(name = "magazijn.publicatie.organisatie.oin") oin: String,
+    ): MeterFilter =
+        MeterFilter.commonTags(Tags.of(Tag.of("dienst", DIENST), Tag.of("omgeving", omgeving), Tag.of("magazijn", oin)))
 
     companion object {
         private const val HTTP_SERVER_REQUESTS = "http.server.requests"

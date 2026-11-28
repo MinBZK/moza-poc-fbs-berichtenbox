@@ -1,11 +1,16 @@
 #!/usr/bin/env bash
 # Draait de toetsen van de alertregels (beheer/meldingen/toetsen.yml) met promtool, in het image van
-# Prometheus zelf: zo toetst dezelfde versie die de regels ook laadt. Daarna een mutatie op een kopie,
-# die moet falen; anders bewijst een groene uitkomst niets.
+# Prometheus zelf. Daarna mutaties op een kopie, die moeten falen; anders bewijst een groene uitkomst
+# niets.
 #
-# promtool vergelijkt de annotaties van een verwachte melding exact. Om ze niet in elke toets over
-# te schrijven, vult dit script ze aan uit de regel zelf (met `{{ $labels.x }}` uit de verwachte
-# labels). Een toets die ze wél noemt, houdt zijn eigen waarden.
+# Vóór promtool controleert een Python-stap de opzet:
+#   - `rule_files` noemt precies de regelbestanden in beheer/meldingen/, zodat een nieuwe dienst niet
+#     buiten de toetsen valt (promtool zelf geeft bij een ontbrekend bestand alleen een warning);
+#   - elke regel heeft minstens één toets waarin hij afgaat: een toets met `exp_alerts: []` bewijst
+#     niet dat een regel kán melden;
+#   - de annotaties van een verwachte melding vult hij aan uit de regel zelf (promtool vergelijkt ze
+#     exact), met `{{ $labels.x }}` uit de verwachte labels. Noemt een sjabloon een label dat de
+#     toets niet verwacht, dan is dat een fout en geen lege plek in de melding.
 #
 # Containerprogramma: podman als CONTAINER_HOST gezet is (lokaal), anders docker (de CI-runner).
 
@@ -16,7 +21,7 @@ readonly REPO_ROOT
 readonly MELDINGEN="$REPO_ROOT/beheer/meldingen"
 
 # v3.5.0, de multi-arch index.
-readonly PROMETHEUS_IMAGE='docker.io/prom/prometheus@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996'
+readonly PROMETHEUS_IMAGE='docker.io/prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996'
 
 if [ -n "${CONTAINER_HOST:-}" ]; then
   CONTAINER=(podman --remote)
@@ -40,7 +45,17 @@ fout() {
 WERK=$(mktemp -d)
 trap 'rm -rf "$WERK"' EXIT
 
-# Kopie van de regels plus een aangevulde toetsen.yml in $1.
+# Ophalen met een eigen grens: een hangende pull zou anders de hele job tot zijn timeout vasthouden,
+# met de uitkomst van elke andere suite erbij.
+if ! "${CONTAINER[@]}" image inspect "$PROMETHEUS_IMAGE" >/dev/null 2>&1; then
+  if ! timeout 180 "${CONTAINER[@]}" pull -q "$PROMETHEUS_IMAGE" >/dev/null; then
+    fout "kon $PROMETHEUS_IMAGE niet binnen drie minuten ophalen"
+    echo "ASSERTIES=$asserties"
+    exit 1
+  fi
+fi
+
+# Kopie van de regels plus een aangevulde toetsen.yml in $1; drukt per regel "positief <naam>" af.
 klaarzetten() {
   local doel=$1
 
@@ -56,27 +71,46 @@ import yaml
 
 doel = Path(sys.argv[1])
 toetsen = yaml.safe_load((doel / "toetsen.yml").read_text())
-regels = {}
 
+bestanden = {p.name for p in doel.glob("*.yml")} - {"toetsen.yml"}
+if set(toetsen["rule_files"]) != bestanden:
+    sys.exit(f"rule_files {sorted(toetsen['rule_files'])} is niet gelijk aan de regelbestanden {sorted(bestanden)}")
+
+regels = {}
 for naam in toetsen["rule_files"]:
     for groep in yaml.safe_load((doel / naam).read_text())["groups"]:
         for regel in groep["rules"]:
             regels[regel["alert"]] = regel.get("annotations", {})
 
 
-def vul(tekst, labels):
-    return re.sub(r"\{\{\s*\$labels\.(\w+)\s*\}\}", lambda m: labels.get(m.group(1), ""), tekst)
+def vul(tekst, labels, wat):
+    def label(m):
+        if m.group(1) not in labels:
+            sys.exit(f"{wat}: het sjabloon noemt $labels.{m.group(1)}, dat de toets niet verwacht")
+        return str(labels[m.group(1)])
+
+    return re.sub(r"\{\{\s*\$labels\.(\w+)\s*\}\}", label, tekst)
 
 
+positief = set()
 for toets in toetsen["tests"]:
     for geval in toets.get("alert_rule_test", []):
-        if geval["alertname"] not in regels:
-            sys.exit(f"toets '{toets['name']}' noemt onbekende melding {geval['alertname']}")
+        naam = geval["alertname"]
+        if naam not in regels:
+            sys.exit(f"toets '{toets['name']}' noemt onbekende melding {naam}")
 
         for verwacht in geval.get("exp_alerts") or []:
+            positief.add(naam)
             if "exp_annotations" not in verwacht:
                 labels = verwacht.get("exp_labels", {})
-                verwacht["exp_annotations"] = {k: vul(v, labels) for k, v in regels[geval["alertname"]].items()}
+                verwacht["exp_annotations"] = {k: vul(v, labels, f"{toets['name']} / {naam}") for k, v in regels[naam].items()}
+
+zonder = sorted(set(regels) - positief)
+if zonder:
+    sys.exit(f"regels zonder toets waarin ze afgaan: {', '.join(zonder)}")
+
+for naam in sorted(regels):
+    print(f"positief {naam}")
 
 (doel / "toetsen.yml").write_text(yaml.safe_dump(toetsen, allow_unicode=True, sort_keys=False))
 PY
@@ -85,44 +119,38 @@ PY
 promtool() {
   local map=$1
 
-  "${CONTAINER[@]}" run --rm -v "$map:/r:ro,z" -w /r --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" test rules toetsen.yml
+  "${CONTAINER[@]}" run --rm --pull=never -v "$map:/r:ro,z" -w /r --entrypoint /bin/promtool "$PROMETHEUS_IMAGE" test rules toetsen.yml
 }
 
 # --- de echte regels ------------------------------------------------------------------------------
 
-klaarzetten "$WERK/echt"
+if ! opzet=$(klaarzetten "$WERK/echt" 2>&1); then
+  fout "de opzet van de toetsen klopt niet: $opzet"
+  echo "ASSERTIES=$asserties"
+  exit 1
+fi
+
+while IFS= read -r regel; do
+  ok "${regel#positief } heeft een toets waarin hij afgaat"
+done < <(grep '^positief ' <<<"$opzet")
 
 if uitvoer=$(promtool "$WERK/echt" 2>&1); then
   ok "promtool: alle toetsen van de alertregels slagen"
 else
   fout "promtool faalt op de alertregels:"
   echo "$uitvoer"
+  echo "ASSERTIES=$asserties"
+  # Zonder een groene basis zegt een mislukte mutatie niets.
+  exit 1
 fi
 
-toetsen=$(grep -c '^  - name: ' "$MELDINGEN/toetsen.yml")
-
-if [ "$toetsen" -ge 10 ]; then
-  ok "toetsen.yml heeft $toetsen toetsen"
-else
-  fout "toetsen.yml heeft maar $toetsen toetsen; is er een weggevallen?"
-fi
-
-# Elke regel komt in minstens één toets voor: een regel zonder toets meldt misschien nooit.
-while IFS= read -r regel; do
-  if grep -q "alertname: $regel\$" "$MELDINGEN/toetsen.yml"; then
-    ok "$regel heeft een toets"
-  else
-    fout "$regel komt in geen enkele toets voor"
-  fi
-done < <(sed -n 's/^      - alert: //p' "$MELDINGEN"/berichtenmagazijn.yml "$MELDINGEN"/berichtenuitvraag.yml "$MELDINGEN"/stelselregister.yml)
-
-# --- mutaties: een kapotte regel moet de toetsen laten falen --------------------------------------
+# --- mutaties: een kapotte regel moet een toets laten falen ---------------------------------------
 
 muteer() {
-  local wat=$1 bestand=$2 van=$3 naar=$4 map
+  local wat=$1 bestand=$2 van=$3 naar=$4 map uitvoer
 
   map="$WERK/mutatie-$asserties"
-  klaarzetten "$map"
+  klaarzetten "$map" >/dev/null
 
   python3 - "$map/$bestand" "$van" "$naar" <<'PY'
 import sys
@@ -132,16 +160,22 @@ assert tekst.count(van) == 1, (pad, van)
 open(pad, "w").write(tekst.replace(van, naar))
 PY
 
-  if promtool "$map" >/dev/null 2>&1; then
+  # Alleen een falende toets telt: een parsefout of een container die niet start, faalt ook, maar
+  # bewijst niet dat de toetsen deze regel bewaken.
+  if uitvoer=$(promtool "$map" 2>&1); then
     fout "mutatie '$wat' blijft groen: de toetsen bewaken dit niet"
-  else
+  elif grep -q 'FAILED:' <<<"$uitvoer" && ! grep -qi 'parse error\|error loading' <<<"$uitvoer"; then
     ok "mutatie '$wat' wordt gevangen"
+  else
+    fout "mutatie '$wat' faalt om een andere reden dan een toets: $(head -c 300 <<<"$uitvoer")"
   fi
 }
 
-muteer "drempel foutpercentage 50%" berichtenmagazijn.yml 'omgeving!~"pr-.*"}[5m])) > 0.05' 'omgeving!~"pr-.*"}[5m])) > 0.5'
+muteer "drempel foutpercentage 50%" berichtenmagazijn.yml 'omgeving!~"pr-.*", status!="429"}[5m])) > 0.05' 'omgeving!~"pr-.*", status!="429"}[5m])) > 0.5'
 muteer "previews niet uitgesloten" stelselregister.yml 'fbs_stelseldocument_geldig_tot_seconds{dienst="stelselregister", omgeving!~"pr-.*"}' 'fbs_stelseldocument_geldig_tot_seconds{dienst="stelselregister"}'
 muteer "429 telt als fout" berichtenuitvraag.yml 'omgeving!~"pr-.*", status=~"5.."}' 'omgeving!~"pr-.*", status=~"[45].."}'
+muteer "magazijnen samengenomen" berichtenmagazijn.yml 'min by (omgeving, magazijn) (fbs_retentie_achterstand_oudste_seconds' 'min by (omgeving) (fbs_retentie_achterstand_oudste_seconds'
+muteer "4xx telt als uitval" berichtenuitvraag.yml 'outcome=~"SERVER_ERROR|UNKNOWN"' 'outcome!="SUCCESS"'
 
 echo
 echo "ASSERTIES=$asserties"

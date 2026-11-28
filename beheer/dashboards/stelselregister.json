@@ -35,13 +35,12 @@
         },
         "query": "label_values(process_uptime_seconds{dienst=\"stelselregister\"}, omgeving)",
         "refresh": 2,
-        "includeAll": true,
-        "multi": true,
+        "includeAll": false,
+        "multi": false,
         "current": {
-          "text": "All",
-          "value": "$__all"
-        },
-        "allValue": ".*"
+          "text": "test",
+          "value": "test"
+        }
       },
       {
         "name": "instance",
@@ -83,7 +82,7 @@
     {
       "type": "stat",
       "title": "Draaiende instanties",
-      "description": "Instanties die meetgegevens leveren. Valt een instantie weg, dan verdwijnt hij hier; bij 0 is de dienst niet bereikbaar (zie ook `up` per target).",
+      "description": "Instanties die nu meetgegevens leveren; bij 0 levert de dienst niets meer, en is hij niet bereikbaar of niet te scrapen.",
       "id": 2,
       "datasource": {
         "type": "prometheus",
@@ -133,17 +132,8 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "count by (instance) (process_uptime_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"})",
-          "legendFormat": "{{instance}}"
-        },
-        {
-          "refId": "B",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "expr": "up{dienst=\"stelselregister\", instance=~\"$instance\"}",
-          "legendFormat": "up {{instance}}"
+          "expr": "count(process_uptime_seconds{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}) or vector(0)",
+          "legendFormat": "instanties"
         }
       ]
     },
@@ -190,7 +180,7 @@
     {
       "type": "timeseries",
       "title": "Foutpercentage (5xx)",
-      "description": "Aandeel verzoeken met een 5xx. Een 429 (een bovengrens tegen overbelasting) telt hier bewust niet mee: dat is begrenzing, geen fout.",
+      "description": "Aandeel verzoeken met een 5xx. Een 429 telt in teller noch noemer: dat is begrenzing, geen fout, en een vloed ervan mag een falende dienst niet verdunnen.",
       "id": 4,
       "datasource": {
         "type": "prometheus",
@@ -222,7 +212,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum(rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\"}[$__rate_interval]))",
+          "expr": "sum(rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", status=~\"5..\"}[$__rate_interval])) / sum(rate(http_server_requests_seconds_count{dienst=\"stelselregister\", omgeving=~\"$omgeving\", instance=~\"$instance\", status!=\"429\"}[$__rate_interval]))",
           "legendFormat": "5xx"
         }
       ]
