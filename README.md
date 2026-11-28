@@ -92,6 +92,7 @@ lokale Maven-repository staat.
 | berichtenmagazijn    | `http://localhost:8090/api/v1/berichten`         | `http://localhost:8090/api/v1/openapi.json`    |
 | berichtenuitvraag    | `http://localhost:8086/api/v1/berichten`         | `http://localhost:8086/api/v1/openapi.json`    |
 | stelselregister      | `http://localhost:8094/api/v1/stelseldocument`   | `http://localhost:8094/openapi.json`           |
+| beheerconsole        | `http://localhost:8093/api/v1/stelsel`           | `http://localhost:8093/api/v1/openapi.json`    |
 
 De uitvraag verwacht in dev óók een magazijn B op 8091. Draai je alleen A, dan meldt het ophalen
 een gedeeltelijke storing — dat is correct gedrag, geen defect. Zie
