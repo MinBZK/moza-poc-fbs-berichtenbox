@@ -30,7 +30,8 @@ gepubliceerd() {
   local ref=$1 poging
 
   for poging in $(seq "$POGINGEN"); do
-    "$DOCKER" buildx imagetools inspect --raw "$ref" >/dev/null && return 0
+    # De foutmelding van de laatste poging bewaren: anoniem onderscheidt die "privé" van "niet bereikt".
+    LAATSTE_FOUT=$("$DOCKER" buildx imagetools inspect --raw "$ref" 2>&1 >/dev/null) && return 0
 
     if [ "$poging" -lt "$POGINGEN" ]; then
       sleep "$WACHT"
@@ -51,10 +52,20 @@ main() {
   shift 2
 
   if [ "$ANONIEM" = 1 ]; then
-    # Een lege configuratie: geen credentials, ook niet die van een eerdere `docker login`.
+    # Een configuratie zonder credentials, ook niet die van een eerdere `docker login`. Niet leeg: bij
+    # een config zonder auths zoekt de CLI zelf een credential store, en die kan er wel een hebben.
     DOCKER_CONFIG=$(mktemp -d)
     export DOCKER_CONFIG
     trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+    printf '{"auths":{"anoniem.invalid":{}}}\n' >"$DOCKER_CONFIG/config.json"
+
+    # Zonder de buildx-plugin (die bij sommige installaties onder ~/.docker staat) faalt elke
+    # opvraging, en zou elk pakket ten onrechte als privé gemeld worden.
+    if ! "$DOCKER" buildx version >/dev/null 2>&1; then
+      echo "::error title=Publicatiecontrole meet niets::buildx is niet te vinden met een eigen DOCKER_CONFIG; de anonieme controle kan niets vragen."
+
+      exit 1
+    fi
   fi
 
   local naam ref ontbrekend=()
@@ -68,8 +79,11 @@ main() {
       else
         echo "Gepubliceerd: $ref"
       fi
-    elif [ "$ANONIEM" = 1 ]; then
+    elif [ "$ANONIEM" = 1 ] && grep -qiE 'denied|unauthorized|forbidden|401|403' <<<"$LAATSTE_FOUT"; then
       echo "::error title=Image niet anoniem op te halen::$naam is zonder login niet op te halen als $ref; ZAD haalt images anoniem op, dus de pod zou niet starten. Zet het pakket op public."
+      ontbrekend+=("$naam")
+    elif [ "$ANONIEM" = 1 ]; then
+      echo "::error title=Register niet bereikt::$naam is anoniem niet opgevraagd als $ref, maar niet omdat het privé is: $(head -c 300 <<<"$LAATSTE_FOUT")"
       ontbrekend+=("$naam")
     else
       echo "::error title=Image niet gepubliceerd::$naam staat niet in het register als $ref; de uitrol zou een image zetten dat niet bestaat."
