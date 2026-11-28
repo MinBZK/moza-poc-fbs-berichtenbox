@@ -188,6 +188,44 @@ class BerichtRepository : PanacheRepositoryBase<BerichtEntity, Long> {
             ).toLong()
 
     /**
+     * Hoe lang, in seconden, het oudste bericht dat aan beide drempels voldoet al gewist had moeten
+     * zijn; 0 als er geen is. Het moment waarop een bericht wisbaar werd, is het latere van
+     * `verwijderd_op + minSoftDeleteLeeftijd` en `tijdstip_ontvangst + minLeeftijd`. Met de klok van
+     * de database, en `verwijderd_op` als UTC gelezen, zoals Hibernate het schrijft.
+     */
+    fun oudsteAchterstandVoorHardDelete(
+        receiptDeadline: Instant,
+        softDeleteDeadline: Instant,
+        minLeeftijd: java.time.Period,
+        minSoftDeleteLeeftijd: java.time.Period,
+    ): Long =
+        (
+            getEntityManager()
+                .createNativeQuery(
+                    """
+                    SELECT COALESCE(GREATEST(0, EXTRACT(EPOCH FROM now() - MIN(GREATEST(
+                               (verwijderd_op AT TIME ZONE 'UTC')
+                                   + make_interval(years => :softJaren, months => :softMaanden, days => :softDagen),
+                               tijdstip_ontvangst
+                                   + make_interval(years => :jaren, months => :maanden, days => :dagen))))), 0)
+                    FROM berichten
+                    WHERE verwijderd_op IS NOT NULL
+                      AND verwijderd_op      <= :softDeadline
+                      AND tijdstip_ontvangst <= :receiptDeadline
+                    """.trimIndent(),
+                )
+                .setParameter("softDeadline", softDeleteDeadline)
+                .setParameter("receiptDeadline", receiptDeadline)
+                .setParameter("softJaren", minSoftDeleteLeeftijd.years)
+                .setParameter("softMaanden", minSoftDeleteLeeftijd.months)
+                .setParameter("softDagen", minSoftDeleteLeeftijd.days)
+                .setParameter("jaren", minLeeftijd.years)
+                .setParameter("maanden", minLeeftijd.months)
+                .setParameter("dagen", minLeeftijd.days)
+                .singleResult as Number
+            ).toLong()
+
+    /**
      * Hard-delete van de bericht-rij op de surrogate PK. Caller MOET eerst de
      * child-rijen (bijlagen, status) verwijderen — FK is RESTRICT.
      */

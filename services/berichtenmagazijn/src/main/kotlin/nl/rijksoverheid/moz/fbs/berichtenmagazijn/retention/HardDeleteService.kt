@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention
 
+import io.quarkus.runtime.StartupEvent
 import jakarta.enterprise.context.ApplicationScoped
+import jakarta.enterprise.event.Observes
 import org.jboss.logging.Logger
 import java.time.Duration
 import java.time.Instant
@@ -94,7 +96,8 @@ class HardDeleteService(
         val durationMs = Duration.between(start, einde).toMillis()
         val resultaat = RunResultaat(totaal, fouten, ldvFouten, durationMs)
 
-        meting.ronde(resultaat, einde, telWachtend(receiptDeadline, softDeleteDeadline))
+        meting.ronde(resultaat, einde)
+        meetAchterstand(receiptDeadline, softDeleteDeadline)
         log.infof(
             "hard-delete run finished totaalVerwijderd=%d fouten=%d ldvFouten=%d durationMs=%d",
             totaal,
@@ -107,13 +110,40 @@ class HardDeleteService(
     }
 
     /**
-     * De achterstand na de ronde. Een fout hier laat de ronde zelf staan: die is al gedaan, en de
-     * meetwaarde houdt dan de vorige stand.
+     * Ook bij de start, niet alleen na een ronde: de tijdstippen van de rondes leven in het geheugen
+     * en beginnen na elke herstart op nul, de achterstand staat in de database. Zo is een taak die
+     * nooit draait ook zichtbaar als de pods vaker herstarten dan de cron vuurt.
      */
-    private fun telWachtend(receiptDeadline: Instant, softDeleteDeadline: Instant): Long? = try {
-        ops.telWachtend(receiptDeadline, softDeleteDeadline)
+    fun bijStart(@Observes start: StartupEvent) {
+        val nu = Instant.now()
+
+        meetAchterstand(subtract(nu, config.minimaleLeeftijd()), subtract(nu, config.minimaleSoftDeleteLeeftijd()))
+    }
+
+    /**
+     * Een fout hier laat de ronde zelf staan: die is al gedaan, en de meetwaarde houdt dan de vorige
+     * stand.
+     */
+    private fun meetAchterstand(receiptDeadline: Instant, softDeleteDeadline: Instant) {
+        val aantal = meetOfNull("Telling van de wachtende berichten") {
+            ops.telWachtend(receiptDeadline, softDeleteDeadline)
+        }
+        val oudste = meetOfNull("Meting van de oudste achterstand") {
+            ops.oudsteAchterstand(
+                receiptDeadline,
+                softDeleteDeadline,
+                config.minimaleLeeftijd(),
+                config.minimaleSoftDeleteLeeftijd(),
+            )
+        }
+
+        meting.achterstand(aantal, oudste)
+    }
+
+    private fun meetOfNull(wat: String, meet: () -> Long): Long? = try {
+        meet()
     } catch (ex: RuntimeException) {
-        log.warnf(ex, "Telling van de wachtende berichten na de hard-delete-ronde mislukt")
+        log.warnf(ex, "%s voor het definitief wissen mislukt", wat)
         null
     }
 

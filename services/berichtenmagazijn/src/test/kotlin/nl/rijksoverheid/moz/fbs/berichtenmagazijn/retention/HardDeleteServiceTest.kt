@@ -4,6 +4,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import io.quarkus.runtime.StartupEvent
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
@@ -177,16 +178,45 @@ class HardDeleteServiceTest {
     fun `de achterstand na de ronde komt in de meting, en een mislukte telling laat de vorige staan`() {
         every { ops.claim(any(), any(), any()) } returns emptyList()
         every { ops.telWachtend(any(), any()) } returns 5
+        every { ops.oudsteAchterstand(any(), any(), any(), any()) } returns 3_600
 
         service.run()
 
         assertEquals(5.0, gauge("fbs.retentie.wachtend"))
+        assertEquals(3_600.0, gauge("fbs.retentie.achterstand.oudste"))
 
         every { ops.telWachtend(any(), any()) } throws RuntimeException("database weg")
+        every { ops.oudsteAchterstand(any(), any(), any(), any()) } throws RuntimeException("database weg")
 
         service.run()
 
         assertEquals(5.0, gauge("fbs.retentie.wachtend"))
+        assertEquals(3_600.0, gauge("fbs.retentie.achterstand.oudste"))
+    }
+
+    // Na een herstart, vóór de eerste ronde: de achterstand komt uit de database, met de drempels
+    // uit de configuratie.
+    @Test
+    fun `bij de start staat de achterstand al in de meting`() {
+        every { ops.telWachtend(any(), any()) } returns 2
+        every { ops.oudsteAchterstand(any(), any(), Period.ofYears(7), Period.ofYears(7)) } returns 86_400
+
+        service.bijStart(StartupEvent())
+
+        assertEquals(2.0, gauge("fbs.retentie.wachtend"))
+        assertEquals(86_400.0, gauge("fbs.retentie.achterstand.oudste"))
+        assertEquals(0.0, gauge("fbs.retentie.laatste.ronde"))
+        verify(exactly = 0) { ops.claim(any(), any(), any()) }
+    }
+
+    @Test
+    fun `een mislukte meting bij de start houdt de dienst niet tegen`() {
+        every { ops.telWachtend(any(), any()) } throws RuntimeException("database nog niet bereikbaar")
+        every { ops.oudsteAchterstand(any(), any(), any(), any()) } throws RuntimeException("database nog niet bereikbaar")
+
+        service.bijStart(StartupEvent())
+
+        assertEquals(0.0, gauge("fbs.retentie.achterstand.oudste"))
     }
 
     @Test

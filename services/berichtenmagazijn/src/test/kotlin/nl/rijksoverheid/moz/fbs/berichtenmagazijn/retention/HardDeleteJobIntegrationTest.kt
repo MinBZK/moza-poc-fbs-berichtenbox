@@ -18,6 +18,7 @@ import nl.rijksoverheid.moz.fbs.berichtenmagazijn.opslag.BijlageRepository
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Bsn
 import nl.rijksoverheid.moz.fbs.kern.identificatie.Oin
 import org.junit.jupiter.api.Assertions.assertEquals
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -271,10 +272,54 @@ class HardDeleteJobIntegrationTest {
     fun `na een volledige ronde wacht er niets meer`() {
         repeat(3) { saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000) }
         // Een stand boven nul, zodat een telling die niet gebeurt hier opvalt.
-        meting.ronde(HardDeleteService.RunResultaat(0, 0, 0, 0), Instant.now(), 7)
+        meting.achterstand(7, 7)
 
         service.run()
 
         assertEquals(0.0, registry.get("fbs.retentie.wachtend").gauge().value())
+        assertEquals(0.0, registry.get("fbs.retentie.achterstand.oudste").gauge().value())
+    }
+
+    private val dag = 86_400L
+
+    private fun oudste(): Long {
+        val nu = Instant.now()
+        val leeftijd = java.time.Period.ofYears(7)
+        val drempel = nu.atOffset(java.time.ZoneOffset.UTC).minus(leeftijd).toInstant()
+
+        return ops.oudsteAchterstand(drempel, drempel, leeftijd, leeftijd)
+    }
+
+    // Wisbaar vanaf het latere van de twee drempels: 3000 dagen oud en zo lang verwijderd is
+    // ongeveer 443 dagen te laat (7 jaar is 2556 of 2557 dagen).
+    @Test
+    fun `de oudste achterstand loopt vanaf het moment dat een bericht wisbaar werd`() {
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000)
+
+        assertTrue(oudste() in 441 * dag..446 * dag, "verwacht ongeveer 443 dagen, kreeg ${oudste() / dag}")
+    }
+
+    // Lang ontvangen maar pas kort genoeg verwijderd: de soft-delete-drempel bepaalt het moment.
+    @Test
+    fun `bij ongelijke leeftijden telt de laatst gehaalde drempel`() {
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -2600)
+
+        assertTrue(oudste() in 41 * dag..46 * dag, "verwacht ongeveer 43 dagen, kreeg ${oudste() / dag}")
+    }
+
+    @Test
+    fun `de oudste van meerdere telt, en een niet-wisbaar bericht niet`() {
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -2600)
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -3000, verwijderdOpOffsetDagen = -3000)
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -1, verwijderdOpOffsetDagen = -1)
+
+        assertTrue(oudste() in 441 * dag..446 * dag, "verwacht ongeveer 443 dagen, kreeg ${oudste() / dag}")
+    }
+
+    @Test
+    fun `zonder wisbaar bericht is de achterstand nul`() {
+        saveBerichtMetLeeftijd(ontvangstOffsetDagen = -1, verwijderdOpOffsetDagen = -1)
+
+        assertEquals(0L, oudste())
     }
 }

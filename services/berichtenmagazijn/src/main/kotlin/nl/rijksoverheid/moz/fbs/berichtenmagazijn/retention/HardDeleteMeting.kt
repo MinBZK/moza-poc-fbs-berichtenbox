@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicLong
  *
  * Alleen tellingen en tijdstippen, geen labels met bericht- of ontvangergegevens. De gauges gelden
  * per pod: voor de tijdstippen geeft `max()` over de pods het laatste moment van het magazijn, voor
- * `wachtend` geeft `min()` de stand zonder rijen die een andere pod nog aan het wissen was.
+ * de achterstand geeft `min()` de stand zonder rijen die een andere pod nog aan het wissen was.
  *
  * `@Startup`, zodat elke reeks vanaf de start op 0 staat. Anders ontstaat de bean pas bij de eerste
  * ronde, en ziet `increase()` de fouten van die ronde niet.
@@ -28,6 +28,8 @@ class HardDeleteMeting(registry: MeterRegistry) {
     private val laatsteGeslaagdeRonde = AtomicLong()
 
     private val wachtend = AtomicLong()
+
+    private val oudsteAchterstand = AtomicLong()
 
     private val verwijderd: Counter = Counter.builder("fbs.retentie.verwijderd")
         .description("Berichten die het definitief wissen heeft verwijderd")
@@ -52,6 +54,10 @@ class HardDeleteMeting(registry: MeterRegistry) {
         Gauge.builder("fbs.retentie.wachtend", wachtend) { it.get().toDouble() }
             .description("Berichten die na de laatste ronde nog aan beide drempels voldeden")
             .register(registry)
+        Gauge.builder("fbs.retentie.achterstand.oudste", oudsteAchterstand) { it.get().toDouble() }
+            .description("Hoe lang het oudste wachtende bericht al gewist had moeten zijn (0 = geen)")
+            .baseUnit(SECONDEN)
+            .register(registry)
     }
 
     // Per bericht en niet aan het eind van de ronde: breekt die halverwege af, dan blijft wat al
@@ -62,13 +68,17 @@ class HardDeleteMeting(registry: MeterRegistry) {
 
     fun logboekfout() = fouten.getValue(Fout.LOGBOEK).increment()
 
-    /** [wachtendNa] is `null` als de telling na de ronde zelf faalde; de vorige waarde blijft dan staan. */
-    fun ronde(resultaat: HardDeleteService.RunResultaat, einde: Instant, wachtendNa: Long?) {
+    fun ronde(resultaat: HardDeleteService.RunResultaat, einde: Instant) {
         laatsteRonde.set(einde.epochSecond)
 
         if (resultaat.fouten == 0 && resultaat.ldvFouten == 0) laatsteGeslaagdeRonde.set(einde.epochSecond)
+    }
 
-        if (wachtendNa != null) wachtend.set(wachtendNa)
+    /** `null` betekent dat die telling faalde; de vorige waarde blijft dan staan. */
+    fun achterstand(aantal: Long?, oudsteSeconden: Long?) {
+        if (aantal != null) wachtend.set(aantal)
+
+        if (oudsteSeconden != null) oudsteAchterstand.set(oudsteSeconden)
     }
 
     /** Een ronde die als geheel afbrak, bijvoorbeeld omdat de database onbereikbaar was. */
