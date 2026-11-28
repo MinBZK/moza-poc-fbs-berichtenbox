@@ -479,6 +479,10 @@ dezelfde bescherming te krijgen als de rest van Redis (TLS en authenticatie).
 
 - **Meetgegevens** staan op de beheerpoort (28086), niet via het publieke adres:
   [`operations/meetgegevens.md`](operations/meetgegevens.md).
+  De poort eist het bearer-token uit `METRICS_AUTH_TOKEN`. Zonder dat token weigert hij buiten
+  dev/test elk verzoek (`BEHEERPOORT_ZONDER_TOKEN` bij de start); een ontbrekend of verkeerd token
+  logt `BEHEERPOORT_GEWEIGERD`. Controleer dan het token dat het platform levert (op ZAD de dienst
+  `metrics-scraper`).
 - **Een 404 van de Profiel-service** heeft een eigen runbook:
   [`operations/profiel-404-alert.md`](operations/profiel-404-alert.md).
 - **Een RediSearch-schemawijziging** vraagt een gecontroleerde index-herbouw:

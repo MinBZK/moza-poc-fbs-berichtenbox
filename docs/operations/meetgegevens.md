@@ -2,8 +2,7 @@
 
 De berichtenuitvraag, het berichtenmagazijn en het stelselregister leveren meetgegevens in
 Prometheus-formaat (Micrometer). Dit bestand beschrijft waar ze staan, wat erin zit en wat nog
-openligt. Waar ze heen gaan (Prometheus, OTLP, welke voorziening) beslist #1473; welke labels
-mogen beslist #1472.
+openligt. Waar ze op ZAD heen gaan, staat onder "Op ZAD"; welke labels mogen beslist #1472.
 
 ## Waar
 
@@ -30,6 +29,42 @@ mogen beslist #1472.
   bereikbaar (het statusdashboard leest daar `/q/health/ready`).
 - In de chart (`charts/fbs-dienst`) laat de NetworkPolicy alleen de applicatiepoort toe. Een
   scraper binnen het cluster heeft een eigen regel nodig; dat hoort bij #1473.
+
+## Wie mag lezen
+
+De beheerpoort eist een bearer-token: `Authorization: Bearer <token>`, met het token uit
+`METRICS_AUTH_TOKEN` (`fbs.beheerpoort.token`). Zonder geldig token antwoordt hij met een kale
+`401` en `WWW-Authenticate: Bearer`, op elk pad van de poort, ook op een pad dat er niet is.
+
+- **Zonder token geconfigureerd** is de poort alleen in de profielen `dev` en `test` open. In elk
+  ander profiel weigert hij dan alles, en logt de dienst bij de start `BEHEERPOORT_ZONDER_TOKEN`.
+  Een vergeten geheim levert zo geen open endpoint op.
+- **Met token** geldt de eis in elk profiel, ook lokaal.
+- **Geweigerde verzoeken** logt de dienst als `BEHEERPOORT_GEWEIGERD`, hooguit één regel per tien
+  minuten met het aantal sinds de vorige melding. Het eerste verzoek mét geldig token logt hij één
+  keer op INFO ("eerste verzoek met een geldig token ontvangen"): dat is van buiten het bewijs dat
+  de scraper binnenkomt.
+
+De regel staat in `fbs-common` (`BeheerpoortToegang`), de bedrading per dienst
+(`BeheerpoortBeveiliging`). De meetwaarden bevatten geen persoonsgegevens, maar wel de
+bedrijfsvoering: welke magazijnen er zijn, wat er wacht, waar het logboek faalt. Het pod-adres is
+binnen het cluster bereikbaar voor alles wat het netwerkbeleid doorlaat; dat hoort niet bij elke buur.
+
+## Op ZAD
+
+De ZAD-dienst `metrics-scraper` zet `prometheus.io/scrape|port|path` op de pod. De Prometheus van
+het cluster leest daarna `http://<pod-ip>:<poort><pad>` en stuurt het token mee dat het platform de
+dienst ook als `METRICS_AUTH_TOKEN` geeft. De gegevens komen in de Mimir achter de Grafana van
+ODC-Noord terecht.
+
+- De koppeling en de poort hangen aan het component in het projectbestand, niet aan een deployment.
+  `test` en elke preview renderen dus dezelfde annotaties, ook al neemt een preview alleen
+  `{reference, image}` over.
+- `.github/scripts/meetgegevens-scraper.sh` is de bron: de tabel daarin noemt per project het
+  component, de beheerpoort en `/q/metrics`. Een beheerder richt het in met `plan` en `apply`
+  (persoonlijk projecttoken); `deploy.yml` draait na elke uitrol `controle` en waarschuwt bij een
+  afwijking, zonder de uitrol tegen te houden.
+- Zonder poort scrapet de dienst de applicatiepoort, en daar geeft `/q/metrics` een `404`.
 
 ## Wat
 
@@ -86,5 +121,6 @@ is. Labels hebben alleen begrensde waarden. De tests (`BeheerpoortTest` per dien
 - **`address` per magazijn.** De magazijnclients labelen elk magazijn met zijn host. Dat is geen
   persoonsgegeven, maar het aantal reeksen groeit met het aantal aangesloten magazijnen. Of dat
   mag, of het label naar één waarde moet, beslist #1472.
-- **Waarheen.** Er is nog geen scraper. De registry is Prometheus; overstappen op OTLP is één
-  dependency. Dat volgt uit #1473.
+- **Waar te kijken.** Op ZAD komt het transport uit de dienst `metrics-scraper` (zie "Op ZAD"). Of
+  wij bij de Grafana van ODC-Noord kunnen, of dashboards en meldingsregels kunnen aanleveren, is
+  een vraag aan het ZAD-team; dat beslist de rest van #1473.
