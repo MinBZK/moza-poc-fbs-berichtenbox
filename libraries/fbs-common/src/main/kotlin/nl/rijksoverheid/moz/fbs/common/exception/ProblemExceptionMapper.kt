@@ -77,14 +77,17 @@ class ProblemExceptionMapper : ExceptionMapper<WebApplicationException> {
                 exception.javaClass.simpleName,
                 exception.cause?.javaClass?.simpleName ?: "geen",
             )
-            metRetryAfter(
+            metAllow(
                 exception,
-                problemResponse(
-                    status = status,
-                    title = title,
-                    detail = sanitizeClientDetail(exception.message),
-                    foutcode = foutcode,
-                    instance = URI.create("urn:uuid:$errorId"),
+                metRetryAfter(
+                    exception,
+                    problemResponse(
+                        status = status,
+                        title = title,
+                        detail = sanitizeClientDetail(exception.message),
+                        foutcode = foutcode,
+                        instance = URI.create("urn:uuid:$errorId"),
+                    ),
                 ),
             )
         }
@@ -143,6 +146,27 @@ private fun metRetryAfter(exception: WebApplicationException, respons: Response)
 
     return Response.fromResponse(respons).header("Retry-After", seconden).build()
 }
+
+/**
+ * Een 405 noemt de methodes die wel mogen (RFC 9110 §15.5.6). Het Problem-antwoord wordt opnieuw
+ * opgebouwd, dus zonder deze stap viel de `Allow` van de framework-exceptie weg. Alleen methode-tokens
+ * gaan mee: de header komt van het framework, maar een eigen throw-site mag er geen tekst in smokkelen.
+ */
+private fun metAllow(exception: WebApplicationException, respons: Response): Response {
+    if (respons.status != Response.Status.METHOD_NOT_ALLOWED.statusCode) return respons
+
+    val methodes = exception.response?.getHeaderString("Allow")
+        ?.split(',')
+        ?.map(String::trim)
+        ?.filter { it.matches(METHODE_TOKEN) }
+        .orEmpty()
+
+    if (methodes.isEmpty()) return respons
+
+    return Response.fromResponse(respons).header("Allow", methodes.joinToString(", ")).build()
+}
+
+private val METHODE_TOKEN = Regex("[A-Z]{1,16}")
 
 /**
  * Bovengrens op een overgenomen `Retry-After`. Vijf minuten dekt elke tijdelijke storing waarop
