@@ -515,6 +515,7 @@ jobs:
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
           read -ra namen <<<"$NAMEN"
           .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+          IMAGES_ANONIEM=1 .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # Externe-stubs: één WireMock-image met de profiel- én notificatie-mappings erin gebakken
   # (plain docker, geen jib). Wordt als twee losse componenten gedeployd (profiel + notificatie).
@@ -624,6 +625,7 @@ jobs:
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
           read -ra namen <<<"$NAMEN"
           .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+          IMAGES_ANONIEM=1 .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # De contract-bootstrap draait op ZAD als component náást de manager van zijn eigen peer: de
   # interne manager-API heeft daar geen route en de tenant-baseline-NetworkPolicy laat alleen
@@ -676,6 +678,7 @@ jobs:
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
           read -ra namen <<<"$NAMEN"
           .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+          IMAGES_ANONIEM=1 .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # De drie demo-modules met een eigen image: het bedieningspaneel, de personadienst en de
   # magazijn-simulator. Alle drie componenten van `test` in het magazijnen-project, dus ze rollen
@@ -745,6 +748,7 @@ jobs:
           echo "$GHCR_TOKEN" | docker login "$REGISTRY" -u "$GHCR_USER" --password-stdin
           read -ra namen <<<"$NAMEN"
           .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
+          IMAGES_ANONIEM=1 .github/scripts/images-gepubliceerd.sh "$REGISTRY/$OWNER" "$TAG" "${namen[@]}"
 
   # De vier toetsende workflows draaien als aangeroepen (`workflow_call`) job ín deze workflow,
   # zodat de deploy er met `needs:` aan kan hangen. Vóór #173 draaiden ze zelfstandig en wachtte

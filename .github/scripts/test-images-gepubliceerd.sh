@@ -63,7 +63,8 @@ trap 'rm -rf "$werkmap"' EXIT
 maak_stub() {
   printf '%s\n' "$@" >"$werkmap/bestaat"
   : >"$werkmap/hikt"
-  rm -f "$werkmap/aanroepen" "$werkmap/gehikt"
+  : >"$werkmap/publiek"
+  rm -f "$werkmap/aanroepen" "$werkmap/gehikt" "$werkmap/configs"
 
   cat >"$werkmap/docker" <<STUB
 #!/usr/bin/env bash
@@ -76,6 +77,15 @@ if grep -qxF "\$ref" "$werkmap/hikt" && ! grep -qxF "\$ref" "$werkmap/gehikt" 2>
   exit 1
 fi
 
+# Zonder credentials (een lege DOCKER_CONFIG) ziet de stub alleen wat in het bestand publiek staat.
+if [ -n "\${DOCKER_CONFIG:-}" ] && [ -z "\$(ls -A "\$DOCKER_CONFIG")" ]; then
+  echo leeg >>"$werkmap/configs"
+  grep -qxF "\$ref" "$werkmap/publiek" && exit 0
+  echo "ERROR: \$ref: unauthorized" >&2
+  exit 1
+fi
+
+echo "\${DOCKER_CONFIG:-standaard}" >>"$werkmap/configs"
 grep -qxF "\$ref" "$werkmap/bestaat" && exit 0
 echo "ERROR: \$ref: not found" >&2
 exit 1
@@ -102,6 +112,43 @@ maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1" "$B/fbs-c:t1"
 draai "$B" t1 fbs-a fbs-b fbs-c
 gelijk "drie gepubliceerde images slagen" 0 "$RC"
 bevat_niet "zonder ontbrekend image geen foutmelding" '::error' "$UITVOER"
+
+# --- anoniem: zoals ZAD ophaalt --------------------------------------------------------------------
+# Een vol DOCKER_CONFIG van een eerdere `docker login` mag niet meetellen.
+mkdir -p "$werkmap/ingelogd"
+echo '{"auths":{"ghcr.io":{"auth":"eA=="}}}' >"$werkmap/ingelogd/config.json"
+
+draai_anoniem() {
+  RC=0
+  UITVOER=$(DOCKER_CONFIG="$werkmap/ingelogd" IMAGES_ANONIEM=1 IMAGES_DOCKER="$werkmap/docker" IMAGES_WACHT=0 \
+    bash "$SCRIPT" "$@" 2>&1) || RC=$?
+}
+
+maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1"
+printf '%s\n' "$B/fbs-a:t1" "$B/fbs-b:t1" >"$werkmap/publiek"
+draai_anoniem "$B" t1 fbs-a fbs-b
+gelijk "anoniem: publieke images slagen" 0 "$RC"
+bevat "anoniem: de melding zegt dat het anoniem lukt" "Anoniem op te halen: $B/fbs-b:t1" "$UITVOER"
+gelijk "anoniem: elke opvraging zonder credentials, ook met een ingelogde DOCKER_CONFIG" "leeg leeg" \
+  "$(tr '\n' ' ' <"$werkmap/configs" | sed 's/ $//')"
+
+maak_stub "$B/fbs-a:t1" "$B/fbs-b:t1"
+echo "$B/fbs-a:t1" >"$werkmap/publiek"
+draai_anoniem "$B" t1 fbs-a fbs-b
+gelijk "anoniem: een privé image faalt" 1 "$RC"
+bevat "anoniem: de melding noemt het privé image" '::error title=Image niet anoniem op te halen::fbs-b ' "$UITVOER"
+bevat "anoniem: de samenvatting noemt het" "Niet anoniem op te halen: fbs-b" "$UITVOER"
+gelijk "anoniem: geen melding over niet-gepubliceerd" 0 "$(grep -c 'title=Image niet gepubliceerd' <<<"$UITVOER" || true)"
+
+maak_stub "$B/fbs-a:t1"
+echo "$B/fbs-a:t1" >"$werkmap/publiek"
+draai "$B" t1 fbs-a
+gelijk "zonder IMAGES_ANONIEM gaat de vraag met de gewone configuratie" "standaard" "$(cat "$werkmap/configs")"
+
+# Elke publicatiecontrole in deploy.yml vraagt het ook anoniem.
+gewoon=$(grep -cE '^ +\.github/scripts/images-gepubliceerd\.sh ' "$DEPLOY_YML")
+anoniem=$(grep -cE '^ +IMAGES_ANONIEM=1 \.github/scripts/images-gepubliceerd\.sh ' "$DEPLOY_YML")
+gelijk "deploy.yml: naast elke publicatiecontrole een anonieme" "$gewoon" "$anoniem"
 
 # --- ontbrekend: het enige, het middelste, en twee tegelijk --------------------------------------
 maak_stub

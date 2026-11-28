@@ -9,8 +9,12 @@
 # Elk ontbrekend image wordt gemeld, niet alleen het eerste: wie er één repareert, hoort niet pas bij
 # de volgende run van de tweede te horen. Een lege lijst faalt ook — dan meet deze controle niets.
 #
+# Met IMAGES_ANONIEM=1 vraagt het script hetzelfde zonder login, met een lege docker-configuratie.
+# ZAD haalt images anoniem op: een pakket dat (nog) privé is, levert anders een groene uitrol op
+# waarvan de pod nooit start.
+#
 # Gebruik:
-#   images-gepubliceerd.sh <registry>/<owner> <tag> <naam>...
+#   [IMAGES_ANONIEM=1] images-gepubliceerd.sh <registry>/<owner> <tag> <naam>...
 
 set -euo pipefail
 
@@ -18,6 +22,7 @@ set -euo pipefail
 DOCKER=${IMAGES_DOCKER:-docker}
 readonly POGINGEN=3
 readonly WACHT=${IMAGES_WACHT:-5}
+readonly ANONIEM=${IMAGES_ANONIEM:-0}
 
 # Een mislukte opvraging is niet per se een ontbrekend image: een 5xx of een netwerkhik krijgt nog
 # twee kansen. Zit het image er wél, dan kost dit niets.
@@ -45,13 +50,27 @@ main() {
   local basis=$1 tag=$2
   shift 2
 
+  if [ "$ANONIEM" = 1 ]; then
+    # Een lege configuratie: geen credentials, ook niet die van een eerdere `docker login`.
+    DOCKER_CONFIG=$(mktemp -d)
+    export DOCKER_CONFIG
+    trap 'rm -rf "$DOCKER_CONFIG"' EXIT
+  fi
+
   local naam ref ontbrekend=()
 
   for naam in "$@"; do
     ref="$basis/$naam:$tag"
 
     if gepubliceerd "$ref"; then
-      echo "Gepubliceerd: $ref"
+      if [ "$ANONIEM" = 1 ]; then
+        echo "Anoniem op te halen: $ref"
+      else
+        echo "Gepubliceerd: $ref"
+      fi
+    elif [ "$ANONIEM" = 1 ]; then
+      echo "::error title=Image niet anoniem op te halen::$naam is zonder login niet op te halen als $ref; ZAD haalt images anoniem op, dus de pod zou niet starten. Zet het pakket op public."
+      ontbrekend+=("$naam")
     else
       echo "::error title=Image niet gepubliceerd::$naam staat niet in het register als $ref; de uitrol zou een image zetten dat niet bestaat."
       ontbrekend+=("$naam")
@@ -59,7 +78,11 @@ main() {
   done
 
   if [ "${#ontbrekend[@]}" -gt 0 ]; then
-    echo "Niet gepubliceerd: ${ontbrekend[*]}" >&2
+    if [ "$ANONIEM" = 1 ]; then
+      echo "Niet anoniem op te halen: ${ontbrekend[*]}" >&2
+    else
+      echo "Niet gepubliceerd: ${ontbrekend[*]}" >&2
+    fi
 
     exit 1
   fi
