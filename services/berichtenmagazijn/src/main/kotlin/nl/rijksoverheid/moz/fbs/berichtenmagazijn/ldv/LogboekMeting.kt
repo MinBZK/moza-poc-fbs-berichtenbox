@@ -4,15 +4,19 @@ import io.micrometer.core.instrument.Counter
 import io.micrometer.core.instrument.MeterRegistry
 import io.micrometer.core.instrument.Metrics
 import io.quarkus.runtime.StartupEvent
+import io.vertx.ext.web.RoutingContext
 import jakarta.enterprise.context.ApplicationScoped
 import jakarta.enterprise.event.Observes
+import jakarta.inject.Inject
 import jakarta.ws.rs.core.Response
 import jakarta.ws.rs.ext.ExceptionMapper
 import jakarta.ws.rs.ext.Provider
 import nl.mijnoverheidzakelijk.ldv.logboekdataverwerking.LogboekWriteException
 import nl.mijnoverheidzakelijk.ldv.repository.SpanStorageException
 import nl.rijksoverheid.moz.fbs.berichtenmagazijn.aanlever.AanleverResource
+import nl.rijksoverheid.moz.fbs.berichtenmagazijn.retention.HardDeleteService
 import nl.rijksoverheid.moz.fbs.common.exception.UncaughtExceptionMapper
+import org.jboss.logging.Logger
 
 /**
  * Tellers naast de alertregels over het logboek, zodat een melding op een getal kan steunen in
@@ -27,6 +31,8 @@ object LogboekMeting {
     enum class Waarschuwing(val code: String) {
         UITKOMST_ONTBREEKT(MislukteUitkomst.ALERT_TOKEN),
         OPSLAG_ONZEKER(AanleverResource.OPSLAG_ONZEKER_ALERT_TOKEN),
+        ZONDER_LOGREGEL(ZONDER_LOGREGEL_TOKEN),
+        WISSEN_ONTBREEKT(HardDeleteService.LDV_ALERT_TOKEN),
     }
 
     fun waarschuwing(soort: Waarschuwing, registry: MeterRegistry = Metrics.globalRegistry) {
@@ -36,6 +42,34 @@ object LogboekMeting {
     fun geweigerd(registry: MeterRegistry = Metrics.globalRegistry) {
         geweigerdTeller(registry).increment()
     }
+
+    /**
+     * Een lezend verzoek, of een dat het logboek vóór de verwerking schrijft, is geweigerd: er is
+     * niets gebeurd. Bij elk ander wijzigend verzoek schrijft de wrapper pas ná de methode; dan is de
+     * wijziging doorgevoerd zonder logregel, en dat is een afwijking die gemeld moet worden.
+     */
+    fun schrijffout(methode: String, pad: String, registry: MeterRegistry = Metrics.globalRegistry) {
+        if (methode in LEZEND || "$methode $pad" in VOORAF_VASTGELEGD) {
+            geweigerd(registry)
+        } else {
+            log.errorf(
+                "%s: verwerking doorgevoerd zonder logregel in het logboek (methode=%s, pad=%s)",
+                ZONDER_LOGREGEL_TOKEN,
+                methode,
+                pad,
+            )
+            waarschuwing(Waarschuwing.ZONDER_LOGREGEL, registry)
+        }
+    }
+
+    const val ZONDER_LOGREGEL_TOKEN = "LDV_ZONDER_LOGREGEL"
+
+    private val LEZEND = setOf("GET", "HEAD", "OPTIONS")
+
+    /** Een aanlevering legt de logregel vast vóór de opslag; faalt dat, dan is er niets opgeslagen. */
+    private val VOORAF_VASTGELEGD = setOf("POST /api/v1/aanleveringen")
+
+    private val log = Logger.getLogger(LogboekMeting::class.java)
 
     internal fun waarschuwingTeller(soort: Waarschuwing, registry: MeterRegistry): Counter =
         Counter.builder("fbs.logboek.waarschuwing")
@@ -73,10 +107,13 @@ class LogboekMetingStart {
 @Provider
 class LogboekSchrijffoutMapper : ExceptionMapper<LogboekWriteException> {
 
+    @Inject
+    lateinit var verzoek: RoutingContext
+
     private val vangnet = UncaughtExceptionMapper()
 
     override fun toResponse(exception: LogboekWriteException): Response {
-        LogboekMeting.geweigerd()
+        LogboekMeting.schrijffout(verzoek.request().method().name(), verzoek.normalizedPath())
 
         return vangnet.toResponse(exception)
     }
@@ -86,10 +123,13 @@ class LogboekSchrijffoutMapper : ExceptionMapper<LogboekWriteException> {
 @Provider
 class LogboekOpslagfoutMapper : ExceptionMapper<SpanStorageException> {
 
+    @Inject
+    lateinit var verzoek: RoutingContext
+
     private val vangnet = UncaughtExceptionMapper()
 
     override fun toResponse(exception: SpanStorageException): Response {
-        LogboekMeting.geweigerd()
+        LogboekMeting.schrijffout(verzoek.request().method().name(), verzoek.normalizedPath())
 
         return vangnet.toResponse(exception)
     }

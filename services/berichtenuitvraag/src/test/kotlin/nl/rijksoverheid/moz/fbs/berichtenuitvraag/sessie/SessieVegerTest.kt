@@ -106,7 +106,7 @@ abstract class SessieVegerTestBasis {
             override fun publish(record: LogRecord) {
                 val regel = String.format(record.message, *(record.parameters ?: emptyArray()))
 
-                if (regel.contains(SessieLogboek.ALERT_TOKEN)) alertregels += regel
+                if (regel.contains(SessieLogboek.ALERT_TOKEN) || regel.contains(SessieVeger.ALERT_TOKEN)) alertregels += regel
             }
 
             override fun flush() = Unit
@@ -121,7 +121,11 @@ abstract class SessieVegerTestBasis {
 
         assertNotNull(Metrics.globalRegistry.find("fbs.logboek.geweigerd").counter())
 
-        val teller = { Metrics.globalRegistry.find("fbs.logboek.waarschuwing").tag("code", SessieLogboek.ALERT_TOKEN).counter()?.count() ?: 0.0 }
+        val teller = {
+            listOf(SessieLogboek.ALERT_TOKEN, SessieVeger.METING_CODE).sumOf { code ->
+                Metrics.globalRegistry.find("fbs.logboek.waarschuwing").tag("code", code).counter()?.count() ?: 0.0
+            }
+        }
         val voor = teller()
 
         loggers.forEach { it.addHandler(vanger) }

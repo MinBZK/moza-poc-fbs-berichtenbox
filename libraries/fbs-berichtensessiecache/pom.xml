@@ -48,6 +48,12 @@
             <groupId>com.github.ben-manes.caffeine</groupId>
             <artifactId>caffeine</artifactId>
         </dependency>
+        <!-- Alleen de API, voor de teller naast het alert opruimen_na_schrijven. De registry levert
+             de consumerende dienst; zonder registry telt de globale registry zonder te publiceren. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
         <!-- MicroProfile Fault Tolerance: activeert @Retry op ProfielServiceClient.getPartij
              (fbs-common) zodat kortstondige TCP-resets niet direct een 503 opleveren. Zonder
              deze dependency is de annotatie aanwezig maar een no-op. -->
