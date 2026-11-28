@@ -35,33 +35,40 @@ object BeheerpoortToegang {
     private const val SCHEMA = "Bearer "
 
     /**
-     * Mag dit verzoek door? [verwacht] is het geconfigureerde token, `null` of leeg als er geen
-     * is; [authorization] de `Authorization`-header zoals hij binnenkwam.
+     * Het geconfigureerde token zoals de poort het gebruikt: zonder witruimte eromheen, en `null`
+     * als er niets overblijft. Een geheim dat met een newline is aangemaakt (`echo` zonder `-n`)
+     * zou anders nooit gelijk zijn aan wat de scraper stuurt, en een token van alleen spaties zou
+     * de poort sluiten zonder [TOKEN_ONTBREEKT] in de log.
+     */
+    fun ingesteld(token: String?): String? = token?.trim()?.takeIf { it.isNotEmpty() }
+
+    /** Is de poort dicht omdat er geen token is? Dan hoort [TOKEN_ONTBREEKT] in de log. */
+    fun dichtZonderToken(token: String?, profiel: String): Boolean =
+        ingesteld(token) == null && profiel !in PROFIELEN_ZONDER_TOKEN
+
+    /**
+     * Mag dit verzoek door? [verwacht] is het geconfigureerde token, [authorization] de
+     * `Authorization`-header zoals hij binnenkwam.
      *
      * Zonder geconfigureerd token is de poort alleen in [PROFIELEN_ZONDER_TOKEN] open. Elders
      * is hij dan dicht in plaats van open: een vergeten geheim mag geen open endpoint opleveren.
      * Mét token geldt de eis in elk profiel, ook in dev en test.
      */
     fun toegestaan(verwacht: String?, authorization: String?, profiel: String): Boolean {
-        if (verwacht.isNullOrBlank()) return profiel in PROFIELEN_ZONDER_TOKEN
-
+        val geheim = ingesteld(verwacht) ?: return profiel in PROFIELEN_ZONDER_TOKEN
         val aangeboden = bearer(authorization) ?: return false
 
         // Constante tijd: een vergelijking die bij het eerste verschil stopt, verraadt via de
         // looptijd hoeveel tekens van een gok kloppen.
-        return MessageDigest.isEqual(aangeboden.toByteArray(), verwacht.toByteArray())
+        return MessageDigest.isEqual(aangeboden.toByteArray(), geheim.toByteArray())
     }
 
-    /**
-     * Het token uit een `Authorization: Bearer <token>`-header. Het schema is hoofdletterongevoelig
-     * (RFC 9110 11.1), het token niet. Eén spatie, geen extra witruimte: een header die daarvan
-     * afwijkt, komt niet van de scraper.
-     */
+    /** Het token uit een `Authorization: Bearer <token>`-header; het schema is hoofdletterongevoelig (RFC 9110 11.1). */
     private fun bearer(authorization: String?): String? {
         if (authorization == null || authorization.length <= SCHEMA.length) return null
 
         if (!authorization.regionMatches(0, SCHEMA, 0, SCHEMA.length, ignoreCase = true)) return null
 
-        return authorization.substring(SCHEMA.length).takeIf { it.isNotEmpty() && it.none(Char::isWhitespace) }
+        return authorization.substring(SCHEMA.length)
     }
 }

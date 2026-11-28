@@ -172,6 +172,7 @@ jobs:
             [.github/scripts/test-demo-grens.sh]=62
             [.github/scripts/test-cross-domain-preview.sh]=67
             [.github/scripts/test-preview-klaarzetten.sh]=97
+            [.github/scripts/test-meetgegevens-scraper.sh]=97
             [.github/scripts/test-zad-taak-lib.sh]=45
             [.github/scripts/test-zad-deployment-bestaat.sh]=29
             [.github/scripts/test-ghcr-package-bestaat.sh]=29

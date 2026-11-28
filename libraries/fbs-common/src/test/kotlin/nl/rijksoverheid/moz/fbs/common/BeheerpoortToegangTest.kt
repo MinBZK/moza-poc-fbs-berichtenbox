@@ -1,6 +1,8 @@
 package nl.rijksoverheid.moz.fbs.common
 
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
+import org.junit.jupiter.api.Assertions.assertNull
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -62,5 +64,29 @@ class BeheerpoortToegangTest {
     )
     fun `elk ander token of een andere header wordt geweigerd`(header: String?) {
         assertFalse(BeheerpoortToegang.toegestaan(token, header, "prod"))
+    }
+
+    // Een geheim dat met `echo` zonder `-n` is gemaakt, eindigt op een newline; de scraper stuurt hem zonder.
+    @ParameterizedTest
+    @ValueSource(strings = ["s3cr3t-token\n", " s3cr3t-token ", "\ts3cr3t-token\r\n"])
+    fun `witruimte om het geconfigureerde token telt niet mee`(geconfigureerd: String) {
+        assertTrue(BeheerpoortToegang.toegestaan(geconfigureerd, "Bearer $token", "prod"))
+        assertEquals(token, BeheerpoortToegang.ingesteld(geconfigureerd))
+    }
+
+    // Een token van alleen witruimte is geen token: dicht buiten dev/test, en dan hoort de startwaarschuwing erbij.
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = ["", " ", "\n", " \t "])
+    fun `een leeg token is geen token`(geconfigureerd: String?) {
+        assertNull(BeheerpoortToegang.ingesteld(geconfigureerd))
+        assertTrue(BeheerpoortToegang.dichtZonderToken(geconfigureerd, "prod"))
+        assertFalse(BeheerpoortToegang.dichtZonderToken(geconfigureerd, "test"))
+        assertFalse(BeheerpoortToegang.toegestaan(geconfigureerd, "Bearer  ", "prod"))
+    }
+
+    @Test
+    fun `met een token is de poort nooit dicht zonder token`() {
+        assertFalse(BeheerpoortToegang.dichtZonderToken(token, "prod"))
     }
 }

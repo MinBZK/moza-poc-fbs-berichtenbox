@@ -38,12 +38,17 @@ De beheerpoort eist een bearer-token: `Authorization: Bearer <token>`, met het t
 
 - **Zonder token geconfigureerd** is de poort alleen in de profielen `dev` en `test` open. In elk
   ander profiel weigert hij dan alles, en logt de dienst bij de start `BEHEERPOORT_ZONDER_TOKEN`.
-  Een vergeten geheim levert zo geen open endpoint op.
+  Een vergeten geheim levert zo geen open endpoint op. Witruimte om het token telt niet mee (een
+  geheim dat met `echo` zonder `-n` is gemaakt), en een token van alleen witruimte geldt als geen
+  token.
 - **Met token** geldt de eis in elk profiel, ook lokaal.
 - **Geweigerde verzoeken** logt de dienst als `BEHEERPOORT_GEWEIGERD`, hooguit één regel per tien
-  minuten met het aantal sinds de vorige melding. Het eerste verzoek mét geldig token logt hij één
-  keer op INFO ("eerste verzoek met een geldig token ontvangen"): dat is van buiten het bewijs dat
-  de scraper binnenkomt.
+  minuten met het aantal sinds de vorige melding. Een reeks die binnen die tien minuten ophoudt,
+  komt pas in de log bij de eerstvolgende weigering daarna; de eerste regel van de reeks staat er
+  altijd.
+- **Een verzoek mét geldig token** logt hij op INFO ("verzoek met een geldig token ontvangen"), het
+  eerste sinds de start en het eerste na een weigering. Dat is van buiten het bewijs dat de scraper
+  binnenkomt, ook na het herstel van een verkeerd token.
 
 De regel staat in `fbs-common` (`BeheerpoortToegang`), de bedrading per dienst
 (`BeheerpoortBeveiliging`). De meetwaarden bevatten geen persoonsgegevens, maar wel de
@@ -52,7 +57,8 @@ binnen het cluster bereikbaar voor alles wat het netwerkbeleid doorlaat; dat hoo
 
 ## Op ZAD
 
-De ZAD-dienst `metrics-scraper` zet `prometheus.io/scrape|port|path` op de pod. De Prometheus van
+De ZAD-dienst `metrics-scraper` (`zadctl service describe metrics-scraper`) zet
+`prometheus.io/scrape|port|path` op de pod. De Prometheus van
 het cluster leest daarna `http://<pod-ip>:<poort><pad>` en stuurt het token mee dat het platform de
 dienst ook als `METRICS_AUTH_TOKEN` geeft. De gegevens komen in de Mimir achter de Grafana van
 ODC-Noord terecht.
@@ -62,8 +68,9 @@ ODC-Noord terecht.
   `{reference, image}` over.
 - `.github/scripts/meetgegevens-scraper.sh` is de bron: de tabel daarin noemt per project het
   component, de beheerpoort en `/q/metrics`. Een beheerder richt het in met `plan` en `apply`
-  (persoonlijk projecttoken); `deploy.yml` draait na elke uitrol `controle` en waarschuwt bij een
-  afwijking, zonder de uitrol tegen te houden.
+  (persoonlijk projecttoken); `deploy.yml` draait bij elke run die uitrolt `controle`, naast de
+  uitrol, en waarschuwt bij een afwijking of een opgeslagen wijziging die niet is uitgerold, zonder de
+  uitrol tegen te houden.
 - Zonder poort scrapet de dienst de applicatiepoort, en daar geeft `/q/metrics` een `404`.
 
 ## Wat
@@ -122,5 +129,5 @@ is. Labels hebben alleen begrensde waarden. De tests (`BeheerpoortTest` per dien
   persoonsgegeven, maar het aantal reeksen groeit met het aantal aangesloten magazijnen. Of dat
   mag, of het label naar één waarde moet, beslist #1472.
 - **Waar te kijken.** Op ZAD komt het transport uit de dienst `metrics-scraper` (zie "Op ZAD"). Of
-  wij bij de Grafana van ODC-Noord kunnen, of dashboards en meldingsregels kunnen aanleveren, is
+  wij bij de Grafana van ODC-Noord kunnen, of dashboards en alertregels kunnen aanleveren, is
   een vraag aan het ZAD-team; dat beslist de rest van #1473.

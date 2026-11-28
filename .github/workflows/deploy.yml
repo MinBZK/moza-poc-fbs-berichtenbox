@@ -1465,20 +1465,15 @@ jobs:
               {"name": "magazijna-fscbootstrap", "image": "${{ env.REGISTRY }}/${{ needs.meta.outputs.owner }}/fbs-fsc-contract-bootstrap:${{ needs.meta.outputs.tag }}"}
             ]
 
-  # De check die niet stil kan overslaan — bedoeld als required context op main, naast (niet in
-  # plaats van) de bestaande. `gate` en de uitrol-jobs mogen zichzelf legitiem overslaan; deze job
-  # bewijst dat een uitgebleven uitrol een besluit van de detectie was en geen storing.
-  #
-  # Het oordeel staat in .github/scripts/uitrol-poort.sh, met unittests ernaast. Die draaien via
-  # ci-scripts.yml óók op een gestapelde PR, waar deze workflow niet komt — als inline `run:`-blok
-  # zou de logica hier pas ná de merge naar main voor het eerst uitgevoerd worden.
   # De koppeling met de ZAD-dienst `metrics-scraper`: of de Prometheus van het cluster de beheerpoort
   # van uitvraag, magazijnen en stelselregister leest. Die koppeling staat in het projectbestand, aan
   # het component, en geldt dus voor `test` en elke preview tegelijk; de deploy-action raakt hem niet
-  # (hij stuurt alleen `{name, image}`). Deze job leest hem en waarschuwt bij een afwijking. Bewust
-  # niet in `uitrol-poort`: een ontbrekende koppeling kost de meetgegevens, niet de dienst. Wél rood
-  # als het projectbestand niet te lezen is, want dan zegt een groene run niets. Inrichten doet een
-  # beheerder met hetzelfde script (`plan`/`apply`); de tabel daarin is de bron.
+  # (hij stuurt alleen `{name, image}`). Deze job leest hem en waarschuwt bij een afwijking. Hij draait
+  # naast de uitrol en niet erna: hij leest het projectbestand, niet het cluster. Bewust niet in
+  # `uitrol-poort` (test-uitrol-poort.sh noemt hem bij GEEN_UITROL_JOBS): een ontbrekende koppeling
+  # kost de meetgegevens, niet de dienst. Wél rood als het projectbestand niet te lezen is, want dan
+  # zegt een groene run niets. Inrichten doet een beheerder met hetzelfde script (`plan`/`apply`);
+  # de tabel daarin is de bron.
   meetgegevens-scraper:
     needs: changes
     if: >-
@@ -1494,6 +1489,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          sparse-checkout: .github/scripts
 
       - name: Uitvraag
         env:
@@ -1516,6 +1512,13 @@ jobs:
           PROJECT: ${{ env.PROJECT_STELSELREGISTER }}
         run: .github/scripts/meetgegevens-scraper.sh controle "$PROJECT"
 
+  # De check die niet stil kan overslaan — bedoeld als required context op main, naast (niet in
+  # plaats van) de bestaande. `gate` en de uitrol-jobs mogen zichzelf legitiem overslaan; deze job
+  # bewijst dat een uitgebleven uitrol een besluit van de detectie was en geen storing.
+  #
+  # Het oordeel staat in .github/scripts/uitrol-poort.sh, met unittests ernaast. Die draaien via
+  # ci-scripts.yml óók op een gestapelde PR, waar deze workflow niet komt — als inline `run:`-blok
+  # zou de logica hier pas ná de merge naar main voor het eerst uitgevoerd worden.
   uitrol-poort:
     needs:
       - changes

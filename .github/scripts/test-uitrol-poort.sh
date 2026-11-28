@@ -401,7 +401,7 @@ bevat_regel() {
 # Élke job in deploy.yml moet zich classificeren: hij hangt onder de poort, of hij staat hieronder
 # als bewust géén uitrol-job. Een allowlist en geen ontdekkingspatroon: wie een job toevoegt, moet
 # één van beide kiezen, en dat is een zichtbare regel in de diff in plaats van een stilte.
-GEEN_UITROL_JOBS='changes meta build build-externe-stubs build-contract-bootstrap checks-test checks-detekt checks-pins checks-fuzz gate uitrol-poort'
+GEEN_UITROL_JOBS='changes meta build build-externe-stubs build-contract-bootstrap checks-test checks-detekt checks-pins checks-fuzz gate meetgegevens-scraper uitrol-poort'
 
 # De joblijst komt uit een YAML-parser en niet uit een regex. GitHub sluit op YAML-vorm, een regex
 # op tekstvorm: een gequoteerde jobnaam, een `#`-commentaar achter de sleutel of een blok-scalar

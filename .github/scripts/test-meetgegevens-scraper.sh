@@ -78,18 +78,32 @@ printf '%s' "$STUB_BODY" >"$uit"
 printf '%s' "${STUB_STATUS:-200}"
 STUB
 
+# zadctl-stub: faalt met exit 3 op een aanroep die $STUB_ZADCTL_FAAL bevat.
 cat >"$WERK/zadctl" <<'STUB'
 #!/usr/bin/env bash
 printf '%s | %s\n' "$(basename "$PWD")" "$*" >>"$STUB_LOG"
+if [ -n "${STUB_ZADCTL_FAAL:-}" ] && [[ "$*" == *"$STUB_ZADCTL_FAAL"* ]]; then exit 3; fi
 STUB
 
-chmod +x "$WERK/curl" "$WERK/zadctl"
+# gh-stub: het aantal runs per status uit $STUB_GH_<STATUS>, of falen met $STUB_GH_FAAL.
+cat >"$WERK/gh" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$STUB_GH_LOG"
+[ "${STUB_GH_FAAL:-0}" = 1 ] && exit 1
+case "$*" in
+  *"--status in_progress"*) printf '%s\n' "${STUB_GH_IN_PROGRESS:-0}" ;;
+  *"--status queued"*) printf '%s\n' "${STUB_GH_QUEUED:-0}" ;;
+esac
+STUB
 
-export ZAD_CURL="$WERK/curl" ZAD_ZADCTL="$WERK/zadctl" STUB_LOG="$WERK/log" STUB_HEADERS="$WERK/headers"
+chmod +x "$WERK/curl" "$WERK/zadctl" "$WERK/gh"
+
+export ZAD_CURL="$WERK/curl" ZAD_ZADCTL="$WERK/zadctl" ZAD_GH="$WERK/gh" STUB_LOG="$WERK/log" STUB_HEADERS="$WERK/headers" STUB_GH_LOG="$WERK/gh-log"
 
 draai() {
   : >"$STUB_LOG"
   : >"$STUB_HEADERS"
+  : >"$STUB_GH_LOG"
   set +e
   UIT=$(bash "$SCRIPT" "$@" 2>&1)
   STATUS=$?
@@ -166,6 +180,28 @@ gelijk "controle: geen JSON is exit 1" 1 "$STATUS"
 STUB_BODY='{"services":{}}' draai controle mpfs-rab
 gelijk "controle: services geen lijst is exit 1" 1 "$STATUS"
 
+# Een andere vorm dan het schema is onleesbaar, niet "koppeling ontbreekt": anders waarschuwt elke
+# run en leert iedereen de waarschuwing te negeren.
+for vorm in '{"services":[{"name":"metrics-scraper"}]}' '{"services":[{"name":"metrics-scraper","usages":null}]}' '{"services":[{"usages":[]}]}'; do
+  STUB_BODY=$vorm draai controle mpfs-rab
+  gelijk "controle: vorm $vorm is exit 1" 1 "$STATUS"
+  bevat "controle: vorm $vorm meldt onleesbaar" "::error::De diensten van mpfs-rab zijn niet te lezen" "$UIT"
+done
+
+# Opgeslagen maar niet uitgerold: de koppeling staat in het bestand, niet op het cluster.
+STUB_BODY='{"services":[{"name":"metrics-scraper","usages":[{"target":"component","component":"stelselregister","config":{"port":28094,"path":"/q/metrics"}}]}],"pending_rollout":{"count":2,"rollout_in_progress":false,"since":"2026-11-28T10:00:00Z"}}'
+draai controle mpfs-rab
+gelijk "controle: niet uitgerold blokkeert niet" 0 "$STATUS"
+bevat "controle: niet uitgerold wordt gemeld" "::warning title=Niet uitgerold::mpfs-rab heeft 2 opgeslagen wijziging(en) die niet op het cluster staan (sinds 2026-11-28T10:00:00Z)" "$UIT"
+
+STUB_BODY='{"services":[{"name":"metrics-scraper","usages":[{"target":"component","component":"stelselregister","config":{"port":28094,"path":"/q/metrics"}}]}],"pending_rollout":{"count":2,"rollout_in_progress":true}}'
+draai controle mpfs-rab
+mist "controle: een lopende uitrol is geen gat" "::warning" "$UIT"
+
+STUB_BODY='{"services":[{"name":"metrics-scraper","usages":[{"target":"component","component":"stelselregister","config":{"port":28094,"path":"/q/metrics"}}]}],"pending_rollout":{"count":0}}'
+draai controle mpfs-rab
+mist "controle: niets wachtend geeft geen waarschuwing" "::warning" "$UIT"
+
 STUB_FAAL=1 draai controle mpfs-rab
 gelijk "controle: curl faalt is exit 1" 1 "$STATUS"
 bevat "controle: curl faalt meldt HTTP 000" "(HTTP 000)" "$UIT"
@@ -217,10 +253,51 @@ mpfs-rab|assign
 mpfs-rab|config
 mpfs-rab|refresh" "$(sed -E 's/^([^ ]+) \| .*(assign|config|refresh).*/\1|\2/' <<<"$LOG")"
 
+bevat "apply: vraagt naar lopende uitrollen" "--workflow Deploy ZAD --status in_progress" "$(cat "$STUB_GH_LOG")"
+bevat "apply: vraagt naar wachtende uitrollen" "--workflow Deploy ZAD --status queued" "$(cat "$STUB_GH_LOG")"
+
+draai plan "$BASIS"
+gelijk "plan: vraagt niet naar uitrollen" "" "$(cat "$STUB_GH_LOG")"
+
+for status in IN_PROGRESS QUEUED; do
+  export "STUB_GH_$status=1"
+  draai apply "$BASIS"
+  gelijk "apply: een uitrol op $status weigert" 1 "$STATUS"
+  gelijk "apply: een uitrol op $status muteert niets" "" "$(cat "$STUB_LOG")"
+  unset "STUB_GH_$status"
+done
+
+STUB_GH_IN_PROGRESS=1 MEETGEGEVENS_FORCEER=1 draai apply "$BASIS" mpfs-rab
+gelijk "apply: MEETGEGEVENS_FORCEER slaat de controle over" 0 "$STATUS"
+gelijk "apply: MEETGEGEVENS_FORCEER vraagt gh niets" "" "$(cat "$STUB_GH_LOG")"
+
+STUB_GH_FAAL=1 draai apply "$BASIS"
+gelijk "apply: gh faalt is weigeren" 1 "$STATUS"
+gelijk "apply: gh faalt muteert niets" "" "$(cat "$STUB_LOG")"
+
+ZAD_GH="$WERK/bestaat-niet" draai apply "$BASIS"
+gelijk "apply: zonder gh weigeren" 1 "$STATUS"
+
+# Halverwege een project faalt een stap: geen uitrol, en de melding noemt project en stap.
+STUB_ZADCTL_FAAL="config set metrics-scraper -c magazijnb" draai apply "$BASIS"
+gelijk "apply: een falende stap breekt af" 3 "$STATUS"
+mist "apply: na een falende stap geen uitrol van dat project" "mpfm-w3h | project refresh" "$(cat "$STUB_LOG")"
+bevat "apply: het vorige project is wel uitgerold" "mpfb-8wh | project refresh" "$(cat "$STUB_LOG")"
+bevat "apply: noemt project en stap" "apply afgebroken bij service config set magazijnb in mpfm-w3h (exit 3)" "$UIT"
+mist "apply: het stelselregister is niet aangeraakt" "mpfs-rab" "$(cat "$STUB_LOG")"
+
+STUB_ZADCTL_FAAL="project refresh" draai apply "$BASIS" mpfs-rab
+gelijk "apply: een falende uitrol breekt af" 3 "$STATUS"
+bevat "apply: een falende uitrol noemt het project" "apply afgebroken bij project refresh in mpfs-rab" "$UIT"
+
+STUB_ZADCTL_FAAL="config set" draai plan "$BASIS" mpfs-rab
+mist "plan: een falende stap meldt geen open project" "apply afgebroken" "$UIT"
+
+# Een ontbrekend token bij een later project: geen enkele mutatie, ook niet bij de eerdere.
 rm "$BASIS/mpfs-rab/.env.zadctl"
-draai apply "$BASIS" mpfs-rab
+draai apply "$BASIS"
 gelijk "apply: zonder projecttoken exit 1" 1 "$STATUS"
-gelijk "apply: zonder projecttoken geen aanroep" "" "$(cat "$STUB_LOG")"
+gelijk "apply: zonder projecttoken geen aanroep, ook niet bij eerdere projecten" "" "$(cat "$STUB_LOG")"
 
 draai apply "$BASIS" mpfpsm-lcl
 gelijk "apply: een project buiten de tabel is exit 1" 1 "$STATUS"
@@ -251,7 +328,17 @@ PAREN
 
 bevat "deploy.yml draait de controle" ".github/scripts/meetgegevens-scraper.sh controle" "$(cat "$DEPLOY_YML")"
 
+# De project-ids zijn die van deploy.yml; een id die daar wijzigt, hoort hier mee.
+while IFS='|' read -r variabele project; do
+  gelijk "tabel: $variabele in deploy.yml is $project" "$project" "$(sed -n "s/^  $variabele: //p" "$DEPLOY_YML")"
+  bevat "tabel: $project staat in de tabel" "\"$project|" "$(cat "$SCRIPT")"
+done <<'PROJECTEN'
+PROJECT_UITVRAAG|mpfb-8wh
+PROJECT_MAGAZIJNEN|mpfm-w3h
+PROJECT_STELSELREGISTER|mpfs-rab
+PROJECTEN
+
 echo
-echo "$asserties asserties"
+echo "ASSERTIES=$asserties"
 
 [ "$mislukt" -eq 0 ] || { echo "Er zijn fouten"; exit 1; }

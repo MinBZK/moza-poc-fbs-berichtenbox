@@ -229,8 +229,10 @@ Wat je hoe dan ook moet weten:
 - **Projecten (project-id = OM-project):** `berichtenuitvraag` = `mpfb-8wh`,
   `magazijnen` = `mpfm-w3h`, `externe-stubs` = `mpfpsm-lcl`, `stelselregister` = `mpfs-rab`. Deployment-namen: `test` (baseline,
   push→main) en `pr-<n>` (previews). Een id wijzigen moet in `.github/workflows/deploy.yml`, in de
-  matrix van `.github/workflows/cleanup-preview.yml` én in de `zad`-matrix van
-  `.github/workflows/preview-resten.yml` (`test-preview-resten.sh` eist dat die laatste twee gelijk zijn).
+  matrix van `.github/workflows/cleanup-preview.yml`, in de `zad`-matrix van
+  `.github/workflows/preview-resten.yml` (`test-preview-resten.sh` eist dat die laatste twee gelijk zijn)
+  én in de tabel van `.github/scripts/meetgegevens-scraper.sh` (`test-meetgegevens-scraper.sh` legt hem
+  naast `deploy.yml`).
 - **`DELETE /api/v2/projects/{p}/{d}` is DESTRUCTIEF.** Het draait Argo `prune`+`Delete` en, voor
   projecten met de `postgresql-database`-service, `database_cleanup` → DB-data weg (geverifieerd
   2026-07-02 op magazijnen `mpfm-w3h`). Doe het nooit zonder de gids erbij — en niet om een door
