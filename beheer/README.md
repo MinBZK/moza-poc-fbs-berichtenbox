@@ -1,7 +1,8 @@
 # Beheer: dashboards en alertregels
 
 Wat de berichtenketen als product meelevert om de diensten te bewaken. Een organisatie met een eigen
-magazijn laadt deze bestanden op haar eigen voorziening.
+magazijn laadt deze bestanden op haar eigen voorziening. De lokale demo-stack laadt ze ook: Prometheus
+en Grafana draaien daar mee, zie §9b van [`docs/demo-runbook.md`](../docs/demo-runbook.md).
 
 | Pad | Wat |
 |---|---|

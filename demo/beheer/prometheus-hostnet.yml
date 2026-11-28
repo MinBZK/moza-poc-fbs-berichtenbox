@@ -2,9 +2,9 @@
 # dus elke dienst op 127.0.0.1 met zijn eigen beheerpoort (magazijn-b op 8091, dus 28091). Verder
 # gelijk aan prometheus.yml; houd ze samen.
 #
-# Geen token: de demo draait de diensten met QUARKUS_PROFILE=dev, en daar is de beheerpoort zonder
-# METRICS_AUTH_TOKEN open (BeheerpoortToegang). Het label `dienst` op de target vult het paneel
-# "Draaiende instanties" met `up`; de diensten zetten het op hun eigen reeksen zelf.
+# Geen token: de demo draait de diensten met QUARKUS_PROFILE=dev, en daar staat de beheerpoort open.
+# Geen labels op de targets: de diensten zetten `dienst`, `omgeving` en `magazijn` zelf, en een
+# target-label met dezelfde naam zou het hunne hernoemen naar `exported_dienst`.
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
@@ -19,8 +19,5 @@ scrape_configs:
     metrics_path: /q/metrics
     static_configs:
       - targets: [127.0.0.1:28086]
-        labels: {dienst: berichtenuitvraag}
       - targets: [127.0.0.1:28090, 127.0.0.1:28091]
-        labels: {dienst: berichtenmagazijn}
       - targets: [127.0.0.1:28094]
-        labels: {dienst: stelselregister}
