@@ -15,11 +15,12 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CONTRACTS="$(cd "${HERE}/../federatie/contracts" && pwd)"
 
 fails=0
+asserties=0
 
 assert_uitgang() {
   local desc="$1" verwacht="$2" kregen="$3"
   if [ "$kregen" = "$verwacht" ]; then
-    echo "OK: $desc (exit $kregen)"
+    asserties=$((asserties + 1)); echo "OK: $desc (exit $kregen)"
   else
     echo "FAIL: $desc — verwacht exit $verwacht, kreeg $kregen" >&2
     fails=$((fails + 1))
@@ -160,7 +161,7 @@ assert_bootstrap() {
   assert_uitgang "$1" "$2" "${uit% *}"
 
   if [ "${uit#* }" = "$3" ]; then
-    echo "OK: $1 ($3 provider-aanroep(en))"
+    asserties=$((asserties + 1)); echo "OK: $1 ($3 provider-aanroep(en))"
   else
     echo "FAIL: $1 — verwacht $3 provider-aanroep(en), kreeg ${uit#* }" >&2
     fails=$((fails + 1))
@@ -181,6 +182,9 @@ assert_bootstrap "configuratiefout van de provider gaat door als 2" 2 1 "3" "2"
 assert_bootstrap "consumer ziet het contract pas na even wachten geldig" 0 1 "3 3 0" "0"
 
 echo
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
+
 if [ "$fails" -ne 0 ]; then
   echo "ROOD: ${fails} test(s) gefaald." >&2
   exit 1

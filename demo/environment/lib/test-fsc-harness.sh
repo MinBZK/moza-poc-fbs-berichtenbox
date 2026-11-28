@@ -9,6 +9,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/fsc-harness.sh"
 
 fails=0
+asserties=0
 
 assert_empty_after_scrub() {
   local desc="$1" content="$2"
@@ -19,7 +20,7 @@ assert_empty_after_scrub() {
     echo "FAIL: $desc — verwacht leeg na scrub, kreeg: $(cat "$ERRLOG")" >&2
     fails=$((fails + 1))
   else
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   fi
   rm -f "$ERRLOG"
 }
@@ -30,7 +31,7 @@ assert_survives_scrub() {
   printf '%s' "$content" > "$ERRLOG"
   fsc_scrub_errlog
   if grep -qF "$expect_substr" "$ERRLOG"; then
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   else
     echo "FAIL: $desc — verwachtte '$expect_substr' te overleven, kreeg: $(cat "$ERRLOG")" >&2
     fails=$((fails + 1))
@@ -80,7 +81,7 @@ assert_grant_hashes() {
   local desc="$1" json="$2" verwacht="$3" thumb="${4:-$THUMB}" kregen
   kregen="$(fsc_grant_actief "$json" "$SVC" "$PROV" "$CONS" "$thumb")"
   if [ "$kregen" = "$verwacht" ]; then
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   else
     echo "FAIL: $desc — verwacht [$verwacht], kreeg [$kregen]" >&2
     fails=$((fails + 1))
@@ -123,7 +124,7 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 
 ERRLOG="$(mktemp)"
 GEVONDEN="$(fsc_outway_thumbprint "$CERTDIR/cert.pem")" && THUMB_OK=1 || THUMB_OK=0
 if [ "$THUMB_OK" -eq 1 ] && printf '%s' "$GEVONDEN" | grep -qE '^[0-9a-f]{64}$'; then
-  echo "OK: fsc_outway_thumbprint geeft 64 lowercase hex-tekens voor een geldig cert"
+  asserties=$((asserties + 1)); echo "OK: fsc_outway_thumbprint geeft 64 lowercase hex-tekens voor een geldig cert"
 else
   echo "FAIL: fsc_outway_thumbprint op een geldig cert gaf '$GEVONDEN' (ok=$THUMB_OK)" >&2
   fails=$((fails + 1))
@@ -133,7 +134,7 @@ if GEVONDEN="$(fsc_outway_thumbprint "$CERTDIR/niet-bestaand.pem" 2>/dev/null)";
   echo "FAIL: fsc_outway_thumbprint had moeten falen op een ontbrekend bestand, gaf '$GEVONDEN'" >&2
   fails=$((fails + 1))
 else
-  echo "OK: fsc_outway_thumbprint faalt op een ontbrekend certificaatbestand"
+  asserties=$((asserties + 1)); echo "OK: fsc_outway_thumbprint faalt op een ontbrekend certificaatbestand"
 fi
 
 printf 'dit is geen certificaat' > "$CERTDIR/rommel.pem"
@@ -141,9 +142,12 @@ if GEVONDEN="$(fsc_outway_thumbprint "$CERTDIR/rommel.pem" 2>/dev/null)"; then
   echo "FAIL: fsc_outway_thumbprint had moeten falen op een corrupt bestand, gaf '$GEVONDEN'" >&2
   fails=$((fails + 1))
 else
-  echo "OK: fsc_outway_thumbprint faalt op een corrupt certificaatbestand"
+  asserties=$((asserties + 1)); echo "OK: fsc_outway_thumbprint faalt op een corrupt certificaatbestand"
 fi
 rm -f "$ERRLOG"
+
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
 
 if [ "$fails" -eq 0 ]; then
   echo "ALLE ASSERTS GROEN"

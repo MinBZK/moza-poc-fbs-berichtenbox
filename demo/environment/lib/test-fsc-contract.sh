@@ -19,6 +19,7 @@ fsc_have_jq
 [ "$HAVE_JQ" -eq 1 ] || { echo "FAIL: jq is vereist voor deze fixture-tests." >&2; exit 1; }
 
 fails=0
+asserties=0
 
 # Vaste testidentiteiten. De waarden zelf doen er niet toe, alleen dat ze van elkaar verschillen.
 SVC=berichtenmagazijn
@@ -83,7 +84,7 @@ bundel() { printf '%s\n' "$@" | jq -sc '{ contracts: . }'; }
 assert_gelijk() {
   local desc="$1" verwacht="$2" kregen="$3"
   if [ "$kregen" = "$verwacht" ]; then
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   else
     echo "FAIL: $desc — verwacht [$verwacht], kreeg [$kregen]" >&2
     fails=$((fails + 1))
@@ -112,7 +113,7 @@ assert_weigerreden() {
   reden="$(fsc_contract_regels "$(beoordeel "$json")" WEIGER)"
 
   case "$reden" in
-    *"$fragment"*) echo "OK: $desc" ;;
+    *"$fragment"*) asserties=$((asserties + 1)); echo "OK: $desc" ;;
     *) echo "FAIL: $desc — verwachtte een reden met '$fragment', kreeg [$reden]" >&2
        fails=$((fails + 1)) ;;
   esac
@@ -388,7 +389,7 @@ for vorm in '' ' ' '{}' '{"contracts":null}' '{"contracts":"x"}' '[]' '<html>502
     echo "FAIL: respons '${vorm:-<leeg>}' werd stil als lege lijst gelezen" >&2
     fails=$((fails + 1))
   else
-    echo "OK: respons '${vorm:-<leeg>}' wordt afgewezen"
+    asserties=$((asserties + 1)); echo "OK: respons '${vorm:-<leeg>}' wordt afgewezen"
   fi
 done
 
@@ -448,7 +449,7 @@ for leeg in "" " " "$(printf '\n\n')"; do
     echo "FAIL: lege lijst '${leeg}' werd geaccepteerd" >&2
     fails=$((fails + 1))
   else
-    echo "OK: lege lijst wordt afgewezen"
+    asserties=$((asserties + 1)); echo "OK: lege lijst wordt afgewezen"
   fi
 done
 
@@ -559,7 +560,7 @@ assert_geen_verwijzing() {
   treffers="$(grep -nE "$patroon" "$bestand" || true)"
 
   if [ -z "$treffers" ]; then
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   else
     echo "FAIL: $desc — gevonden in $(basename "$bestand"):" >&2
     printf '%s\n' "$treffers" | sed 's/^/  /' >&2
@@ -609,7 +610,7 @@ assert_paginas() {  # <omschrijving> <verwachte-hashes> <verwacht-aantal-aanroep
   geteld="$(paginas_geteld)"
 
   if [ "$gevonden" = "$verwacht" ] && [ "$geteld" -eq "$aanroepen" ]; then
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   else
     echo "FAIL: $desc — hashes '${gevonden}' (verwacht '${verwacht}'), ${geteld} aanroep(en) (verwacht ${aanroepen})" >&2
     fails=$((fails + 1))
@@ -644,7 +645,7 @@ if fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts" >/dev/nu
   echo "FAIL: een niet-JSON respons werd stil als lege pagina gelezen" >&2
   fails=$((fails + 1))
 else
-  echo "OK: een niet-JSON respons breekt de lus af"
+  asserties=$((asserties + 1)); echo "OK: een niet-JSON respons breekt de lus af"
 fi
 
 # assert_paginas_faalt <omschrijving> <basis-url> <verwachte-reden> <body>...: de lus moet afbreken,
@@ -663,7 +664,7 @@ assert_paginas_faalt() {
     echo "FAIL: $desc — reden '$(fsc_last_error)', verwacht '${reden}'" >&2
     fails=$((fails + 1))
   else
-    echo "OK: $desc"
+    asserties=$((asserties + 1)); echo "OK: $desc"
   fi
 }
 
@@ -690,7 +691,7 @@ for basis in "https://manager/v1/contracts" "https://manager/v1/contracts?limit=
   printf '0' >"$TELLER_BESTAND"
 
   if fsc_contracten_paginas pagina_ophaler "$basis" >/dev/null; then
-    echo "OK: zonder bruikbare limit (${basis#*contracts}) eindigt een lege slotpagina gewoon"
+    asserties=$((asserties + 1)); echo "OK: zonder bruikbare limit (${basis#*contracts}) eindigt een lege slotpagina gewoon"
   else
     echo "FAIL: zonder bruikbare limit (${basis#*contracts}): $(fsc_last_error)" >&2
     fails=$((fails + 1))
@@ -710,7 +711,7 @@ printf '0' >"$TELLER_BESTAND"
 uit="$(fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts?limit=2")" || uit=""
 
 if [ "$(printf '%s' "$uit" | jq -r '[.contracts[]?.hash] | join(",")' 2>/dev/null)" = "h1,h2,h3" ]; then
-  echo "OK: een volle pagina met een gevulde opvolger leest gewoon door"
+  asserties=$((asserties + 1)); echo "OK: een volle pagina met een gevulde opvolger leest gewoon door"
 else
   echo "FAIL: een volle pagina met een gevulde opvolger: '${uit}' ($(fsc_last_error))" >&2
   fails=$((fails + 1))
@@ -731,7 +732,7 @@ printf '0' >"$TELLER_BESTAND"
 uit="$(fsc_contracten_paginas pagina_ophaler "https://manager/v1/contracts?limit=1000")" || uit=""
 
 if [ "$(printf '%s' "$uit" | jq '.contracts | length' 2>/dev/null)" = 600 ]; then
-  echo "OK: een lijst boven de 128 KiB wordt samengevoegd"
+  asserties=$((asserties + 1)); echo "OK: een lijst boven de 128 KiB wordt samengevoegd"
 else
   echo "FAIL: een lijst boven de 128 KiB: $(fsc_last_error)" >&2
   fails=$((fails + 1))
@@ -764,7 +765,7 @@ elif [[ "$(fsc_last_error)" != *"nog een cursor"* ]]; then
   echo "FAIL: een eindeloze cursor brak af om een andere reden: $(fsc_last_error)" >&2
   fails=$((fails + 1))
 else
-  echo "OK: een eindeloze cursor wordt na $(paginas_geteld) pagina's afgebroken"
+  asserties=$((asserties + 1)); echo "OK: een eindeloze cursor wordt na $(paginas_geteld) pagina's afgebroken"
 fi
 
 rm -f "$TELLER_BESTAND"
@@ -776,6 +777,9 @@ assert_geen_verwijzing "de provider-helft noemt de consumer-manager nergens" \
   "${CONTRACTS_DIR}/bootstrap-provider.sh" 'FSC_CONSUMER_(MANAGER|CERT|KEY|CA|ADRES)'
 
 echo
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
+
 if [ "$fails" -ne 0 ]; then
   echo "ROOD: ${fails} test(s) gefaald." >&2
   exit 1

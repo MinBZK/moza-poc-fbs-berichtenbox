@@ -22,6 +22,7 @@ DIENST=profiel-service
 NIEUW=nieuw-contract
 
 fails=0
+asserties=0
 
 fout() {
   echo "FAIL: $1" >&2
@@ -132,10 +133,13 @@ met_state() {
   printf '%s\n' "$1" > "${TMP}/logius/contracts/.bootstrap-state/${OIN}-${OIN}-${DIENST}.hash"
 }
 
-# draai: het script tegen de stub; zet $RC en $UIT.
+# draai: het script tegen de stub; zet $RC en $UIT. Een tcp-adres laat de engine-keuze geen socket
+# bevragen, en een eigen XDG_RUNTIME_DIR houdt hem uit de runtime-map van de host (de opruiming van
+# een verweesde pause.pid): zonder die twee hing de uitkomst af van podman op de machine van de tester.
 draai() {
   RC=0
-  UIT="$(PATH="${TMP}/stub:$PATH" "${TMP}/logius/deploy/local/consume-service.sh" 2>&1)" || RC=$?
+  UIT="$(DOCKER_HOST=tcp://teststub.invalid XDG_RUNTIME_DIR="${TMP}/run" PATH="${TMP}/stub:$PATH" \
+    "${TMP}/logius/deploy/local/consume-service.sh" 2>&1)" || RC=$?
 }
 
 aantal() { grep -c "^$1 " "${TMP}/stub/aanroepen.log" 2>/dev/null || true; }
@@ -171,7 +175,7 @@ for geval in leeg een-pagina meer-paginas; do
      || ! grep -q "GRANT-HASH: ${verwacht_grant}" <<<"$UIT"; then
     fout "${geval}: verwacht ${verwacht_posts} POST('s) en ${verwacht_grant} (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
   else
-    echo "OK: ${geval}: ${verwacht_posts} contract(en) ingediend, grant ${verwacht_grant}"
+    asserties=$((asserties + 1)); echo "OK: ${geval}: ${verwacht_posts} contract(en) ingediend, grant ${verwacht_grant}"
   fi
 
   rm -rf "$TMP"
@@ -192,7 +196,7 @@ if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] || [ "$(aantal PUT)" != 1 ] \
    || ! grep -q "CONSUME OK" <<<"$UIT"; then
   fout "nieuw contract op pagina 2 niet afgerond (exit ${RC}, POST's: $(aantal POST), PUT's: $(aantal PUT)): $(tail -n3 <<<"$UIT")"
 else
-  echo "OK: een nieuw contract dat op pagina 2 verschijnt, wordt één keer ingediend en geaccepteerd"
+  asserties=$((asserties + 1)); echo "OK: een nieuw contract dat op pagina 2 verschijnt, wordt één keer ingediend en geaccepteerd"
 fi
 rm -rf "$TMP"
 
@@ -211,7 +215,7 @@ if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] || ! grep -q "CONSUME OK" <<<"$U
    || [ "$(cat "$state" 2>/dev/null)" != "$NIEUW" ]; then
   fout "haperende poll niet overleefd (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
 else
-  echo "OK: een eenmalige leesfout tijdens de poll wordt overgeslagen; het contract wordt afgerond"
+  asserties=$((asserties + 1)); echo "OK: een eenmalige leesfout tijdens de poll wordt overgeslagen; het contract wordt afgerond"
 fi
 rm -rf "$TMP"
 
@@ -232,7 +236,7 @@ if [ "$rc_eerste" -eq 0 ] || [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] \
    || ! grep -q "GRANT-HASH: grant-${NIEUW}" <<<"$UIT"; then
   fout "gestrande verificatie (exit ${rc_eerste} dan ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
 else
-  echo "OK: na een gestrande verificatie neemt de volgende run het contract over zonder nieuw indienen"
+  asserties=$((asserties + 1)); echo "OK: na een gestrande verificatie neemt de volgende run het contract over zonder nieuw indienen"
 fi
 rm -rf "$TMP"
 
@@ -250,7 +254,7 @@ draai
 if [ "$RC" -ne 0 ] || [ "$(aantal POST)" != 1 ] || ! grep -q "GRANT-HASH: grant-${NIEUW}" <<<"$UIT"; then
   fout "ongeldig vastgelegd contract niet vervangen (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
 else
-  echo "OK: een vastgelegd contract dat niet geldig is, wordt vervangen door een nieuw"
+  asserties=$((asserties + 1)); echo "OK: een vastgelegd contract dat niet geldig is, wordt vervangen door een nieuw"
 fi
 rm -rf "$TMP"
 
@@ -309,11 +313,14 @@ for geval in "geen-lijst" "http-fout" "fout-op-pagina-2" "eindeloze-cursor" "afg
      || ! grep -q "kon de contractenlijst niet ophalen: .*${melding}" <<<"$UIT"; then
     fout "${geval}: verwacht een harde fout met '${melding}' zonder indienen (exit ${RC}, POST's: $(aantal POST)): $(tail -n3 <<<"$UIT")"
   else
-    echo "OK: ${geval}: het script faalt zonder een contract in te dienen (exit ${RC})"
+    asserties=$((asserties + 1)); echo "OK: ${geval}: het script faalt zonder een contract in te dienen (exit ${RC})"
   fi
 
   rm -rf "$TMP"
 done
+
+# Voor ci-scripts.yml: een uitgeholde suite valt zo op aan een dalend aantal.
+echo "ASSERTIES=$asserties"
 
 if [ "$fails" -gt 0 ]; then
   echo "${fails} test(s) gefaald." >&2
