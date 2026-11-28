@@ -41,6 +41,9 @@ class BeheerpoortZonderTokenTest {
             "magazijnen.\"00000000000000100000\".url" to "https://localhost:8090",
             "magazijnen.\"00000001823288444000\".url" to "https://localhost:8091",
             "fbs.http.tls.termination" to "mesh",
+            // Expliciet leeg: een METRICS_AUTH_TOKEN in de omgeving van de test-JVM zou de poort anders
+            // om de verkeerde reden dicht houden (een token dat niet klopt).
+            "fbs.beheerpoort.token" to "",
         )
     }
 }

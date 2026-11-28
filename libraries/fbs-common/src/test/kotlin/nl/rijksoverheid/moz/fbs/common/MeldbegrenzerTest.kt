@@ -2,7 +2,9 @@ package nl.rijksoverheid.moz.fbs.common
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNull
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -49,31 +51,37 @@ class MeldbegrenzerTest {
         assertEquals(1L, begrenzer.gebeurtenis())
     }
 
+    // Met een interval van 1 en een klok die bij elke aflezing doorloopt, winnen veel aanroepen de CAS
+    // kort na elkaar: precies het geval waarin een eigen aftrek per winnaar dubbel zou melden.
     @Test
-    fun `elke gebeurtenis telt precies een keer, ook bij gelijktijdige aanroepen`() {
+    fun `gelijktijdige aanroepen melden nooit meer dan er gebeurde`() {
         val klok = AtomicLong()
         val gedeeld = Meldbegrenzer(1) { klok.incrementAndGet() }
-        val gemeld = AtomicLong()
+        val meldingen = ConcurrentLinkedQueue<Long>()
         val draden = 8
         val perDraad = 5_000
         val start = CountDownLatch(1)
         val pool = Executors.newFixedThreadPool(draden)
 
-        repeat(draden) {
+        val taken = (1..draden).map {
             pool.submit {
                 start.await()
-                repeat(perDraad) { gedeeld.gebeurtenis()?.let(gemeld::addAndGet) }
+                repeat(perDraad) { gedeeld.gebeurtenis()?.let(meldingen::add) }
             }
         }
 
         start.countDown()
+        taken.forEach { it.get(30, TimeUnit.SECONDS) }
         pool.shutdown()
-        pool.awaitTermination(30, TimeUnit.SECONDS)
+        assertTrue(pool.awaitTermination(5, TimeUnit.SECONDS))
 
-        // Wat niet gemeld is, staat nog in de teller: de volgende melding neemt het mee.
+        // Wat niet gemeld is, staat nog in de teller: de volgende melding neemt het mee, plus zichzelf.
         klok.addAndGet(10)
         val rest = (gedeeld.gebeurtenis() ?: 0L) - 1
+        val totaal = (draden * perDraad).toLong()
 
-        assertEquals((draden * perDraad).toLong(), gemeld.get() + rest)
+        assertTrue(meldingen.all { it > 0 }, "een melding van 0 of minder")
+        assertTrue(rest >= 0, "de teller is onder 0 gezakt")
+        assertEquals(totaal, meldingen.sum() + rest)
     }
 }

@@ -34,7 +34,11 @@ class BeheerpoortBeveiliging(
 
     private val geheim = BeheerpoortToegang.ingesteld(token.orElse(null))
 
-    /** `false` bij de start en na elke weigering, zodat ook het herstel na een verkeerd token in de log komt. */
+    /**
+     * `false` bij de start en na elke weigering die in de log kwam, zodat ook het herstel na een
+     * verkeerd token zichtbaar is. Alleen na een gemelde weigering: anders bepaalt een buur die
+     * tussen de scrapes door zonder token aanklopt, hoe vaak de herstelregel verschijnt.
+     */
     private val toegangGemeld = AtomicBoolean(false)
 
     private val weigeringen = Meldbegrenzer(TimeUnit.MINUTES.toNanos(MELDINTERVAL_MINUTEN))
@@ -62,28 +66,35 @@ class BeheerpoortBeveiliging(
             return
         }
 
-        meldWeigering()
+        meldWeigering(context)
         context.response()
             .setStatusCode(UNAUTHORIZED)
             .putHeader(WWW_AUTHENTICATE, "Bearer")
             .end()
     }
 
-    // Eén regel als bewijs dat de scraper binnenkomt: van de scrape zelf ziet de dienst verder niets.
+    // Een regel bij de start en na elk gemeld herstel, als bewijs dat de scraper binnenkomt: van de
+    // scrape zelf ziet de dienst verder niets.
     private fun meldToegang() {
         if (geheim != null && toegangGemeld.compareAndSet(false, true)) {
             log.info("Beheerpoort: verzoek met een geldig token ontvangen (het eerste sinds de start of sinds een weigering)")
         }
     }
 
-    private fun meldWeigering() {
-        toegangGemeld.set(false)
-
+    /**
+     * Het adres van het verzoek dat de regel aanleidt, zodat te zien is of de scraper zelf een
+     * verkeerd token stuurt of een buur aanklopt: een pod-adres, geen persoonsgegeven. De header en
+     * het token komen nooit in de log.
+     */
+    private fun meldWeigering(context: RoutingContext) {
         weigeringen.gebeurtenis()?.let { aantal ->
+            toegangGemeld.set(false)
             log.warnf(
-                "%s: %d verzoek(en) op de beheerpoort zonder geldig bearer-token geweigerd sinds de vorige melding",
+                "%s: %d verzoek(en) op de beheerpoort zonder geldig bearer-token geweigerd sinds de vorige melding, " +
+                    "laatst van %s",
                 BeheerpoortToegang.GEWEIGERD,
                 aantal,
+                context.request().remoteAddress()?.host() ?: "onbekend",
             )
         }
     }

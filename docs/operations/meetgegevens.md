@@ -43,12 +43,13 @@ De beheerpoort eist een bearer-token: `Authorization: Bearer <token>`, met het t
   token.
 - **Met token** geldt de eis in elk profiel, ook lokaal.
 - **Geweigerde verzoeken** logt de dienst als `BEHEERPOORT_GEWEIGERD`, hooguit één regel per tien
-  minuten met het aantal sinds de vorige melding. Een reeks die binnen die tien minuten ophoudt,
-  komt pas in de log bij de eerstvolgende weigering daarna; de eerste regel van de reeks staat er
-  altijd.
-- **Een verzoek mét geldig token** logt hij op INFO ("verzoek met een geldig token ontvangen"), het
-  eerste sinds de start en het eerste na een weigering. Dat is van buiten het bewijs dat de scraper
-  binnenkomt, ook na het herstel van een verkeerd token.
+  minuten, met het aantal sinds de vorige regel en het adres van het laatste verzoek (een pod-adres:
+  de scraper zelf of een buur). Weigeringen binnen tien minuten na een regel tellen mee in de
+  volgende; die komt pas bij de eerste weigering na die tien minuten. Een reeks die daarvoor ophoudt,
+  blijft tot dan onzichtbaar.
+- **Een verzoek mét geldig token** logt hij op INFO ("verzoek met een geldig token ontvangen"): het
+  eerste sinds de start, en het eerste na een gemelde weigering. Dat is van buiten het bewijs dat de
+  scraper binnenkomt, ook na het herstel van een verkeerd token.
 
 De regel staat in `fbs-common` (`BeheerpoortToegang`), de bedrading per dienst
 (`BeheerpoortBeveiliging`). De meetwaarden bevatten geen persoonsgegevens, maar wel de
@@ -69,8 +70,9 @@ ODC-Noord terecht.
 - `.github/scripts/meetgegevens-scraper.sh` is de bron: de tabel daarin noemt per project het
   component, de beheerpoort en `/q/metrics`. Een beheerder richt het in met `plan` en `apply`
   (persoonlijk projecttoken); `deploy.yml` draait bij elke run die uitrolt `controle`, naast de
-  uitrol, en waarschuwt bij een afwijking of een opgeslagen wijziging die niet is uitgerold, zonder de
-  uitrol tegen te houden.
+  uitrol, en waarschuwt bij een afwijking zonder de uitrol tegen te houden. Of de koppeling ook is
+  uitgerold, toetst hij niet: OM telt opgeslagen wijzigingen als wachtend tot het hele project wordt
+  ververst, ook nadat een deploy ze uitrolde, dus dat oordeel zou bij bijna elke run afgaan.
 - Zonder poort scrapet de dienst de applicatiepoort, en daar geeft `/q/metrics` een `404`.
 
 ## Wat

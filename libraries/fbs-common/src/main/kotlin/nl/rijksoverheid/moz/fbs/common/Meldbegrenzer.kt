@@ -7,12 +7,12 @@ import java.util.concurrent.atomic.AtomicLong
  * aantal sinds de vorige regel. Een scraper met een verkeerd token komt elke halve minuut, en wie
  * een poort afzoekt, bepaalt anders zelf hoeveel log er ontstaat.
  *
- * Een reeks die binnen het interval ophoudt, komt pas in de log bij de eerstvolgende gebeurtenis
- * na het interval. Er is bewust geen timer die hem later alsnog meldt: de eerste regel van de
- * reeks staat er al, en die is wat een beheerder zoekt.
+ * Gebeurtenissen binnen het interval na een regel tellen mee in de volgende regel, en die komt pas
+ * bij de eerste gebeurtenis na dat interval. Houdt een reeks daarvoor op, dan blijft hij tot dan
+ * onzichtbaar: er is bewust geen timer, de begrenzer telt en plant niets in.
  *
- * Draadveilig zonder lock: elke [gebeurtenis] wordt precies één keer meegeteld in een gemeld
- * aantal of in de rest van de teller.
+ * Draadveilig zonder lock: elk gemeld aantal is groter dan 0, en samen met wat in de teller staat
+ * is het precies het aantal gebeurtenissen.
  */
 class Meldbegrenzer(private val intervalNanos: Long, private val klok: () -> Long = System::nanoTime) {
 
@@ -21,18 +21,16 @@ class Meldbegrenzer(private val intervalNanos: Long, private val klok: () -> Lon
 
     /** Telt een gebeurtenis; geeft het te melden aantal terug als er nu een regel hoort, anders `null`. */
     fun gebeurtenis(): Long? {
-        val aantal = sindsMelding.incrementAndGet()
+        sindsMelding.incrementAndGet()
+
         val nu = klok()
         val vorige = vorigeMelding.get()
 
-        if ((vorige == GEEN || nu - vorige >= intervalNanos) && vorigeMelding.compareAndSet(vorige, nu)) {
-            // Alleen wat deze aanroep zag; wat intussen binnenkwam, blijft staan voor de volgende.
-            sindsMelding.addAndGet(-aantal)
+        if ((vorige != GEEN && nu - vorige < intervalNanos) || !vorigeMelding.compareAndSet(vorige, nu)) return null
 
-            return aantal
-        }
-
-        return null
+        // In één keer leeghalen: twee winnaars kort na elkaar zouden met een eigen aftrek samen meer
+        // melden dan er gebeurde. Wie na de eerste komt, vindt een lege teller en meldt niets.
+        return sindsMelding.getAndSet(0).takeIf { it > 0 }
     }
 
     private companion object {

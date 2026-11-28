@@ -64,8 +64,10 @@ class BeheerpoortTokenTest {
         given().`when`().get("/q/health/live").then().statusCode(200)
     }
 
+    // Hier met witruimte erom, zoals een geheim dat met `echo` zonder `-n` is gemaakt: de dienst trimt
+    // het, dus `Bearer $TOKEN` hoort te slagen. De kopieën in magazijn en uitvraag gebruiken een schoon token.
     class MetToken : QuarkusTestProfile {
-        override fun getConfigOverrides(): Map<String, String> = mapOf("fbs.beheerpoort.token" to TOKEN)
+        override fun getConfigOverrides(): Map<String, String> = mapOf("fbs.beheerpoort.token" to " $TOKEN\n")
     }
 
     private companion object {

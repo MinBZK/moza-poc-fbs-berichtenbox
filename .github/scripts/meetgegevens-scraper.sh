@@ -24,16 +24,20 @@
 #       naast de uitrol: hij leest de koppeling, niet het cluster.
 #   meetgegevens-scraper.sh plan|apply <basis> [project]
 #       Voor een beheerder, met zadctl. Draait vanuit <basis>/<project>, waar een persoonlijk
-#       projecttoken in .env.zadctl staat (uit te geven met zadctl; zie docs/operations/zad-gitops.md).
-#       `plan` toont elke aanroep met --dry-run; `apply` zet ze door en rolt per project één keer uit.
+#       projecttoken in .env.zadctl staat: per lid uitgegeven door Operations Manager, na een
+#       2FA-step-up, standaard één dag geldig. `plan` toont elke aanroep met --dry-run; `apply` zet
+#       ze door en rolt per project één keer uit.
 #
-# `apply` weigert terwijl er een "Deploy ZAD"-run loopt: OM vergrendelt op project, en `project
-# refresh` zou de wachtstap van die uitrol overnemen. MEETGEGEVENS_FORCEER=1 slaat die controle over.
+# `apply` weigert terwijl er een run van een workflow loopt of in de wachtrij staat die
+# OM-taken op deze projecten zet ("Deploy ZAD", "Cleanup ZAD preview"): OM vergrendelt op project, en
+# `project refresh` zou de wachtstap van die run overnemen. Hij kijkt vóór de eerste mutatie en
+# opnieuw vóór elke uitrol. MEETGEGEVENS_FORCEER=1 slaat die controle over.
 
 set -euo pipefail
 
 readonly STANDAARD_API_URL='https://operations-manager.rig.prd1.gn2.quattro.rijksapps.nl/api'
 readonly DIENST=metrics-scraper
+readonly OM_WORKFLOWS=("Deploy ZAD" "Cleanup ZAD preview")
 
 # Overschrijfbaar zodat de unittests het verkeer kunnen onderscheppen zonder netwerk.
 CURL=${ZAD_CURL:-curl}
@@ -76,8 +80,12 @@ trap '[ -z "$ANTWOORD" ] || rm -f "$ANTWOORD"' EXIT
 # waarschuwing en geen fout: een ontbrekende koppeling kost de meetgegevens, niet de dienst, en een
 # uitrol tegenhouden zou van een gat in het beheer een storing in de keten maken. Een antwoord dat
 # niet te lezen is, is wél exitcode 1: dan weet niemand of de koppeling er staat.
+#
+# Bewust geen oordeel over `pending_rollout`: preview-klaarzetten.sh schrijft bij elke nieuwe preview
+# met rollout=false, en OM telt zo'n wijziging als wachtend tot iemand het hele project ververst, ook
+# nadat de deploy hem uitrolde. Een waarschuwing daarop zou bij bijna elke run afgaan.
 controle() {
-    local project=$1 api_url=${ZAD_API_URL:-$STANDAARD_API_URL} status regels afwijkingen=0 wachtend
+    local project=$1 api_url=${ZAD_API_URL:-$STANDAARD_API_URL} status regels afwijkingen=0
 
     [ -n "${ZAD_API_KEY:-}" ] || { echo "::error::ZAD_API_KEY ontbreekt" >&2; exit 1; }
 
@@ -92,11 +100,18 @@ controle() {
         "$api_url/v2/projects/$project/services") || status=000
 
     # De vorm hoort bij "leesbaar": een veld dat ontbreekt of van type wisselt, zou anders als een
-    # ontbrekende koppeling lezen, elke run opnieuw, tot iedereen de waarschuwing negeert.
-    if [ "$status" != 200 ] || ! jq -e '
+    # ontbrekende koppeling lezen, elke run opnieuw, tot iedereen de waarschuwing negeert. Alleen de
+    # eigen dienst telt: hoe OM een andere dienst beschrijft, hoort deze controle niet rood te maken.
+    if [ "$status" != 200 ] || ! jq -e --arg d "$DIENST" '
         (.services | type == "array")
-        and all(.services[]; (.name | type == "string") and (.usages | type == "array"))' "$ANTWOORD" >/dev/null 2>&1; then
+        and all(.services[] | select(type == "object" and .name == $d);
+            (.usages | type == "array")
+            and all(.usages[]; type == "object" and ((.config // {}) | type == "object")))' "$ANTWOORD" >/dev/null 2>&1; then
         echo "::error::De diensten van $project zijn niet te lezen (HTTP $status); of $DIENST er staat, is onbekend" >&2
+        # Het begin van het antwoord, voor de diagnose: een HTML-pagina van een proxy, een foutobject.
+        # Er staat geen key in; die ging alleen als header mee.
+        head -c 300 "$ANTWOORD" >&2 || true
+        echo >&2
         exit 1
     fi
 
@@ -104,7 +119,7 @@ controle() {
         local gevonden
 
         gevonden=$(jq -c --arg d "$DIENST" --arg c "$component" '
-            [.services[] | select(.name == $d) | .usages[]
+            [.services[] | select(type == "object" and .name == $d) | .usages[]
              | select(.target == "component" and .component == $c)]
             | first // empty | .config // {}' "$ANTWOORD")
 
@@ -119,16 +134,6 @@ controle() {
         fi
     done <<<"$regels"
 
-    # Het antwoord beschrijft het projectbestand, niet het cluster: een wijziging die met
-    # --no-rollout is opgeslagen en nooit uitgerold, staat er al in. Een lopende uitrol is geen gat.
-    wachtend=$(jq -r 'if (.pending_rollout.count // 0) > 0 and (.pending_rollout.rollout_in_progress // false | not)
-        then "\(.pending_rollout.count)|\(.pending_rollout.since // "onbekend")" else "" end' "$ANTWOORD")
-
-    if [ -n "$wachtend" ]; then
-        echo "::warning title=Niet uitgerold::$project heeft ${wachtend%%|*} opgeslagen wijziging(en) die niet op het cluster staan (sinds ${wachtend#*|}); de koppeling hierboven is dan mogelijk nog niet actief. Uitrollen: zadctl project refresh"
-        afwijkingen=$((afwijkingen + 1))
-    fi
-
     [ "$afwijkingen" -eq 0 ] || echo "$afwijkingen afwijking(en) in $project; de uitrol gaat door"
 }
 
@@ -136,15 +141,39 @@ controle() {
 OPEN_PROJECT=""
 OPEN_STAP=""
 
+# Op elke exit, ook na een signaal: een niet-leeg OPEN_PROJECT betekent altijd een project met
+# opgeslagen wijzigingen zonder uitrol, want ververs wist het pas na een geslaagde refresh.
 meld_open_project() {
     local status=$?
 
-    if [ "$status" -ne 0 ] && [ -n "$OPEN_PROJECT" ]; then
+    if [ -n "$OPEN_PROJECT" ]; then
         echo "apply afgebroken bij $OPEN_STAP in $OPEN_PROJECT (exit $status)." >&2
         echo "  $OPEN_PROJECT kan opgeslagen wijzigingen hebben die niet zijn uitgerold, met een component dat de" >&2
-        echo "  dienst draagt zonder de goede poort. Bekijk ze met 'zadctl project pending' vanuit de projectmap," >&2
-        echo "  en draai daarna apply opnieuw voor $OPEN_PROJECT: elke stap is idempotent." >&2
+        echo "  dienst draagt zonder de goede poort. Bekijk ze met 'zadctl -p $OPEN_PROJECT project pending', en" >&2
+        echo "  draai daarna apply opnieuw voor $OPEN_PROJECT: elke stap is idempotent." >&2
     fi
+}
+
+# Eén zadctl-aanroep in de map van het project, met `-p` erbij: een .env.zadctl van een ander project
+# in die map geeft dan een 401 in plaats van een mutatie op dat andere project. `--strict` laat een
+# waarschuwing (een geweigerde approval) als fout gelden. Eén waarschuwing is het verwachte,
+# idempotente geval: `service assign` op een dienst die al op het project staat meldt "already
+# exists on the project" met exit 1. Die telt als succes; elke andere non-nul blijft een fout.
+zad() {
+    local project=$1 status=0 uitvoer
+    shift
+
+    uitvoer=$(cd "$BASIS/$project" && "$ZADCTL" --strict -p "$project" "$@" </dev/null 2>&1) || status=$?
+
+    [ -z "$uitvoer" ] || printf '%s\n' "$uitvoer"
+
+    if [ "$status" -eq 1 ] && [ "$1" = --no-rollout ] && [ "$2 $3" = "service assign" ]; then
+        case "$uitvoer" in
+            *"already exists on the project"*) status=0 ;;
+        esac
+    fi
+
+    return "$status"
 }
 
 # Per project: binden, instellen, één uitrol. `service assign` is idempotent en selecteert de dienst
@@ -152,77 +181,106 @@ meld_open_project() {
 # altijd allebei bij. `--no-rollout` op beide, zodat een geslaagde reeks in één uitrol landt; faalt
 # er een stap, dan meldt meld_open_project welk project half staat.
 inrichten() {
-    local modus=$1 basis=$2 filter=$3 project vorige="" component poort pad
+    local modus=$1 filter=$2 project vorige="" component poort pad
     local -a droog=()
 
-    [ "$modus" = plan ] && droog=(--dry-run)
+    if [ "$modus" = plan ]; then
+        droog=(--dry-run)
+    fi
 
     # Eerst alle tokens, dan pas de eerste mutatie: een ontbrekend token halverwege laat anders een
     # vorig project half ingericht achter.
     while IFS='|' read -r project _; do
-        [ -f "$basis/$project/.env.zadctl" ] || {
-            echo "geen $basis/$project/.env.zadctl; geef eerst een persoonlijk projecttoken uit met zadctl" >&2
+        [ -f "$BASIS/$project/.env.zadctl" ] || {
+            echo "geen $BASIS/$project/.env.zadctl; geef eerst een persoonlijk projecttoken uit (Operations Manager, 2FA)" >&2
             exit 1
         }
     done < <(regels_voor "$filter")
 
-    if [ "$modus" = apply ] && [ "${MEETGEGEVENS_FORCEER:-0}" != 1 ]; then
-        geen_lopende_uitrol
+    if [ "$modus" = apply ]; then
+        geen_lopende_om_taak
     fi
 
     trap 'meld_open_project; [ -z "$ANTWOORD" ] || rm -f "$ANTWOORD"' EXIT
+    # Een signaal geeft de EXIT-trap een $? van 0; met een eigen exit erachter klopt de melding.
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
 
     while IFS='|' read -r project component poort pad; do
         if [ -n "$vorige" ] && [ "$vorige" != "$project" ]; then
-            ververs "$modus" "$basis" "$vorige"
+            ververs "$modus" "$vorige"
         fi
 
         vorige=$project
-        [ "$modus" = apply ] && OPEN_PROJECT=$project
+
+        if [ "$modus" = apply ]; then
+            OPEN_PROJECT=$project
+        fi
 
         # `${droog[@]+...}`: een lege array onder `set -u` breekt bash ouder dan 4.4 (macOS).
         OPEN_STAP="service assign $component"
-        ( cd "$basis/$project" && "$ZADCTL" --no-rollout service assign "$DIENST" -c "$component" ${droog[@]+"${droog[@]}"} </dev/null )
+        zad "$project" --no-rollout service assign "$DIENST" -c "$component" ${droog[@]+"${droog[@]}"}
 
         OPEN_STAP="service config set $component"
-        ( cd "$basis/$project" && "$ZADCTL" --no-rollout service config set "$DIENST" -c "$component" \
-            --set "port=$poort" --set "path=$pad" --yes ${droog[@]+"${droog[@]}"} </dev/null )
+        zad "$project" --no-rollout service config set "$DIENST" -c "$component" \
+            --set "port=$poort" --set "path=$pad" --yes ${droog[@]+"${droog[@]}"}
     done < <(regels_voor "$filter")
 
-    [ -z "$vorige" ] || ververs "$modus" "$basis" "$vorige"
-}
-
-ververs() {
-    local modus=$1 basis=$2 project=$3
-
-    if [ "$modus" = plan ]; then
-        echo "zou uitrollen: $project (zadctl project refresh)"
-    else
-        OPEN_STAP="project refresh"
-        ( cd "$basis/$project" && "$ZADCTL" project refresh </dev/null )
-        OPEN_PROJECT=""
-        echo "$project: uitgerold"
+    if [ -n "$vorige" ]; then
+        ververs "$modus" "$vorige"
     fi
 }
 
-# Een lopende of wachtende "Deploy ZAD"-run; zonder gh is dat niet na te gaan, en dan weigert apply.
-geen_lopende_uitrol() {
-    local status aantal
+ververs() {
+    local modus=$1 project=$2
+
+    if [ "$modus" = plan ]; then
+        echo "zou uitrollen: $project (zadctl project refresh)"
+
+        return
+    fi
+
+    # Opnieuw kijken: een push naar main tijdens een apply over drie projecten zou anders net de
+    # uitrol raken die deze refresh overneemt.
+    if [ "${MEETGEGEVENS_FORCEER:-0}" != 1 ]; then
+        OPEN_STAP="controle op lopende OM-taken"
+        geen_lopende_om_taak
+    fi
+
+    OPEN_STAP="project refresh"
+    zad "$project" project refresh
+    OPEN_PROJECT=""
+    echo "$project: uitgerold"
+}
+
+# Een run die niet klaar is, in een workflow die OM-taken op deze projecten zet; zonder gh is dat niet
+# na te gaan, en dan weigert apply. Elke status behalve `completed` telt: ook `waiting` (een
+# environment-goedkeuring) en `pending` houden het project bezet.
+geen_lopende_om_taak() {
+    local workflow aantal
+
+    [ "${MEETGEGEVENS_FORCEER:-0}" != 1 ] || return 0
 
     command -v "$GH" >/dev/null || {
         echo "gh niet gevonden; of er een uitrol loopt, is niet na te gaan. MEETGEGEVENS_FORCEER=1 slaat dit over." >&2
         exit 1
     }
 
-    for status in in_progress queued; do
-        aantal=$("$GH" run list --repo MinBZK/moza-poc-fbs-berichtenbox --workflow "Deploy ZAD" --status "$status" \
-            --json databaseId --jq 'length') || {
-            echo "kon de lopende uitrollen niet opvragen; MEETGEGEVENS_FORCEER=1 slaat dit over." >&2
+    for workflow in "${OM_WORKFLOWS[@]}"; do
+        aantal=$("$GH" run list --repo MinBZK/moza-poc-fbs-berichtenbox --workflow "$workflow" --limit 50 \
+            --json status --jq '[.[] | select(.status != "completed")] | length') || {
+            echo "kon de runs van '$workflow' niet opvragen; MEETGEGEVENS_FORCEER=1 slaat dit over." >&2
+            exit 1
+        }
+
+        [[ $aantal =~ ^[0-9]+$ ]] || {
+            echo "onverwacht antwoord van gh run list voor '$workflow': '$aantal'; MEETGEGEVENS_FORCEER=1 slaat dit over." >&2
             exit 1
         }
 
         [ "$aantal" = 0 ] || {
-            echo "er staat een 'Deploy ZAD'-run op $status; wacht tot hij klaar is (OM vergrendelt op project)." >&2
+            echo "er staat een '$workflow'-run open; wacht tot hij klaar is (OM vergrendelt op project)." >&2
             exit 1
         }
     done
@@ -244,7 +302,8 @@ case "$1" in
             exit 1
         fi
 
-        inrichten "$1" "$2" "${3:-}"
+        BASIS=$2
+        inrichten "$1" "${3:-}"
         ;;
     *)
         gebruik
