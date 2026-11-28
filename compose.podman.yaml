@@ -38,6 +38,16 @@ services:
     volumes:
       - ./wiremock/notificatie-stub/mappings:/home/wiremock/mappings:z
 
+  prometheus:
+    volumes:
+      - ./demo/beheer:/etc/fbs-beheer:ro,z
+      - ./beheer/meldingen:/etc/fbs-meldingen:ro,z
+
+  grafana:
+    volumes:
+      - ./demo/beheer/grafana/provisioning:/etc/grafana/provisioning:ro,z
+      - ./beheer/dashboards:/etc/fbs-dashboards:ro,z
+
   toxiproxy:
     volumes:
       - ./toxiproxy/proxies.json:/proxies.json:ro,z

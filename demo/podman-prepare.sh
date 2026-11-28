@@ -47,6 +47,7 @@ sed -e 's|"listen": "0\.0\.0\.0:|"listen": "127.0.0.1:|g' \
     -e 's|"profiel-service:8080"|"127.0.0.1:8089"|' \
     -e 's|"notificatie-stub:8080"|"127.0.0.1:8084"|' \
     -e 's|"berichtenuitvraag:8086"|"127.0.0.1:8086"|' \
+    -e 's|"postgres-uitvraag:5432"|"127.0.0.1:5434"|' \
     "$ROOT/toxiproxy/proxies.json" > "$PROXIES.tmp"
 
 # De guards tellen éérst wat ze herkennen. Vinden ze niets — hernoemd veld, verminkte invoer, een

@@ -208,7 +208,7 @@ services:
       MAGAZIJN_A_URL: ${MAGAZIJN_A_URL:-http://127.0.0.1:18090}
       MAGAZIJN_B_URL: http://127.0.0.1:18091
       PROFIEL_SERVICE_URL: http://127.0.0.1:18089
-      LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:5434/ldv_logging
+      LDV_POSTGRES_URL: jdbc:postgresql://127.0.0.1:15434/ldv_logging
 
   stelselregister:
     network_mode: host
@@ -234,6 +234,7 @@ services:
       # 0.0.0.0 uit de basis zou in een gedeelde netns op élke interface van de machine binden.
       QUARKUS_HTTP_HOST: 127.0.0.1
       TOXIPROXY_ADMIN_URL: http://127.0.0.1:8474
+      TOXIPROXY_LOGBOEK_URL: http://127.0.0.1:8474
       REDIS_HOSTS: redis://127.0.0.1:6379
       UITVRAAG_URL: http://127.0.0.1:8086
       MAGAZIJN_A_URL: http://127.0.0.1:8090
@@ -243,7 +244,7 @@ services:
       MAGAZIJN_SIMULATOR_URL: http://127.0.0.1:8092
       BEREIKBAARHEID_PERSONADIENST_URL: http://127.0.0.1:8098
       # De console maakt de proxies zelf aan en zet ze elke reconcile-ronde terug (ProxyBootstrap).
-      # Zonder deze zes paren overschrijft ze in een gedeelde netns de definities uit
+      # Zonder deze zeven paren overschrijft ze in een gedeelde netns de definities uit
       # demo/generated/proxies-host.json met de container-DNS-namen uit haar eigen defaults — namen
       # die hier niet resolven. Dat is niet zichtbaar aan de start: Toxiproxy blijft gezond en de
       # proxy-namen kloppen nog, alleen elke verbinding erdoorheen sterft. De uitvraag verliest dan
@@ -260,3 +261,30 @@ services:
       TOXIPROXY_MAGAZIJN_A_UPSTREAM: 127.0.0.1:8090
       TOXIPROXY_MAGAZIJN_B_LISTEN: 127.0.0.1:18091
       TOXIPROXY_MAGAZIJN_B_UPSTREAM: 127.0.0.1:8091
+      TOXIPROXY_LOGBOEK_LISTEN: 127.0.0.1:15434
+      TOXIPROXY_LOGBOEK_UPSTREAM: 127.0.0.1:5434
+
+  # Eigen configuratie met 127.0.0.1-adressen; luisteren op loopback, net als de rest in deze netns.
+  prometheus:
+    network_mode: host
+    ports: !reset []
+    depends_on:
+      berichtenuitvraag:
+        condition: service_started
+      berichtenmagazijn-a:
+        condition: service_started
+      berichtenmagazijn-b:
+        condition: service_started
+      stelselregister:
+        condition: service_started
+    command:
+      - --config.file=/etc/fbs-beheer/prometheus-hostnet.yml
+      - --web.listen-address=127.0.0.1:9095
+      - --storage.tsdb.retention.time=7d
+
+  grafana:
+    network_mode: host
+    ports: !reset []
+    environment:
+      PROMETHEUS_URL: http://127.0.0.1:9095
+      GF_SERVER_HTTP_ADDR: 127.0.0.1

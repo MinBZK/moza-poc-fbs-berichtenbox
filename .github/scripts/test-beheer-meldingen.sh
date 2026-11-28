@@ -20,7 +20,8 @@ REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 readonly REPO_ROOT
 readonly MELDINGEN="$REPO_ROOT/beheer/meldingen"
 
-# De multi-arch index.
+# De multi-arch index; dezelfde pin als de Prometheus van de demo-stack (compose.yaml), en
+# infra-image-pins in pin-consistency.yml eist dat die twee gelijk blijven.
 readonly PROMETHEUS_IMAGE='docker.io/prom/prometheus:v3.5.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996'
 
 if [ -n "${CONTAINER_HOST:-}" ]; then

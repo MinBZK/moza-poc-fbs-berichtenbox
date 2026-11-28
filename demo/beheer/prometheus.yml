@@ -1,0 +1,23 @@
+# Prometheus voor de lokale demo-stack (compose.yaml, bridge en docker). Leest de beheerpoort van
+# elke stelseldienst en laadt de alertregels uit beheer/meldingen/, dezelfde die het product
+# meelevert. De hostnet-variant ernaast verschilt alleen in de adressen.
+#
+# Geen token: de demo draait de diensten met QUARKUS_PROFILE=dev, en daar staat de beheerpoort open.
+# Geen labels op de targets: de diensten zetten `dienst`, `omgeving` en `magazijn` zelf, en een
+# target-label met dezelfde naam zou het hunne hernoemen naar `exported_dienst`.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/fbs-meldingen/berichtenmagazijn.yml
+  - /etc/fbs-meldingen/berichtenuitvraag.yml
+  - /etc/fbs-meldingen/stelselregister.yml
+
+scrape_configs:
+  - job_name: fbs
+    metrics_path: /q/metrics
+    static_configs:
+      - targets: [berichtenuitvraag:28086]
+      - targets: [berichtenmagazijn-a:28090, berichtenmagazijn-b:28090]
+      - targets: [stelselregister:28094]

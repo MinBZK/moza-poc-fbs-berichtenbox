@@ -266,7 +266,7 @@ wacht_op() {
 INFRA=(redis postgres-a postgres-b postgres-uitvraag postgres-simulator profiel-service
        magazijn-a magazijn-b aanmeld-stub notificatie-stub toxiproxy)
 SERVICES=(berichtenmagazijn-a berichtenmagazijn-b magazijn-simulator berichtenuitvraag demo-console
-          demo-personas stelselregister proeftuin demo-proxy)
+          demo-personas stelselregister proeftuin demo-proxy prometheus grafana)
 
 # Vóór de eerste container: ook een start die halverwege faalt, moet met `down` op te ruimen zijn.
 mkdir -p "$(dirname "$MODUS_BESTAND")"
@@ -367,6 +367,9 @@ wacht_op "proeftuin"           proeftuin           curl -sSf --max-time 3 "http:
 # Via de proxy, want dat is het adres waarop de demo gegeven wordt; een probe op de container zelf
 # zou een kapotte route naar de console of de uitvraag niet opmerken.
 wacht_op "demo-proxy"          demo-proxy          curl -sSf --max-time 3 http://127.0.0.1:8097/api/demo/personas
+# Beheer: Prometheus is pas klaar als hij zijn regels geladen heeft, en Grafana als de database er is.
+wacht_op "prometheus"          prometheus          curl -sSf --max-time 3 http://127.0.0.1:9095/-/ready
+wacht_op "grafana"             grafana             curl -sSf --max-time 3 http://127.0.0.1:3095/api/health
 
 # Opnieuw, nu de console draait: die maakt de proxies zelf aan en overschrijft daarmee wat er uit
 # het bestand geladen was. Wijken haar adressen af van deze modus, dan blijkt dat pas hier — de
@@ -392,3 +395,4 @@ echo
 # Bewust de loopback-URL en niet ${DEMO_HOST}: de demo-proxy bindt standaard alleen op 127.0.0.1,
 # dus een kopieerbare regel met een ander adres wijst naar iets dat niet bestaat.
 echo "Draait ($MODUS). Demo: http://127.0.0.1:8097/bediening/"
+echo "Beheer: http://127.0.0.1:3095/ (Grafana) en http://127.0.0.1:9095/alerts (Prometheus)"
