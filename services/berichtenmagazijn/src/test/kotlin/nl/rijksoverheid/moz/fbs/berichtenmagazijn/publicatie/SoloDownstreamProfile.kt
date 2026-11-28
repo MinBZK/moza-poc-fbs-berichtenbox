@@ -3,8 +3,10 @@ package nl.rijksoverheid.moz.fbs.berichtenmagazijn.publicatie
 import io.quarkus.test.junit.QuarkusTestProfile
 
 /**
- * Publicatie-tests die het schrijfpad los van de scheduler onderzoeken: één downstream naar een
- * poort waar niets luistert, zodat er wel deliveries gepland worden maar niets afgeleverd raakt.
+ * Publicatie-tests die het schrijfpad los van de scheduler onderzoeken: downstream `aanmeld` naar een
+ * poort waar niets luistert, zodat er wel deliveries gepland worden maar niets afgeleverd raakt. De
+ * globale `default` uit `src/test/resources/application.properties` blijft ernaast staan, dus elk
+ * bericht krijgt twee rijen.
  *
  * De downstream-URL mag hier wél uit een profiel komen, terwijl [DownstreamStubLifecycle]
  * uitlegt dat dat voor de stream-tests te laat aankomt: met de scheduler uit leest geen enkele
