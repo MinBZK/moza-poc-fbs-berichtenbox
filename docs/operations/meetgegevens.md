@@ -75,6 +75,14 @@ Een TLS-handshake die faalt, telt als `uitkomst="configuratiefout"`, net als een
 ongeldige configuratie. Een aparte teller per oorzaak volgt met #1488. Een CloudEvent dat niet op
 te bouwen is, bereikt `DownstreamClient` niet en telt hier dus niet mee; ook dat hoort bij #1488.
 
+## Labels van de dienst
+
+Elke reeks draagt `dienst` (`berichtenuitvraag`, `berichtenmagazijn`, `stelselregister`) en
+`omgeving` (`DEPLOYMENT_NAME`, op ZAD `test` of `pr-<n>`; anders `lokaal`), gezet door `Meetfilters`
+per dienst. Zo werken de dashboards en alertregels in [`beheer/`](../../beheer/README.md) met elke
+scrape-configuratie, en sluiten de regels previews uit. `BeheerbestandenTest` per dienst toetst dat
+elke reeks ze draagt en dat elke meetwaarde die een paneel of regel noemt, bestaat.
+
 ## Wat er niet in mag
 
 Geen ontvanger (BSN, RSIN), geen bericht-id, geen sessie-id, niets wat daarnaar terug te rekenen

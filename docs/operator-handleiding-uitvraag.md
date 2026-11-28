@@ -475,6 +475,21 @@ dezelfde bescherming te krijgen als de rest van Redis (TLS en authenticatie).
 - **Een proxy vóór de uitvraag mag `_volgen` niet bufferen** (nginx: `proxy_buffering off`), anders
   komen de berichten pas bij het sluiten van de verbinding aan.
 
+## Meldingen
+
+De alertregels staan in [`beheer/meldingen/berichtenuitvraag.yml`](../beheer/meldingen/berichtenuitvraag.yml) en horen bij
+het product; een organisatie laadt ze op haar eigen Prometheus, Mimir of Grafana. Elke regel noemt
+deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten). Drempels en
+de reden ervoor: [`beheer/README.md`](../beheer/README.md).
+
+| Melding | Ernst | Wat het betekent | Wat te doen |
+|---|---|---|---|
+| `UitvraagLevertGeenMeetgegevens` | kritiek | Vijf minuten lang levert geen instantie meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort, met het token? |
+| `UitvraagFoutpercentageHoog` | kritiek | Meer dan 5% van de verzoeken eindigt in een 5xx; een 429 (de bovengrens op ophaalrondes) telt niet | Gaat `UitvraagLogboekWeigert` of `UitvraagMagazijnFaalt` ook af? Anders de log op `errorId` en Redis |
+| `UitvraagMagazijnFaalt` | waarschuwing | Meer dan de helft van de aanroepen van één magazijn (label `address`) mislukt | Ondernemers zien de berichten van dat magazijn niet; de andere gaan door. Bereikbaarheid van het magazijn, en de FSC-outway als die ertussen zit |
+| `UitvraagLogboekWeigert` | kritiek | Het logboek kon een verwerking niet vastleggen; de uitvraag faalt dicht | De database van het logboek (`LDV_POSTGRES_URL`) en de log op `LogboekWriteException` |
+| `UitvraagLogboekWaarschuwing` | waarschuwing | Een alert-token van het logboek of de sessiecache (label `code`), zoals `sessie_veger_faalt` | Per token in deze handleiding; bij `sessie_veger_faalt` en `opruimen_na_schrijven` wist de Redis-TTL straks zonder logregel |
+
 ## Aandachtspunten in bedrijf
 
 - **Meetgegevens** staan op de beheerpoort (28086), niet via het publieke adres:

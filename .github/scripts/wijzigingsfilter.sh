@@ -78,15 +78,16 @@ DEMO_BUITEN_UITROLPOORT='^demo/environment/|^demo/lib/|^demo/[^/]*\.sh$'
 
 # Raakt de uitgerolde applicatie niet. Strenger dan NIET_CODE, want dit is de enige post die
 # échte clustercapaciteit kost (pods, volumes, ingress) in plaats van alleen runnertijd.
-# Uitgesloten: de Bruno-collectie, de niet-uitgerolde delen van demo/, de fuzz-configuratie, de
-# CI-scripts en de workflows uit GEEN_PREVIEW_WORKFLOWS. Zonder dat filter kostte een PR aan
+# Uitgesloten: de Bruno-collectie, de dashboards en alertregels in beheer/ (die laadt een
+# Prometheus of Grafana, geen pod; BeheerbestandenTest toetst ze wel), de niet-uitgerolde delen van
+# demo/, de fuzz-configuratie, de CI-scripts en de workflows uit GEEN_PREVIEW_WORKFLOWS. Zonder dat filter kostte een PR aan
 # bijvoorbeeld de fuzz-configuratie tóch twee jib-builds plus drie previews — uitrollen van een
 # image dat per definitie gelijk is aan main.
 #
 # Het contract-bootstrap-image wordt op een PR beproefd door fsc-harness-overlays.yml en pas
 # uitgerold op push naar main. Een uitzondering hier zou de hele deploy-keten (twee jib-images, de
 # stubs en drie previews) openzetten voor een wijziging die daar niets mee te maken heeft.
-NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
+NIET_DEPLOYBAAR="$NIET_CODE|^bruno/|^beheer/|$DEMO_BUITEN_UITROLPOORT|^\.clusterfuzzlite/|^\.github/scripts/|^\.github/workflows/($GEEN_PREVIEW_WORKFLOWS)\.yml\$"
 
 # Raakt de PR niets buiten demo/, dan hoeven berichtenmagazijn, berichtenuitvraag en de libraries
 # niet mee gebouwd en getest te worden. `-am` trekt bovendien op wat een demo-module wél uit het

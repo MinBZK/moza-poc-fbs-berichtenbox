@@ -45,7 +45,7 @@ groups:
           severity: waarschuwing
         annotations:
           summary: "Een aanmelding voor {{ $labels.doel }} is definitief mislukt"
-          description: "Alle pogingen zijn op, of de fout krijgt geen retry; de ontvanger hoort niets over dit bericht. Wat te doen: zoek de aanmelding in de log (DELIVERY_FAILED) en lever opnieuw aan na herstel van de bestemming."
+          description: "Alle pogingen zijn op, of de fout krijgt geen retry; de ontvanger hoort niets over dit bericht. Wat te doen: zoek 'Bericht-publicatie definitief mislukt' in de log (berichtId, doel, reden) en lever opnieuw aan na herstel van de bestemming."
           runbook_url: https://github.com/MinBZK/moza-poc-fbs-berichtenbox/blob/main/docs/operator-handleiding.md#meldingen
 
       - alert: MagazijnTellingVerouderd

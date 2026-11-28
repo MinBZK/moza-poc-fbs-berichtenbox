@@ -95,6 +95,21 @@ niet met `QUARKUS_PROFILE=dev`.
   weigert zulke adressen, behalve onder de profielen `dev` en `test`; in een uitgerolde omgeving
   hoort deze regel dus niet voor te komen.
 
+## Meldingen
+
+De alertregels staan in [`beheer/meldingen/stelselregister.yml`](../beheer/meldingen/stelselregister.yml) en horen bij
+het product; een organisatie laadt ze op haar eigen Prometheus, Mimir of Grafana. Elke regel noemt
+deze sectie als `runbook_url`. Previews melden niet (`omgeving=~"pr-.*"` valt erbuiten). Drempels en
+de reden ervoor: [`beheer/README.md`](../beheer/README.md).
+
+| Melding | Ernst | Wat het betekent | Wat te doen |
+|---|---|---|---|
+| `StelselregisterLevertGeenMeetgegevens` | kritiek | Vijf minuten lang levert geen instantie meetgegevens | Draait de dienst (`/q/health`, logs)? Bereikt de scrape de beheerpoort, met het token? |
+| `StelselregisterFoutpercentageHoog` | kritiek | Meer dan 5% van de verzoeken eindigt in een 5xx; afnemers krijgen het document niet | De log op `errorId`; zonder geldend document zie `StelseldocumentVerloopt` |
+| `StelseldocumentVerloopt` | kritiek | Het document verloopt binnen een uur, of er is geen geldend exemplaar | Kon de dienst een nieuw document ondertekenen? Log en sleutel; zie [Wanneer de dienst niet start](#wanneer-de-dienst-niet-start) |
+| `OndertekensleutelVerloopt` | waarschuwing | De keten van de sleutel uit de keystore verloopt binnen 30 dagen | Een nieuwe sleutel en keten in de keystore zetten; zie [Sleutelbeheer](#sleutelbeheer) |
+| `OndertekensleutelBijnaVerlopen` | kritiek | Idem, binnen 7 dagen | De sleutel vandaag vervangen |
+
 ## Sleutelbeheer
 
 De keten bestaat uit een root en een ondertekencertificaat daaronder. Apps leggen de root vast.

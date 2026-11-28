@@ -175,6 +175,11 @@ README.md' "$ALLES_UIT"
 # --- wel toetsen, niet uitrollen ------------------------------------------------------------
 verwacht "de Bruno-collectie" 'bruno/berichtenmagazijn/ophalen.bru' "$GEEN_PREVIEW"
 
+verwacht "de dashboards en alertregels — wel toetsen, niet uitrollen" 'beheer/dashboards/berichtenmagazijn.json
+beheer/meldingen/stelselregister.yml' "$GEEN_PREVIEW"
+
+verwacht "een 'beheer'-map bínnen een module blijft uitrol-relevant" 'services/berichtenmagazijn/src/main/kotlin/beheer/X.kt' "$ALLES_AAN"
+
 verwacht "de CI-scripts zelf" '.github/scripts/wijzigingsfilter.sh' "$GEEN_PREVIEW"
 
 verwacht "de fuzz-configuratie — wel toetsen en fuzzen, niet uitrollen" '.clusterfuzzlite/build.sh' 'run=true
