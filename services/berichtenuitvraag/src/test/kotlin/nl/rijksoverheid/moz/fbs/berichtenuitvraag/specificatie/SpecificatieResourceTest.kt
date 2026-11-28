@@ -61,8 +61,9 @@ class SpecificatieResourceTest {
             .then()
             .statusCode(200)
             .body("info.version", equalTo(ApiInfo.SPEC_VERSION))
-            .body("paths", hasKey("/api/v1/berichten"))
-            .body("paths", hasKey("/api/v1/openapi.json"))
+            .body("servers[0].url", equalTo("/api/v1"))
+            .body("paths", hasKey("/berichten"))
+            .body("paths", hasKey("/openapi.json"))
     }
 
     // Het document opent CORS voor zichzelf, niet voor de berichten.
